@@ -130,7 +130,8 @@ test('rule 2: levels are 1 to 16 distinct names or per-model; offLevel is one of
 test('rule 3: a transport flag may not be a flag of readOnly, spawnDenial or isolatedEdit', () => {
   for (const key of ['readOnly', 'spawnDenial']) {
     const w = pi();
-    w[key] = { ...w[key], argv: [...w[key].argv, '--thinking', 'low'] };
+    // 178 G-1: pi's own readOnly and spawnDenial are `unknown` and carry no argv, so the rule is tried on a supported entry.
+    w[key] = entry({ argv: ['--thinking', 'low'] });
     refused(w, new RegExp(`worker 'effort': transport flag '--thinking' must not appear in ${key}`));
   }
   const w = pi();

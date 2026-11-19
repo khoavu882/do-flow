@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
+const { withPiReadOnly } = require('../helper/pi-read-only.ts');
 const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
 const {
   assembleArgv, argvShape, launchRecord, mainArgv, RECIPE_ORDER, EDIT_RECIPE_ORDER,
@@ -26,7 +27,9 @@ const TAIL = [
 
 /** IC-011: a fresh shipped descriptor for each recipe mutation. */
 function workerOf(id = 'codex') {
-  return structuredClone(loadRegistry({ repoRoot: REPO }).harnesses.find((h: any) => h.id === id).worker);
+  const worker = structuredClone(loadRegistry({ repoRoot: REPO }).harnesses.find((h: any) => h.id === id).worker);
+  // 178 G-1: the shipped pi has `readOnly` and `spawnDenial` unknown; its recipe shape is tried on the fixture a live run would restore.
+  return id === 'pi' ? withPiReadOnly(worker) : worker;
 }
 
 /** IC-011: a supported entry whose evidence content is irrelevant to schema-only validation. */

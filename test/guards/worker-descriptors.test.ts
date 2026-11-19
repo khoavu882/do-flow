@@ -319,7 +319,7 @@ const ACCEPTED_KEYS: any = {
   opencode: ['mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   claude: ['effort', 'loginProbe', 'mainSession', 'model'],
   copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  pi: ['controlChannel', 'effort', 'loginProbe', 'mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  pi: ['controlChannel', 'effort', 'loginProbe', 'mainSession', 'model', 'oneShot', 'provider', 'runnableProbe', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   antigravity: ['model'],
 };

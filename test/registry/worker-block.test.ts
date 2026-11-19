@@ -44,8 +44,6 @@ const FREE_CHECK_RECIPES: any = {
   pi: {
     oneShot: { argv: ['-p', '--no-session', '--no-skills', '--no-context-files', '--offline', '{prompt}'], promptVia: 'argv' },
     structuredOutput: { argv: ['--mode', 'json'], parser: 'pi-json-v1' },
-    readOnly: { argv: ['--tools', 'read,grep,find,ls'] },
-    spawnDenial: { argv: ['--no-extensions', '--no-mcp'] },
     runnableProbe: { argv: ['--help'] },
   },
   copilot: {
@@ -66,6 +64,8 @@ const FREE_CHECK_RECIPES: any = {
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
 // 170 T9a: pi's controlChannel is a supported channel on capture C-1, pinned exactly in pi-worker-truth.test.ts.
 const PI_DECIDED = ['loginProbe', 'persistentSession', 'resume', 'controlChannel'];
+// 178 G-1: pi's readOnly and spawnDenial are `unknown` until two live runs with the current argv; pinned in pi-worker-truth.test.ts.
+const PI_REOPENED = ['readOnly', 'spawnDenial'];
 /** 170 design §11: why each built-in harness declares no control channel. */
 const CHANNEL_REASON: any = Object.fromEntries(['claude', 'codex', 'opencode', 'copilot', 'antigravity'].map((id) => [id, `no recorded capture shows an input mode for later messages for ${id}; nothing is inferred from another harness`]));
 CHANNEL_REASON.kiro = 'recorded `kiro-cli chat --help` (3.1.0, 2026-11-07) lists stream-json output of ACP events but no input mode for later messages; kiro-cli is never executed here (out of quota)';
@@ -147,6 +147,7 @@ test('worker: the seven harnesses declare IC-002 values and nothing else as supp
         assert.equal(worker.model.verifiedOn, '2026-11-07', `${harness.id} model verifiedOn`);
         continue;
       }
+      if (harness.id === 'pi' && PI_REOPENED.includes(key)) continue;
       if (FREE_CHECK_HARNESSES.includes(harness.id) && FREE_CHECK_SUPPORTED.includes(key)) {
         // 142 IC-009: the five entries the recorded free cli-check establishes; the record is checked by G41.4.
         assert.equal(worker[key].status, 'supported', `${harness.id} ${key}`);
@@ -241,7 +242,7 @@ test('worker: the five supported opencode and kiro entries equal their IC-009 re
   const registry = loadRegistry({ repoRoot: REPO });
   for (const id of FREE_CHECK_HARNESSES) {
     const worker = registry.harnesses.find((harness: any) => harness.id === id).worker;
-    assert.deepEqual(Object.keys(FREE_CHECK_RECIPES[id]).sort(), [...FREE_CHECK_SUPPORTED].sort());
+    assert.deepEqual(Object.keys(FREE_CHECK_RECIPES[id]).sort(), FREE_CHECK_SUPPORTED.filter((key) => !(id === 'pi' && PI_REOPENED.includes(key))).sort());
     for (const [key, recipe] of Object.entries(FREE_CHECK_RECIPES[id])) {
       const { argv, promptVia, parser } = worker[key];
       assert.deepEqual({ argv, promptVia, parser }, { promptVia: undefined, parser: undefined, ...(recipe as any) }, `${id} ${key}`);

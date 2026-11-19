@@ -231,7 +231,13 @@ test('select: the real registry selects nothing when no harness is installed (DE
   assert.equal(answer.candidates.length, 7);
   for (const candidate of answer.candidates) {
     assert.equal(candidate.eligible, false, candidate.harness);
-    if (['codex', 'opencode', 'kiro', 'copilot', 'pi'].includes(candidate.harness)) {
+    if (candidate.harness === 'pi') {
+      // 178 G-1: pi's readOnly and spawnDenial are `unknown` until two live runs with the current argv, so the static gate names spawn-denial.
+      assert.equal(gap(answer, 'pi', 'one-shot'), undefined);
+      assert.equal(gap(answer, 'pi', 'spawn-denial').result, 'unknown');
+      continue;
+    }
+    if (['codex', 'opencode', 'kiro', 'copilot'].includes(candidate.harness)) {
       // 109 IC-008, 142 IC-009: these harnesses' static entries are supported, so only the discover-time gaps remain.
       // claude is left out: its 142 C.1 run hit a stop rule (usage limit), so its entries are `unknown` and it takes the branch below.
       assert.deepEqual(candidate.gaps.map((g: any) => g.requirement), ['installed', 'runnable'], candidate.harness);
