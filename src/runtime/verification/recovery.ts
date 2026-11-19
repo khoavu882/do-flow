@@ -17,7 +17,7 @@
  *      names either raised or silently iterated characters.
  */
 
-const { finishRuntime, usageError } = require('./cli-result.ts');
+const { finishRuntime, usageError } = require('../cli-result.ts');
 
 /** The eleven classes, in the order the Python declared them. */
 const FAILURE_CLASSES: readonly string[] = Object.freeze([
