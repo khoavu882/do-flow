@@ -12,6 +12,7 @@
 // Pins: `CORPUS_DIGEST` and `RULE_DIGEST` fix the corpus bytes and the rule it was written against. A change to either is
 // not a runtime skip: the guard compares them with `computeDigests()` and fails until `builderVersion` and both pins rise
 // together, which moves the builder digest and makes a stored result stale at decision time.
+// The source carries both pins as its `params`, which is how `builderDigest` sees them.
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
@@ -60,6 +61,6 @@ function build({ kind, fsImpl = nodeFs }: any = {}): { cases: any[]; skipped: Re
   return { cases, skipped };
 }
 
-const source = { id: 'instructs-reader-corpus', builderVersion: 1, labelIsRule: false, origin: 'package' as const, build };
+const source = { id: 'instructs-reader-corpus', builderVersion: 1, labelIsRule: false, origin: 'package' as const, params: { corpusDigest: CORPUS_DIGEST, ruleDigest: RULE_DIGEST }, build };
 
 module.exports = { source, build, CORPUS_DIGEST, RULE_DIGEST, computeDigests };

@@ -16,6 +16,8 @@ interface CaseSource {
   builderVersion: number;    // raised whenever how cases are built changes
   labelIsRule: boolean;      // true: the label is the rule's answer by construction, so the source is measure-only
   origin: 'project' | 'package';
+  /** Pins the source's inputs carry (a shipped corpus and its rule); folded into the builder digest, so a moved pin makes stored results stale. */
+  params?: Record<string, string>;
   /** Reads files only (no network, no process) and never writes. `skipped` counts the cases or files left out, by reason. */
   build(input: { projectRoot: string; roots: Record<string, string | null>; kind: any; fsImpl?: any }): { cases: ReplayCase[]; skipped: Record<string, number> };
 }
