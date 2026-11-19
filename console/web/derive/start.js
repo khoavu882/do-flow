@@ -6,6 +6,7 @@
 
 import { refusalWords } from './actions.js';
 import { bindingText, bindingNotes } from './binding-text.js';
+import { effortText } from './effort-text.js';
 
 const KEY16 = /^[0-9a-f]{16}$/;
 const RUN_ID = /^w-[0-9a-f]{12}$/;
@@ -310,13 +311,21 @@ function modelGroups(models) {
 
 /**
  * The line under the model select: the chosen option's notes in words, behind the `?` mark (shape plus word, never colour alone); the
- * refusal for a refused entry; the harness's own pick for the default; null for a choice with nothing to say. @param {any} entry the chosen entry, or null for the default
+ * refusal for a refused entry; the harness's own pick for the default; null for a choice with nothing to say. 178 §8.3: then, when the
+ * core sent the entry's `effortPlan`, one sentence saying where the effort comes from (`effortText`): a Console start follows no harness
+ * session (O-3), so its default reads "Effort: harness default (no harness session to follow)." and a bound effort "(tier binding)".
+ * @param {any} entry the chosen entry, or null for the default @param {string} [harness] the chosen harness id, the plan's worker
  */
-function modelNote(entry) {
-  if (entry === null || entry === undefined || entry.model === null) return 'The harness picks its own model and effort.';
-  if (typeof entry.refused === 'string') return `Cannot start: ${entry.refused}.`;
+function modelNote(entry, harness = '') {
+  if (entry !== null && entry !== undefined && typeof entry.refused === 'string') return `Cannot start: ${entry.refused}.`;
+  const plan = entry && entry.effortPlan && typeof entry.effortPlan === 'object' ? entry.effortPlan : null;
+  const effort = plan === null ? null : `Effort: ${effortText(plan, { worker: harness })}.`;
+  if (entry === null || entry === undefined || entry.model === null) {
+    return effort === null ? 'The harness picks its own model and effort.' : `The harness picks its own model. ${effort}`;
+  }
   const notes = bindingNotes(entry);
-  return notes.length === 0 ? null : `? ${notes.join(', ')}.`;
+  const line = [notes.length === 0 ? null : `? ${notes.join(', ')}.`, effort].filter((part) => part !== null).join(' ');
+  return line === '' ? null : line;
 }
 
 /** The checkouts of the options: the main one first, a busy one marked and not choosable. @param {any} options */

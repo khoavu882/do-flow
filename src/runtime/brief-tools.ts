@@ -31,6 +31,8 @@ const { resolveShadowConfig } = require('./advice/shadow-config.ts');
 const { strengthWords } = require('./advice/strength.ts');
 const { resolveTier } = require('./worker/models.ts');
 const { bindingText } = require('./models/binding-text.ts');
+const { effortText } = require('./models/effort-text.ts');
+const { effortPlanFor } = require('./worker/effort-resolution.ts');
 const { composeFrame } = require('./prompt/frame.ts');
 const { handbackLines } = require('./prompt/handback.ts');
 
@@ -117,10 +119,12 @@ const trigger = (server: any) => server.trigger.replace(/\.$/, '');
  * @param {2|3} [input.headingLevel]
  * @param {string} [input.repoRoot] where `core/registry/rules.json` is read from
  * @param {{feature:?string, runTaskId:?string, stageId:?string, skill:?string}|null} [input.stage]
+ * @param {Object} [input.env] the environment the session's effort is read from (178 §5); none given reads as no session
+ * @param {Function} [input.loginModeOf] harness id -> its login mode or null (178 §4.3)
  * @returns {{markdown: string, record: Object, parts: {header: string[][], rules: string[], tools: string, report: string[]}}}
- *   the IC-018 record, including model (IC-017), without `tasks`; `parts` is the block before it is framed (173 §6.3)
+ *   the IC-018 record, including model (IC-017) and effortPlan (178 §8.2), without `tasks`; `parts` is the block before it is framed (173 §6.3)
  */
-function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, catalogue = null, headingLevel = 2, stage = null, repoRoot = REPO_ROOT }: any) {
+function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, catalogue = null, headingLevel = 2, stage = null, repoRoot = REPO_ROOT, env = {}, loginModeOf = () => null }: any) {
   const missing: any = [];
   const primaryHarness = primaryHarnessOf(primary, registry);
   const target = chooseTarget({ registry, reach, harness, primaryHarness, missing });
@@ -130,6 +134,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   const lineHarnessEntry = lineHarness ? registry.harnesses.find((item: any) => item.id === lineHarness) : null;
   let model: any = null;
   let modelCell: any = null;
+  let effortPlan: any = null;
   if (lineHarness) {
     const { resolveTaskModel, bindingGap } = require('./worker/models.ts');
     const binding = resolveTaskModel({ worker: lineHarness, owner, resolvedTier: resolved, bindings, descriptor: lineHarnessEntry?.worker, primary });
@@ -140,6 +145,12 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
       model = { harness: lineHarness, model: binding.model, provider: modelCell.provider, effort: modelCell.effort, check: modelCell.check, source: binding.source };
     } else {
       model = { harness: lineHarness, model: null, source: 'harness-default' };
+    }
+    // As the dispatch loop (`effortPlanOf`): a binding gap refuses the launch before any plan, so no Effort line; otherwise the
+    // bound choice counts only when its model flag is evidenced.
+    if (!bindingGap(binding)) {
+      const choice = binding.flag === 'supported' ? binding.choice ?? null : null;
+      effortPlan = effortPlanFor({ registry, env, declaredHarness: primary?.declared?.harness ?? null, workerHarness: lineHarness, choice, loginModeOf });
     }
   }
   const sourceText = resolved.source === 'owner' ? `owner ${owner}`
@@ -217,6 +228,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
         ? `harness default on \`${model.harness}\`.`
         : `${bindingText(modelCell, { code: true })} on \`${model.harness}\` (${MODEL_SOURCE_WORDS[model.source]}).`]);
   }
+  if (effortPlan) header.push(['Effort', `${effortText(effortPlan, { code: true, worker: lineHarness })} on \`${lineHarness}\`.`]);
   const lines = [
     'Tools this machine answers with, per information need. Searching with them before reading whole',
     'files is recommended where it saves reading; it is not required.',
@@ -252,6 +264,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     tierSource: resolved.source,
     harness: target,
     model: model ?? null,
+    effortPlan,
     expected,
     optional: also.map((server: any) => server.id),
     tools,
@@ -352,7 +365,8 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     try { primary = resolvePrimary({ env, projectRoot, registry }); } catch { notes.push('primary unresolved; default target unchanged'); }
     const bindings = readBindings({ env, projectRoot });
     const catalogue = require('./models/catalogue.ts').readCatalogue(projectRoot, { env });
-    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, catalogue, headingLevel: level, stage, repoRoot });
+    const { loginModeOf } = require('./worker/login.ts');
+    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, catalogue, headingLevel: level, stage, repoRoot, env, loginModeOf: loginModeOf({ registry, env }) });
     const { parts } = rendered;
     const record: any = rendered.record;
     record.missing.push(...notes);

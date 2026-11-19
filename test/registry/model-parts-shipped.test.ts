@@ -6,7 +6,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadRegistry } = require('../../src/registry/index.ts');
+const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
+const { levelOrderProblem } = require('../../src/registry/model-parts.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const REGISTRY = loadRegistry({ repoRoot: REPO });
@@ -88,7 +89,7 @@ test('pi: provider is an id prefix, effort is --thinking with seven levels that 
   assert.equal(effort.offLevel, 'off');
   assert.equal(effort.mayLower, true);
   assert.match(effort.verification, /not been verified on a live run/);
-  assert.match(effort.verification, /--thinking off/);
+  assert.match(effort.verification, /-p --no-session --no-skills --no-context-files --offline \{prompt\}/, 'the verification quotes the one-shot argv without an effort flag');
   assert.match(effort.verification, /clamps?\b.*lower/);
   assert.deepEqual(modelList.columns, { provider: 'provider', contextTokens: 'context', maxOutputTokens: 'max-out', reasoning: 'thinking', imageInput: 'images' });
   assert.equal(modelList.parse, 'table-column:model');
@@ -111,7 +112,50 @@ test('codex: effort is unknown with the reason, and the verification names the c
   assert.equal(provider.status, 'unknown');
   assert.equal(effort.status, 'unknown');
   assert.match(effort.reason, /model_reasoning_effort/);
-  assert.match(effort.reason, /-c/);
+  assert.match(effort.reason, /codex exec/, 'AC-5: the reason names the command no source ties the key to');
+});
+
+// Row 178 T2 (design §10): what each shipped harness says about the effort of its own running session.
+test('(a) claude sessionEffort is supported: marker CLAUDE_CODE_CHILD_SESSION=1 and one env source CLAUDE_EFFORT for both modes', () => {
+  const entry = REGISTRY.harnesses.find((h: any) => h.id === 'claude').sessionEffort;
+  assert.equal(entry.status, 'supported');
+  assert.deepEqual(entry.marker, { env: 'CLAUDE_CODE_CHILD_SESSION', equals: '1' });
+  assert.deepEqual(entry.sources, [{ kind: 'env', name: 'CLAUDE_EFFORT', modes: ['subscription', 'api-key'] }]);
+  assert.equal(entry.verifiedOn, '2026-11-19');
+  assert.deepEqual(entry.evidence, ['https://code.claude.com/docs/en/env-vars']);
+  assert.match(entry.verification, /CLAUDE_EFFORT/);
+  assert.match(entry.note, /effortLevel is not read/);
+});
+
+test('(b) every other harness sessionEffort is unknown, with a one-line reason and the check that would open it', () => {
+  for (const harness of REGISTRY.harnesses.filter((h: any) => h.id !== 'claude')) {
+    const entry = harness.sessionEffort;
+    assert.equal(entry?.status, 'unknown', `${harness.id}.sessionEffort is declared unknown`);
+    assert.ok(entry.reason.trim().length > 0 && entry.reason.length <= 240 && !/\n/.test(entry.reason), `${harness.id}: reason is one line of at most 240 characters`);
+    assert.ok(entry.verification.trim().length > 0, `${harness.id}: verification names the check`);
+    assert.ok(!Object.hasOwn(entry, 'marker') && !Object.hasOwn(entry, 'sources'), `${harness.id}: an unknown entry has no marker or sources`);
+  }
+});
+
+test('claude worker.effort lists CLAUDE_CODE_EFFORT_LEVEL as the variable that beats its effort argument', () => {
+  assert.deepEqual(worker('claude').effort.overrideEnv, ['CLAUDE_CODE_EFFORT_LEVEL']);
+  for (const id of IDS.filter((x) => x !== 'claude')) assert.ok(!Object.hasOwn(worker(id).effort, 'overrideEnv'), `${id} declares no overrideEnv`);
+});
+
+test('(d) no shipped recipe argv holds an effort transport flag: the T1 rule runs clean on the shipped file, and fails on a planted flag', () => {
+  const check = (registry: any) => validateRegistry(registry, { repoRoot: REPO, sources: 'skip' }).errors.filter((line: string) => /transport flag .* must not appear in/.test(line));
+  assert.deepEqual(check(REGISTRY), []);
+  const planted = structuredClone(REGISTRY);
+  const pi = planted.harnesses.find((h: any) => h.id === 'pi');
+  pi.worker.oneShot.argv.splice(0, 0, '--thinking', 'off');
+  assert.ok(check(planted).some((line: string) => /harness 'pi'.*'--thinking' must not appear in oneShot/.test(line)), 'the control: a fixed effort in the one-shot is refused');
+});
+
+test('(e) every shipped levels list passes levelOrderProblem, and a reversed copy of one does not', () => {
+  assert.equal(levelOrderProblem(REGISTRY.harnesses), null);
+  const reversed = structuredClone(REGISTRY.harnesses);
+  reversed.find((h: any) => h.id === 'pi').worker.effort.levels.reverse();
+  assert.match(levelOrderProblem(reversed) ?? '', /opposite order/);
 });
 
 test('the checks file of each harness holds the checks that establish its supported provider and effort', () => {

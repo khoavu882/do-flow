@@ -136,6 +136,31 @@ test('IC-013: malformed model answers refuse before admission and holds never ca
   assert.deepEqual(fs.readFileSync(p.file), before);
 });
 
+test('178 (h): a snapshot keeps a valid effortPlan and drops a malformed one, at admission and when read back', POSIX, (t) => {
+  const model = { tier: 'standard', requested: null, source: 'harness-default' };
+  const session = { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' };
+  const binding = { pass: 'low', source: 'binding' };
+  const none = { pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null } };
+  const mapped = { ...session, pass: 'medium', mapped: { from: 'high', to: 'medium' } };
+  for (const plan of [session, binding, none, mapped]) {
+    const p = project(t, { concurrency: 1 });
+    const result = p.pass({ modelFor: () => ({ model: { ...model, effortPlan: plan }, primary: null }) });
+    assert.deepEqual(p.read().dispatches[result.admitted[0].dispatchId].model, { ...model, effortPlan: plan, served: null });
+    assert.deepEqual(store.modelRecordOf({ model: { ...model, effortPlan: plan, served: null } }).effortPlan, plan);
+  }
+  const malformed = [
+    { ...session, pass: 7 }, { ...session, source: 'x' }, { ...session, extra: true }, { ...session, check: 'maybe' }, { ...session, mapped: { from: 'a' } },
+    { ...session, origin: 'x'.repeat(600) }, { ...none, reason: 'made-up' }, { ...none, session: { harness: 3 } }, { ...binding, source: 'session' }, 'high', [], null,
+  ];
+  for (const plan of malformed) {
+    const p = project(t, { concurrency: 1 });
+    const result = p.pass({ modelFor: () => ({ model: { ...model, effortPlan: plan }, primary: null }) });
+    assert.equal(result.admitted.length, 1, JSON.stringify(plan));
+    assert.deepEqual(p.read().dispatches[result.admitted[0].dispatchId].model, { ...model, served: null }, JSON.stringify(plan));
+    assert.equal(Object.hasOwn(store.modelRecordOf({ model: { ...model, effortPlan: plan } }), 'effortPlan'), false, JSON.stringify(plan));
+  }
+});
+
 test('IC-013: dispatchModelFor records the model the launch passes: none when the harness has no evidenced model flag', () => {
   const tier = 'standard';
   const primary = { harness: 'claude', model: null, state: 'unconfirmed', ignored: true };

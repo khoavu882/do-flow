@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
+const { withPiReadOnly } = require('../helper/pi-read-only.ts');
 const { linkBin, writeScenario } = require('../helper/fake-harness-cli.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { assembleArgv, argvShape } = require('../../src/runtime/worker/launch.ts');
@@ -16,7 +17,8 @@ const { probe, describe } = require('../../src/runtime/worker/readiness.ts');
 
 const POSIX_ONLY: any = { skip: process.platform === 'win32' && 'the fake CLI is linked by symlink and shebang on POSIX' };
 const REGISTRY = loadRegistry({ repoRoot: path.resolve(__dirname, '..', '..') });
-const WORKER: any = Object.fromEntries(REGISTRY.harnesses.map((h: any) => [h.id, h.worker]));
+// 178 G-1: the shipped pi has `readOnly` and `spawnDenial` unknown, so its IC-009 recipe is tried on the fixture the live runs would restore.
+const WORKER: any = Object.fromEntries(REGISTRY.harnesses.map((h: any) => [h.id, h.id === 'pi' ? withPiReadOnly(structuredClone(h.worker)) : h.worker]));
 const HARNESSES = ['opencode', 'kiro', 'copilot', 'pi'];
 const PROMPT = 'summarise the module';
 
@@ -33,7 +35,7 @@ const IC009: any = {
   // 147: the tool allowlist removes every tool but the readers from the model's set; the two deny rules stay as a second layer.
   pi: ['--tools', 'read,grep,find,ls', '--no-extensions', '--no-mcp',
     '--mode', 'json',
-    '-p', '--no-session', '--thinking', 'off', '--no-skills', '--no-context-files', '--offline', '{prompt}'],
+    '-p', '--no-session', '--no-skills', '--no-context-files', '--offline', '{prompt}'],
   copilot: ['--available-tools', 'view', 'glob', 'grep', '--deny-tool', 'write', '--deny-tool', 'shell',
     '--excluded-tools', 'task',
     '--output-format', 'json',
@@ -89,6 +91,12 @@ for (const id of HARNESSES) {
     for (const field of ['env', 'environment', 'file', 'files', 'envVars']) assert.equal(Object.hasOwn(worker, field), false, field);
   });
 }
+
+test('pi: the shipped readOnly and spawnDenial are unknown (178 G-1), so no one-shot argv assembles', () => {
+  const shipped = REGISTRY.harnesses.find((h: any) => h.id === 'pi').worker;
+  for (const key of ['readOnly', 'spawnDenial']) assert.equal(shipped[key].status, 'unknown', key);
+  assert.throws(() => assembleArgv(shipped, PROMPT), { code: 'recipe-incomplete' });
+});
 
 test('opencode: the empty spawnDenial argv assembles to the IC-009 argv', () => {
   const worker = WORKER.opencode;

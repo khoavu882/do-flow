@@ -31,6 +31,8 @@ const crypto = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { updateTaskState, readTaskState } = require('../task-state.ts');
 const { isSafeSlug } = require('../task-scope.ts');
+const { NONE_REASONS } = require('../worker/effort-resolution.ts');
+const { SESSION_REASONS } = require('../context/session-effort.ts');
 
 /** IC-009's six dispatch phases, in order. */
 const PHASES = Object.freeze(['admitted', 'claimed', 'launched', 'collected', 'integrating', 'ended']);
@@ -211,14 +213,42 @@ function inSessionOf(run: any): boolean {
   return !(isObject(run.fallback) && run.fallback.inSession === false);
 }
 
-/** IC-013: read model fields independently; legacy records remain unchanged on disk. */
-function modelRecordOf(dispatch: any): { tier: string | null; requested: string | null; source: string | null; served: string | null } {
+/** 178 IC-008: an effort plan is stored in the record's `model` at most this many bytes serialized. */
+const EFFORT_PLAN_MAX_BYTES = 512;
+
+/**
+ * 178 IC-008: the effort plan of a record's `model`, or null for anything outside the EffortPlan shape (design 5), a closed-set
+ * value it does not name, or more than 512 bytes serialized. A stored plan is read back through this, never trusted as is.
+ */
+function validEffortPlan(plan: any): any | null {
+  const text = (value: any) => typeof value === 'string' && value.length > 0;
+  const nullableText = (value: any) => value === null || text(value);
+  const keys = (value: any, names: string[]) => isObject(value) && Object.keys(value).sort().join() === names.join();
+  let ok = false;
+  if (isObject(plan) && plan.source === 'binding') ok = keys(plan, ['pass', 'source']) && text(plan.pass);
+  else if (isObject(plan) && plan.source === 'session') {
+    ok = keys(plan, ['check', 'harness', 'level', 'mapped', 'origin', 'pass', 'source']) && text(plan.pass) && text(plan.harness) && text(plan.level) && text(plan.origin)
+      && ['listed', 'unchecked'].includes(plan.check)
+      && (plan.mapped === null || (keys(plan.mapped, ['from', 'to']) && text(plan.mapped.from) && text(plan.mapped.to)));
+  } else if (isObject(plan) && plan.source === 'none') {
+    ok = keys(plan, ['pass', 'reason', 'session', 'source']) && plan.pass === null && NONE_REASONS.includes(plan.reason)
+      && keys(plan.session, ['harness', 'level', 'origin', 'reason'])
+      && nullableText(plan.session.harness) && nullableText(plan.session.level) && nullableText(plan.session.origin)
+      && (plan.session.reason === null || SESSION_REASONS.includes(plan.session.reason));
+  }
+  return ok && Buffer.byteLength(JSON.stringify(plan), 'utf8') <= EFFORT_PLAN_MAX_BYTES ? plan : null;
+}
+
+/** IC-013: read model fields independently; legacy records remain unchanged on disk. 178: `effortPlan` only when it is a valid plan. */
+function modelRecordOf(dispatch: any): { tier: string | null; requested: string | null; source: string | null; served: string | null; effortPlan?: any } {
   const model = isObject(dispatch?.model) ? dispatch.model : {};
+  const effortPlan = validEffortPlan(model.effortPlan);
   return {
     tier: ['light', 'standard', 'frontier'].includes(model.tier) ? model.tier : null,
     requested: typeof model.requested === 'string' ? model.requested : null,
     source: ['binding', 'harness-default'].includes(model.source) ? model.source : null,
     served: typeof model.served === 'string' ? model.served : null,
+    ...(effortPlan === null ? {} : { effortPlan }),
   };
 }
 
@@ -338,6 +368,7 @@ module.exports = {
   fallbackOf,
   inSessionOf,
   modelRecordOf,
+  validEffortPlan,
   primaryOf,
   appendFallbackEvent,
   FALLBACK_EVENTS_MAX,

@@ -8,6 +8,7 @@
 // object (a clone of the loaded registry with one worker changed), never by editing harnesses.json. The
 // package view is injected empty, so no case reads the developer's installed packages. POSIX only (DEC-008).
 
+const { withPiReadOnly } = require('../helper/pi-read-only.ts');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -37,7 +38,9 @@ let base: any = null;
 function registryWith(id: string, mutate: (worker: any) => void): any {
   base ??= loadRegistry({ repoRoot: REPO });
   const reg = structuredClone(base);
-  mutate(reg.harnesses.find((h: any) => h.id === id).worker);
+  const worker = reg.harnesses.find((h: any) => h.id === id).worker;
+  if (id === 'pi') withPiReadOnly(worker); // 178 G-1: the shipped pi has no readOnly or spawnDenial recipe
+  mutate(worker);
   return reg;
 }
 

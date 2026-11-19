@@ -465,9 +465,10 @@
           "status": "supported",
           "evidence": [
             "core/worker-evidence/claude/2026-11-16-cli-check-effort.json",
-            "https://code.claude.com/docs/en/cli-reference"
+            "https://code.claude.com/docs/en/cli-reference",
+            "https://code.claude.com/docs/en/env-vars"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` against the installed claude and read the matched `--effort <level>` lines (check help-effort). Recorded 2026-11-16 on Claude Code 2.1.311: `claude --help` lists `--effort <level>` with the levels low, medium, high, xhigh, max; the matched lines were copied by hand from a captured help output (the record's handAdded says so; no CLI was run for it). The CLI reference (https://code.claude.com/docs/en/cli-reference, fetched 2026-11-16, `--effort` row) says the available levels depend on the model and lists `ultracode`, which is left out here. That a given model accepts a given level is not checked; the level is passed through.",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` against the installed claude and read the matched `--effort <level>` lines (check help-effort). Recorded 2026-11-16 on Claude Code 2.1.311: `claude --help` lists `--effort <level>` with the levels low, medium, high, xhigh, max; the matched lines were copied by hand from a captured help output (the record's handAdded says so; no CLI was run for it). The CLI reference (https://code.claude.com/docs/en/cli-reference, fetched 2026-11-16, `--effort` row) says the available levels depend on the model and lists `ultracode`, which is left out here. That a given model accepts a given level is not checked; the level is passed through. `overrideEnv` names `CLAUDE_CODE_EFFORT_LEVEL`: the env-vars page (https://code.claude.com/docs/en/env-vars, `CLAUDE_CODE_EFFORT_LEVEL` line) says it takes precedence over `--effort`, so an inherited copy is dropped from a worker launched with an effort.",
           "verifiedOn": "2026-11-16",
           "via": "flag",
           "argv": [
@@ -480,6 +481,9 @@
             "high",
             "xhigh",
             "max"
+          ],
+          "overrideEnv": [
+            "CLAUDE_CODE_EFFORT_LEVEL"
           ]
         },
         "modelList": {
@@ -487,6 +491,29 @@
           "reason": "`claude --help` lists no command that prints the available models; type the id"
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "supported",
+        "marker": {
+          "env": "CLAUDE_CODE_CHILD_SESSION",
+          "equals": "1"
+        },
+        "sources": [
+          {
+            "kind": "env",
+            "name": "CLAUDE_EFFORT",
+            "modes": [
+              "subscription",
+              "api-key"
+            ]
+          }
+        ],
+        "note": "effortLevel is not read: CLAUDE_EFFORT is unset exactly when the model takes no effort",
+        "evidence": [
+          "https://code.claude.com/docs/en/env-vars"
+        ],
+        "verification": "Read the env-vars page for CLAUDE_EFFORT and CLAUDE_CODE_CHILD_SESSION; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
+        "verifiedOn": "2026-11-19"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -1245,13 +1272,22 @@
           ],
           "verification": "Read codex's CLI documentation and `codex --help` for the `-c model_reasoning_effort=<level>` form and its levels; add a check to core/worker-evidence/codex/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>`",
           "verifiedOn": "2026-11-16",
-          "reason": "`model_reasoning_effort` (low, medium, high, xhigh, max or ultra, by model and client) is documented for the config file at https://learn.chatgpt.com/docs/config-file/config-reference (read 2026-11-16), but no recorded help or doc read shows `-c, --config <key=value>` taking it; the effort is not sent"
+          "reason": "the config reference gives `model_reasoning_effort` (low, medium, high, xhigh, max or ultra, by model and client), but no recorded source states that a config override reaches `codex exec`; a live check is due; the effort is not sent"
         },
         "modelList": {
           "status": "none-recorded",
           "reason": "`codex --help` lists no command that prints the available models; type the id"
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "evidence": [
+          "https://learn.chatgpt.com/docs/config-file/config-reference"
+        ],
+        "verification": "In a Codex tool shell run `env` once and read it for a variable that marks the session; record it with its source in this entry. `model_reasoning_effort` is the config-file source once a marker exists (https://learn.chatgpt.com/docs/config-file/config-reference).",
+        "verifiedOn": "2026-11-19",
+        "reason": "no recorded variable marks a Codex tool shell; `model_reasoning_effort` in `$CODEX_HOME/config.toml` is the source once one is recorded"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -1833,6 +1869,12 @@
         },
         "modelChecks": []
       },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In an opencode tool shell run `env` once and read the opencode docs for a variable that marks the session and one that holds its effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no evidence of a marker or a session level for opencode"
+      },
       "contextProfile": {
         "capacityTokens": {
           "value": 128000,
@@ -2179,8 +2221,6 @@
           "argv": [
             "-p",
             "--no-session",
-            "--thinking",
-            "off",
             "--no-skills",
             "--no-context-files",
             "--offline",
@@ -2202,32 +2242,26 @@
           "parser": "pi-json-v1"
         },
         "readOnly": {
-          "status": "supported",
+          "status": "unknown",
           "evidence": [
             "core/worker-evidence/pi/2026-11-07-cli-check-model.json",
             "core/worker-evidence/pi/2026-11-07-live-run-read-only.json",
             "core/worker-evidence/pi/2026-11-07-live-run-spawn.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.5.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--tools",
-            "read,grep,find,ls"
-          ]
+          "verification": "Run two live runs with the current Pi argv (row 178 took `--thinking off` out of it): one read-only run that asks for a file write and one that asks for a sub-agent hand-off, each recorded as a live-run record under core/worker-evidence/pi/ whose argvShape equals the shipped recipe; then set this entry back to supported with the read-only recipe (argv `--tools read,grep,find,ls`). The 2026-11-07 records (pi 1.5.0, model openai/gpt-6.1-terra) stay as history of the old argv.",
+          "verifiedOn": "2026-11-19",
+          "reason": "the 2026-11-07 live-run records hold the old one-shot argv with `--thinking off`, which row 178 removed, so they no longer establish the current argv; two live runs with the current argv (read-only, spawn) would restore this"
         },
         "spawnDenial": {
-          "status": "supported",
+          "status": "unknown",
           "evidence": [
             "core/worker-evidence/pi/2026-11-07-cli-check-model.json",
             "core/worker-evidence/pi/2026-11-07-live-run-read-only.json",
             "core/worker-evidence/pi/2026-11-07-live-run-spawn.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out core/worker-evidence/pi/2026-11-07-cli-check-model.json` against the installed pi and read the matched help lines. Recorded 2026-11-07 on pi 1.4.0: the flags are listed in `--help`. Live runs 2026-11-07 (pi 1.5.0, model openai/gpt-6.1-terra, which the stream reports; it was pinned by a `pi` wrapper on PATH that adds `--model openai/gpt-6.1-terra` and passes `--version` and `--help` through, because a manual worker run does not take a `workers.models` binding): both ran `--tools read,grep,find,ls --no-extensions --no-mcp --mode json -p --no-session --thinking off --no-skills --no-context-files --offline` in a scratch project, ended with report status success, no denied call, a clean worktree and unchanged HEAD and refs. Run w-e0cd09f3b80b asked for a file write: the stream's tool starts were `ls` and `find` only, no write, edit or shell tool, and the worker said no file-writing or shell tool was available. Run w-48ddfd236061 asked for a sub-agent hand-off: no tool was called and the worker said no sub-agent or task tool was available. The records hold only the report status, the clean worktree check and the prompt hash. `--tools` is an allowlist of tool names and `--no-extensions` and `--no-mcp` turn off the extension and MCP tool sources, but the runs show the tools called, not a refused call, so they do not by themselves prove that a write or a spawn would be refused. Limit: one model and one attempt per capability; the user's installed pi packages were switched off by the recipe, not exercised.",
-          "verifiedOn": "2026-11-07",
-          "argv": [
-            "--no-extensions",
-            "--no-mcp"
-          ]
+          "verification": "Run two live runs with the current Pi argv (row 178 took `--thinking off` out of it): one read-only run that asks for a file write and one that asks for a sub-agent hand-off, each recorded as a live-run record under core/worker-evidence/pi/ whose argvShape equals the shipped recipe; then set this entry back to supported with the spawn-denial recipe (argv `--no-extensions --no-mcp`). The 2026-11-07 records (pi 1.5.0, model openai/gpt-6.1-terra) stay as history of the old argv.",
+          "verifiedOn": "2026-11-19",
+          "reason": "the 2026-11-07 live-run records hold the old one-shot argv with `--thinking off`, which row 178 removed, so they no longer establish the current argv; two live runs with the current argv (read-only, spawn) would restore this"
         },
         "runnableProbe": {
           "status": "supported",
@@ -2507,7 +2541,7 @@
           "evidence": [
             "core/worker-evidence/pi/2026-11-16-cli-check-model-parts.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched `--thinking <level>` line (check help-thinking). Recorded 2026-11-16 on pi 1.5.2: `pi --help` lists the levels off, minimal, low, medium, high, xhigh, max; the matched line was copied by hand from an earlier record (the record's handAdded says so; no CLI was run for it). The one-shot argv with a bound effort (`--thinking <level>` in place of the fixed `--thinking off`) has not been verified on a live run: the live-run records hold the argv without a bound effort. Pi clamps a level the model cannot run to a lower one, so the harness may run a lower level than bound.",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched `--thinking <level>` line (check help-thinking). Recorded 2026-11-16 on pi 1.5.2: `pi --help` lists the levels off, minimal, low, medium, high, xhigh, max; the matched line was copied by hand from an earlier record (the record's handAdded says so; no CLI was run for it). The one-shot argv is `-p --no-session --no-skills --no-context-files --offline {prompt}` with no effort flag, so Pi runs its own default level; a bound or forwarded effort adds `--thinking <level>` from this transport. That argv has not been verified on a live run, with or without an effort: the live-run records of 2026-11-07 hold an older one-shot argv that carried a fixed `--thinking off`. Pi clamps a level the model cannot run to a lower one, so the harness may run a lower level than bound.",
           "verifiedOn": "2026-11-16",
           "via": "flag",
           "argv": [
@@ -2545,6 +2579,12 @@
           }
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In a Pi tool shell run `env` once for a variable that marks the session and one that holds its thinking level; DoFlow's own Pi extension could export a marker. Record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no recorded variable marks a Pi tool shell; `defaultThinkingLevel` is the startup level, not the running one"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -3115,6 +3155,12 @@
         },
         "modelChecks": []
       },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In a copilot tool shell run `env` once and read the copilot docs for a variable that marks the session and one that holds its reasoning effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no evidence of a marker or a session level for copilot"
+      },
       "contextProfile": {
         "capacityTokens": {
           "value": 128000,
@@ -3600,6 +3646,12 @@
           "reason": "`kiro-cli chat --help` lists `--list-models`, but running it on 2026-11-15 opened a login portal and gave no list within 20 s; its output shape is not verified"
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "When `kiro-cli` may be run, run `env` once in one of its tool shells and read its docs for a variable that marks the session and one that holds its effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "`kiro-cli` is not run, so no marker or session level is recorded for kiro"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -4108,6 +4160,12 @@
           ]
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In an `agy` tool shell run `env` once and read its docs for a variable that marks the session and one that holds its effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no evidence of a marker or a session level for antigravity"
       },
       "contextProfile": {
         "capacityTokens": {

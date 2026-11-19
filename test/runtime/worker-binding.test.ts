@@ -131,6 +131,40 @@ test('169: a bound effort reaches the launch record and the worker argv; an unsu
   assert.equal(logged.argv[logged.argv.indexOf('--thinking') + 1], 'high');
 });
 
+test('178 D9, §7.3: a worker run started from a harness shell launches with no session variable, and its binding keeps the effortPlan passed in', POSIX, async (t) => {
+  const p = workerProject(t);
+  const names = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT'];
+  const log = path.join(p.sb.dir, 'session-env.jsonl');
+  const wrapper = path.join(p.sb.dir, 'fake-shell-claude.js');
+  fs.writeFileSync(wrapper, [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const { spawnSync } = require('node:child_process');",
+    `const names = ${JSON.stringify(names)};`,
+    "if (process.env.FAKE_ENV_LOG) fs.appendFileSync(process.env.FAKE_ENV_LOG, `${JSON.stringify({ argv: process.argv.slice(2), env: Object.fromEntries(names.map((n) => [n, process.env[n] ?? null])) })}\\n`);",
+    `const r = spawnSync(process.execPath, [${JSON.stringify(require('../helper/fake-harness-cli.ts').FAKE_CLI)}, ...process.argv.slice(2)], { stdio: 'inherit' });`,
+    'process.exit(r.status ?? 1);',
+  ].join('\n'));
+  fs.chmodSync(wrapper, 0o755);
+  fs.symlinkSync(wrapper, path.join(p.sb.bin, 'fake-shell-claude'));
+  const descriptors = { claude: { ...WITH_PARTS, cli: { ...WITH_PARTS.cli, binary: 'fake-shell-claude' } } };
+  assert.equal((await readiness.probe({ descriptors, env: p.sb.env, cwd: p.sb.root })).disposition, 'probed');
+  // A shell of a Claude Code session: the marker and its effort, as `doflow worker run` started by hand inherits them.
+  const env = { ...p.sb.env, CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high', FAKE_ENV_LOG: log };
+  const effortPlan = { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' };
+  const binding = { model: null, provider: null, effort: 'high', flag: 'supported' };
+  const result = await executeWorkerCommand({
+    action: 'run', slug: SLUG, harness: 'claude', task: 'A.1', token: p.token,
+    promptFile: p.promptFile, timeoutSeconds: 60, wait: true, env, cwd: p.sb.root, descriptors, binding, effortPlan,
+  });
+  assert.equal(result.exit, 0, JSON.stringify(result));
+  const launched = fs.readFileSync(log, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)).filter((entry: any) => entry.argv.includes('--thinking'));
+  assert.equal(launched.length, 1, 'one worker launch');
+  assert.deepEqual(launched[0].env, { CLAUDE_CODE_CHILD_SESSION: null, CLAUDE_EFFORT: null });
+  const record = runs.readRuns(p.file)[result.body.runId];
+  assert.deepEqual(record.binding, { ...binding, effortPlan });
+});
+
 test('169: the ladder refuses a rung whose bound effort the harness cannot take, before any launch', POSIX, async (t) => {
   const sb = makeDispatchSandbox(t, { plan: PLAN, slug: SLUG, identity: { DOFLOW_ATTEMPT: undefined } });
   const common = { file: attempts.storeFile(sb.root, SLUG), fsImpl: fs, roots: [sb.root], slug: SLUG, env: sb.env, cwd: sb.root };

@@ -122,12 +122,16 @@ test('evidence: every registry sentence that dates a Pi run or check names the v
   }
 });
 
-test('evidence: the live-run sentence names the version the live-run records carry', () => {
+test('178 G-1: readOnly and spawnDenial are unknown, their reason names the old argv, and the cited live-run records still hold it', () => {
   for (const key of ['readOnly', 'spawnDenial']) {
     const entry = pi[key];
-    const said = entry.verification.match(/Live runs [\d-]+ \(pi (\d+\.\d+\.\d+)/)?.[1];
-    const live = entry.evidence.map((e: string) => record(e)).filter((r: any) => r.kind === 'live-run').map((r: any) => r.cliVersion);
-    assert.ok(said && live.length > 0 && live.every((v: string) => v === said), `${key}: sentence says ${said}, records say ${live.join(', ')}`);
+    assert.equal(entry.status, 'unknown', key);
+    assert.equal(Object.hasOwn(entry, 'argv'), false, `${key}: an unknown entry carries no recipe`);
+    assert.match(entry.reason, /--thinking off/, key);
+    assert.match(entry.reason, /two live runs with the current argv/, key);
+    const live = entry.evidence.map((e: string) => record(e)).filter((r: any) => r.kind === 'live-run');
+    assert.ok(live.length > 0, `${key}: the 2026-11-07 live-run records stay cited as history`);
+    for (const r of live) assert.ok(r.run.argvShape.includes('--thinking'), `${key}: the record holds the old argv`);
   }
 });
 

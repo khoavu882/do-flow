@@ -16,6 +16,7 @@ const {
   SHAPES,
   SHAPE_IDS,
   IDENTITY_VARIABLES,
+  SESSION_VARIABLES,
   PASS_THROUGH,
   WRITE_PASS_THROUGH,
   OUTPUT_CAP_BYTES,
@@ -1940,7 +1941,7 @@ test('165 review B-1 (170): DOFLOW_STARTED_RUN reaches the core for the start-se
   const startSession = starts.filter((s: any) => s.argv[1] === '--action' && s.argv[2] === 'start-session');
   assert.equal(startSession.length, 1);
   assert.equal(startSession[0].env.DOFLOW_STARTED_RUN, 'w-0123456789ab');
-  assert.deepEqual(doflowOf(startSession[0]), ['DOFLOW_STARTED_RUN', 'DOFLOW_UPKEEP'], 'no other DOFLOW_* variable');
+  assert.deepEqual(doflowOf(startSession[0]), ['DOFLOW_PRIMARY_HARNESS', 'DOFLOW_STARTED_RUN', 'DOFLOW_UPKEEP'], 'no other DOFLOW_* variable than the F-11 undeclared main harness');
   const sessions = starts.filter((s: any) => ['send', 'steer', 'stop'].includes(s.argv[2]));
   assert.equal(sessions.length, 3);
   for (const start of sessions) {
@@ -2255,6 +2256,35 @@ test('stop() kills a running write and answers a queued write as core-unreachabl
   assert.deepEqual({ ...(await running) }, { ok: false, code: 'core-unreachable', exit: null });
   assert.deepEqual({ ...(await queued) }, { ok: false, code: 'core-unreachable', exit: null });
   assert.equal(f.writeStarts().length, 1);
+});
+
+test('178 (d), O-6 (a): a Console started from a harness shell passes no harness-session variable to a read or a write child', async () => {
+  assert.ok(Object.isFrozen(SESSION_VARIABLES) && SESSION_VARIABLES.length > 0, 'a frozen, non-empty list');
+  const planted: Record<string, string> = { KEEP_ME: 'kept' };
+  for (const name of SESSION_VARIABLES) planted[name] = '1';
+  const { runner, starts } = setup('echo', planted);
+  assert.equal((await runner.run('list', {})).ok, true);
+  const read = starts()[0].env;
+  for (const name of SESSION_VARIABLES) assert.equal(name in read, false, `${name} reached the read child`);
+  assert.equal(read.KEEP_ME, 'kept');
+  const f = await writeSetup(undefined, planted);
+  assert.equal((await f.runner.act('close-run', WRITE_CASES['close-run'].params)).ok, true);
+  const written = f.writeStarts()[0].env;
+  for (const name of SESSION_VARIABLES) assert.equal(name in written, false, `${name} reached the write child`);
+  assert.equal(written.KEEP_ME, 'kept');
+});
+
+test('178 F-11: the Console start shapes (the start-options read and the start-session write) declare no main harness, DOFLOW_PRIMARY_HARNESS=unknown over the parent\'s; no other shape carries it', async () => {
+  const f = await writeSetup(undefined, { DOFLOW_PRIMARY_HARNESS: 'pi' });
+  assert.equal((await f.runner.run('start-options', { projectKey: KEY_A })).ok, true);
+  assert.equal((await f.runner.act('start-session', START_CASE.params)).ok, true);
+  assert.equal((await f.runner.act('close-run', WRITE_CASES['close-run'].params)).ok, true);
+  const starts = f.starts();
+  const startShapes = starts.filter((s: any) => s.argv[1] === '--action' && ['start-options', 'start-session'].includes(s.argv[2]));
+  assert.deepEqual(startShapes.map((s: any) => [s.argv[2], s.env.DOFLOW_PRIMARY_HARNESS]), [['start-options', 'unknown'], ['start-session', 'unknown']]);
+  const others = starts.filter((s: any) => !startShapes.includes(s));
+  assert.ok(others.length >= 2, 'the projects read and the close-run write');
+  for (const start of others) assert.equal('DOFLOW_PRIMARY_HARNESS' in start.env, false, start.argv.join(' '));
 });
 
 test('the write child has no identity variable and no DOFLOW_* beyond the pass-throughs and DOFLOW_UPKEEP=off', async () => {

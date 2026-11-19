@@ -52,12 +52,14 @@ const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { resolveTier, readBindings, resolveTaskModel, usesOrchestratorModel, bindingGap } = require('../worker/models.ts');
+const { effortPlanFor } = require('../worker/effort-resolution.ts');
+const { loginModeOf } = require('../worker/login.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { parserIdOf } = require('../worker/parsers.ts');
 const { protectedPathGap } = require('../worker/protected-paths.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const {
-  storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, inSessionOf, appendFallbackEvent, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
+  storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, inSessionOf, appendFallbackEvent, validEffortPlan, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
 } = require('./store.ts');
 const { teamGate } = require('../team/evaluate.ts');
 const { registerDriver, endDriver, admit, dispatchModelFor, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
@@ -255,6 +257,22 @@ function primaryFor(p: any, { owner, resolvedTier, always = false }: any): any {
   } catch {
     return { harness: null, model: null, state: 'unknown' };
   }
+}
+
+/**
+ * 178 IC-006: the effort a headless launch of `harness` passes: the bound choice's, else the driver session's level (or the next
+ * lower name the worker has), else none. The session is read from the driver's environment now, once per launch. A model the
+ * launch cannot pass is no bound choice, so an effort that would ride in its id is never asked for.
+ */
+function effortPlanOf(p: any, { harness, descriptor, resolved, primary, owner, resolvedTier }: any): any {
+  const reg = p.reg();
+  // The declared main harness is read for every task, whatever the owner: it is the guard against a nested session that inherits
+  // the marker (the brief and the session start read it the same way), so it does not depend on the model rule's owner gate.
+  const declared = primary ?? primaryFor(p, { owner, resolvedTier, always: true });
+  return effortPlanFor({
+    registry: reg, env: p.env, declaredHarness: declared?.declared?.harness ?? null, workerHarness: harness, worker: descriptor,
+    choice: resolved.flag === 'supported' ? resolved.choice ?? null : null, loginModeOf: loginModeOf({ registry: reg, env: p.env, now: () => p.clock().getTime() }),
+  });
 }
 
 /**
@@ -1180,6 +1198,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     return;
   }
   let binding: any = null;
+  let effortPlan: any = null;
   if (!MAIN_SESSION_MODES.includes(d.mode)) {
     const closed = gateOf(p.activeNow(), d.harness);
     if (closed) {
@@ -1208,7 +1227,12 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
       await failDispatch(p, d, ['claimed'], 'report-denied', gap.reason, null, null);
       return;
     }
-    if (resolved.flag === 'supported') binding = { model: resolved.model, provider: resolved.choice?.provider ?? null, effort: resolved.choice?.effort ?? null, flag: 'supported' };
+    // 178 §7.1: the launch passes the model when its flag is evidenced, and the effort the plan resolved; neither, no binding.
+    effortPlan = effortPlanOf(p, { harness: d.harness, descriptor, resolved, primary, owner, resolvedTier });
+    const modelPassed = resolved.flag === 'supported';
+    if (modelPassed || effortPlan.pass !== null) {
+      binding = { model: modelPassed ? resolved.model : null, provider: modelPassed ? resolved.choice?.provider ?? null : null, effort: effortPlan.pass, flag: 'supported' };
+    }
   }
   const planTask = plan.graph.tasks.find((t: any) => t.id === d.task);
   const record = view.tasks.find((r: any) => r.id === d.task);
@@ -1259,7 +1283,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   try {
     outcome = await executeWorkerCommand({
       action: 'run', edit: true, slug: p.slug, harness: d.harness, task: d.task, token: d.token,
-      binding,
+      binding, effortPlan,
       promptFile: promptFile.path, timeoutSeconds: seconds + BACKSTOP_SECONDS,
       env: p.env, cwd: p.cwd, platform: p.platform, now: p.clock, descriptors: p.descriptors, registry: p.reg(), coverage: p.coverage,
     });
@@ -1276,6 +1300,8 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
         deadline: iso(new Date(launchedAt.getTime() + seconds * 1000)),
         workerIdentity: run && run.identity ? { ...run.identity } : null,
         envelopes: { handoff: handoff.pointer, result: null },
+        // 178 IC-008: the record shows the effort this launch passed (or why none), not an earlier snapshot.
+        ...(validEffortPlan(effortPlan) ? { model: { ...(x.model ?? {}), effortPlan } } : {}),
       });
     }, { open: true });
     if (!moved.applied) {

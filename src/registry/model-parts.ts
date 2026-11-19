@@ -28,6 +28,9 @@ const COLUMN_TARGETS = Object.freeze({
   effortLevels: 'comma-list',
 } as Record<string, string>);
 
+/** A process environment variable name a descriptor may declare (`overrideEnv`, a `sessionEffort` marker or source). */
+const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
+const OVERRIDE_ENV_MAX = 4;
 const FLAG_RE = /^(?:--[A-Za-z0-9][A-Za-z0-9-]*|-[A-Za-z0-9])$/;
 const KEY_ASSIGNMENT_RE = /^([A-Za-z0-9_.-]{1,64})=\{effort\}$/;
 const COLUMN_HEADER_RE = /^[a-z][a-z0-9-]*$/;
@@ -35,6 +38,8 @@ const LEVELS_MAX = 16;
 const ENTRY_MAX_BYTES = 2048;
 const SAFETY_ARGV = Object.freeze(['readOnly', 'spawnDenial', 'isolatedEdit']);
 const RECIPE_ARGV = Object.freeze(['oneShot', 'structuredOutput', 'mainSession']);
+// 178 §3.3: the effort transport flag appears in no recipe argv at all; the control channel's argv is one of them.
+const EFFORT_ARGV = Object.freeze([...RECIPE_ARGV, 'controlChannel', ...SAFETY_ARGV]);
 const SAMPLE_VALUE = 'sample';
 
 type Fail = (key: string, message: string) => void;
@@ -84,13 +89,20 @@ function checkFlagArgv(key: string, entry: any, fail: Fail): string | null {
   return argv[0];
 }
 
+const holdsFlag = (argv: any, flag: string): boolean => Array.isArray(argv)
+  && argv.some((item: any) => item === flag || (typeof item === 'string' && item.startsWith(`${flag}=`)));
+
 /** Rule 3: where a transport flag may appear in the other recipes of the block. */
 function checkFlagPlacement(key: string, flag: string, worker: any, fail: Fail): void {
-  for (const name of SAFETY_ARGV) {
-    const argv = worker[name]?.argv;
-    if (Array.isArray(argv) && argv.some((item: any) => item === flag || (typeof item === 'string' && item.startsWith(`${flag}=`)))) {
-      fail(key, `transport flag '${flag}' must not appear in ${name}`);
+  if (key === 'effort') {
+    // 178 §3.3 (FR-012): an effort comes only from a binding or the session, so no recipe carries its flag, fixed value or not.
+    for (const name of EFFORT_ARGV) {
+      if (holdsFlag(worker[name]?.argv, flag)) fail(key, `transport flag '${flag}' must not appear in ${name}: an effort comes only from a binding or the session`);
     }
+    return;
+  }
+  for (const name of SAFETY_ARGV) {
+    if (holdsFlag(worker[name]?.argv, flag)) fail(key, `transport flag '${flag}' must not appear in ${name}`);
   }
   for (const name of RECIPE_ARGV) {
     const argv = worker[name]?.argv;
@@ -154,6 +166,13 @@ function checkTransport(key: string, entry: any, fail: Fail): string | null {
       else if (!entry.levels.includes(entry.offLevel)) fail(key, 'offLevel must be one of levels');
     }
     if (Object.hasOwn(entry, 'mayLower') && typeof entry.mayLower !== 'boolean') fail(key, 'mayLower must be a boolean');
+    if (Object.hasOwn(entry, 'overrideEnv')) {
+      const names = entry.overrideEnv;
+      if (!Array.isArray(names) || names.length < 1 || names.length > OVERRIDE_ENV_MAX
+        || names.some((name: any) => typeof name !== 'string' || !ENV_NAME_RE.test(name)) || new Set(names).size !== names.length) {
+        fail(key, `overrideEnv must be 1 to ${OVERRIDE_ENV_MAX} distinct variable names matching ${ENV_NAME_RE}`);
+      }
+    }
   }
   return flag;
 }
@@ -187,7 +206,31 @@ function validateModelParts(worker: any, fail: Fail, { declared = [], secretDecl
   }
 }
 
+/**
+ * 178 §3.2: `worker.effort.levels` is declared lowest first. Across the harness set, two lists that share two names must
+ * list them in the same order; a reversed list is refused. It cannot prove a list ascends. Returns the problem or null.
+ */
+function levelOrderProblem(harnesses: any[]): string | null {
+  const lists: { id: string, levels: string[] }[] = [];
+  for (const harness of Array.isArray(harnesses) ? harnesses : []) {
+    const levels = harness?.worker?.effort?.levels;
+    if (Array.isArray(levels)) lists.push({ id: String(harness.id), levels });
+  }
+  for (let i = 0; i < lists.length; i++) {
+    for (let j = i + 1; j < lists.length; j++) {
+      const a = lists[i];
+      const b = lists[j];
+      const sharedA = a.levels.filter((level) => b.levels.includes(level));
+      const sharedB = b.levels.filter((level) => a.levels.includes(level));
+      if (sharedA.join() !== sharedB.join()) {
+        return `worker.effort.levels of '${a.id}' and '${b.id}' list shared levels in opposite order (${sharedA.join(', ')} against ${sharedB.join(', ')}); levels are declared lowest first`;
+      }
+    }
+  }
+  return null;
+}
+
 module.exports = {
-  TRANSPORT_KINDS, SEPARATORS, PROVIDER_RE, EFFORT_RE, COLUMN_TARGETS, LEVELS_MAX,
-  validateModelParts, validateModelListColumns,
+  TRANSPORT_KINDS, SEPARATORS, PROVIDER_RE, EFFORT_RE, ENV_NAME_RE, COLUMN_TARGETS, LEVELS_MAX,
+  validateModelParts, validateModelListColumns, levelOrderProblem,
 };

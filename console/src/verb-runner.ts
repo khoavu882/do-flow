@@ -359,6 +359,13 @@ const IDENTITY_VARIABLES: readonly string[] = Object.freeze([
   'DOFLOW_SESSION_ROLE',
   'DOFLOW_WORKTREE',
 ]);
+/**
+ * 178 D9, O-6 (a): the harness-session variables of the registry (every `sessionEffort` marker and source name), which
+ * `sessionVariables(registry)` in src/runtime/context/session-effort.ts lists. The Console imports nothing from the core, so this is a
+ * copy that guard G86 holds equal to the shipped registry. A Console started from a harness shell passes none of them on, so the core
+ * it runs never reads that shell as its own session: a Console start follows no session effort.
+ */
+const SESSION_VARIABLES: readonly string[] = Object.freeze(['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT']);
 const PASS_THROUGH: readonly string[] = Object.freeze(['DOFLOW_CONFIG_DIR', 'DOFLOW_TELEMETRY', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
 /**
  * 165 review B-1: the one variable a write shape also passes. A Console run inside a started session carries that session's
@@ -443,18 +450,26 @@ function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<st
   return { argv, projectKey: null, stdin };
 }
 
-/** The parent environment minus every DOFLOW_* and identity variable, plus the pass-throughs (and the write shape's own, B-1) and DOFLOW_UPKEEP=off. */
-function childEnv(parent: Record<string, string | undefined>, writeShape: string | null = null): Record<string, string> {
+/**
+ * 178 F-11: the Console's start shapes, the start form's read and the start itself. A Console start follows no harness session (D9), so
+ * these declare no main harness (`DOFLOW_PRIMARY_HARNESS=unknown`, which beats the settings files): the effort plan is then
+ * `no-session-harness`, the O-3 "no harness session to follow", whatever `primary.harness` the person declared for their own shell.
+ */
+const UNDECLARED_PRIMARY_SHAPES: readonly string[] = Object.freeze(['start-options', 'start-session']);
+
+/** The parent environment minus every DOFLOW_*, identity and harness-session variable (178 D9), plus the pass-throughs (and the write shape's own, B-1), the start shapes' undeclared main harness (F-11) and DOFLOW_UPKEEP=off. */
+function childEnv(parent: Record<string, string | undefined>, shapeId: string | null = null): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(parent)) {
-    if (value === undefined || name.toUpperCase().startsWith('DOFLOW_') || IDENTITY_VARIABLES.includes(name)) continue;
+    if (value === undefined || name.toUpperCase().startsWith('DOFLOW_') || IDENTITY_VARIABLES.includes(name) || SESSION_VARIABLES.includes(name)) continue;
     env[name] = value;
   }
-  const own = writeShape !== null && Object.hasOwn(WRITE_PASS_THROUGH, writeShape) ? WRITE_PASS_THROUGH[writeShape] : [];
+  const own = shapeId !== null && Object.hasOwn(WRITE_PASS_THROUGH, shapeId) ? WRITE_PASS_THROUGH[shapeId] : [];
   for (const name of [...PASS_THROUGH, ...own]) {
     const value = parent[name];
     if (value !== undefined) env[name] = value;
   }
+  if (shapeId !== null && UNDECLARED_PRIMARY_SHAPES.includes(shapeId)) env.DOFLOW_PRIMARY_HARNESS = 'unknown';
   env.DOFLOW_UPKEEP = 'off';
   return env;
 }
@@ -529,8 +544,8 @@ function createVerbRunner(options: RunnerOptions) {
   let reservedActive = 0;
   let stopped = false;
 
-  /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`). Resolves when the child has closed; never rejects. A write with `stdin` pipes it, writes the text and ends it (165). */
-  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string, stdin: string | null = null, writeShape: string | null = null): Promise<Result> {
+  /** One spawn of the core, of a read `shape` or, with `null`, of a write (162: `act`), `shapeId` naming either for its child environment. Resolves when the child has closed; never rejects. A write with `stdin` pipes it, writes the text and ends it (165). */
+  function spawnCore(shape: Shape | null, argv: string[], cwd: string, flightKey: string, stdin: string | null, shapeId: string): Promise<Result> {
     const write = shape === null;
     return new Promise((resolveResult) => {
       const resolve = (result: Bare) => resolveResult(stamp(result, clock.now()));
@@ -539,7 +554,7 @@ function createVerbRunner(options: RunnerOptions) {
         if (!fs.statSync(corePath).isFile()) return resolve(unreachable());
         child = spawnImpl(process.execPath, [corePath, ...argv], {
           cwd,
-          env: childEnv(env, write ? writeShape : null),
+          env: childEnv(env, shapeId),
           shell: false,
           stdio: [stdin === null ? 'ignore' : 'pipe', 'pipe', 'pipe'],
           windowsHide: true,
@@ -670,11 +685,11 @@ function createVerbRunner(options: RunnerOptions) {
     }
   }
 
-  async function spawnPooled(shape: Shape, argv: string[], cwd: string, flightKey: string): Promise<Result> {
+  async function spawnPooled(shape: Shape, argv: string[], cwd: string, flightKey: string, shapeId: string): Promise<Result> {
     const slot = await acquire(shape.reserved === true);
     if (slot === null) return stamp(unreachable(), clock.now());
     try {
-      return await spawnCore(shape, argv, cwd, flightKey);
+      return await spawnCore(shape, argv, cwd, flightKey, null, shapeId);
     } finally {
       release(slot);
     }
@@ -747,7 +762,7 @@ function createVerbRunner(options: RunnerOptions) {
     const began = writes;
     let flight = inFlight.get(argvKey)?.flight;
     if (!flight) {
-      const mine: Promise<Result> = spawnPooled(shape, argv, cwd, argvKey)
+      const mine: Promise<Result> = spawnPooled(shape, argv, cwd, argvKey, shapeId)
         .then((spawned) => {
           if (spawned.ok && shape.listsProjects) rememberProjects(spawned.json);
           return spawned;
@@ -964,6 +979,7 @@ module.exports = {
   FOLLOW_SHAPE_IDS,
   FOLLOW_STDERR_LINE_BYTES,
   IDENTITY_VARIABLES,
+  SESSION_VARIABLES,
   KILL_GRACE_MS,
   OUTPUT_CAP_BYTES,
   PARAM_PATTERN,

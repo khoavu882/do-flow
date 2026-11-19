@@ -22,7 +22,7 @@ async function load(): Promise<any> {
   scratch.push(dir);
   fs.mkdirSync(path.join(dir, 'derive'));
   fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}\n');
-  for (const name of ['attention.js', 'layers.js', 'actions.js', 'start.js', 'binding-text.js']) fs.writeFileSync(path.join(dir, 'derive', name), fs.readFileSync(path.join(DERIVE, name), 'utf8'));
+  for (const name of ['attention.js', 'layers.js', 'actions.js', 'start.js', 'binding-text.js', 'effort-text.js']) fs.writeFileSync(path.join(dir, 'derive', name), fs.readFileSync(path.join(DERIVE, name), 'utf8'));
   return import(pathToFileURL(path.join(dir, 'derive', 'attention.js')).href);
 }
 

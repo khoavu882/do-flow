@@ -9,6 +9,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
+const { withPiReadOnly } = require('../helper/pi-read-only.ts');
 const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
 const {
   assembleArgv, argvShape, launchRecord, mainArgv, RECIPE_ORDER, EDIT_RECIPE_ORDER,
@@ -26,7 +27,9 @@ const TAIL = [
 
 /** IC-011: a fresh shipped descriptor for each recipe mutation. */
 function workerOf(id = 'codex') {
-  return structuredClone(loadRegistry({ repoRoot: REPO }).harnesses.find((h: any) => h.id === id).worker);
+  const worker = structuredClone(loadRegistry({ repoRoot: REPO }).harnesses.find((h: any) => h.id === id).worker);
+  // 178 G-1: the shipped pi has `readOnly` and `spawnDenial` unknown; its recipe shape is tried on the fixture a live run would restore.
+  return id === 'pi' ? withPiReadOnly(worker) : worker;
 }
 
 /** IC-011: a supported entry whose evidence content is irrelevant to schema-only validation. */
@@ -286,7 +289,7 @@ function piShaped(extra: any = {}) {
 }
 const PI_BASE = () => assembleArgv(workerOf('pi'), 'p', false);
 
-test('169 R-4: with no effort bound the Pi-shaped argv is byte for byte the shipped one, and `--thinking off` stays', () => {
+test('169 R-4: with no effort bound the Pi-shaped argv is byte for byte the shipped one, and carries no `--thinking`', () => {
   const shaped = piShaped();
   const plain = { model: 'm1', flag: 'supported' };
   const withNulls = { model: 'm1', provider: null, effort: null, flag: 'supported' };
@@ -295,10 +298,10 @@ test('169 R-4: with no effort bound the Pi-shaped argv is byte for byte the ship
   assert.deepEqual(assembleArgv(shaped, 'p', false, undefined, withNulls), shipped);
   assert.deepEqual(argvShape(shaped, 'p', false, withNulls), argvShape(workerOf('pi'), 'p', false, plain));
   assert.deepEqual(assembleArgv(shaped, 'p', false), PI_BASE());
-  assert.equal(shipped.join(' ').includes('--thinking off'), true);
+  assert.equal(shipped.includes('--thinking'), false);
 });
 
-test('169: a bound effort replaces the fixed `--thinking off` for that run; the level appears once', () => {
+test('169: a bound effort puts `--thinking <level>` in the argv once', () => {
   const argv = assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
   assert.equal(argv.filter((item: string) => item === '--thinking').length, 1);
   assert.equal(argv[argv.indexOf('--thinking') + 1], 'high');
@@ -330,12 +333,13 @@ test('169: a provider composes through its transport: id-prefix into the id, fla
   assert.equal(argv.filter((item: string) => item.startsWith('--provider')).length, 1);
 });
 
-test('169: a safety piece keeps its flags; only oneShot, structuredOutput and mainSession are stripped', () => {
-  const worker = piShaped();
-  worker.structuredOutput.argv = ['--thinking', 'low', ...worker.structuredOutput.argv];
-  const argv = assembleArgv(worker, 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
-  assert.equal(argv.filter((item: string) => item === '--thinking').length, 1);
-  assert.equal(argv.includes('low'), false);
+test('169: a safety piece keeps its flags; only oneShot, structuredOutput and mainSession lose a fixed copy of the provider flag', () => {
+  const worker = piShaped({ provider: { status: 'supported', ...ENTRY, via: 'flag', argv: ['--provider', '{provider}'] } });
+  worker.structuredOutput.argv = ['--provider', 'fixed', ...worker.structuredOutput.argv];
+  worker.readOnly.argv = ['--provider', 'kept', ...worker.readOnly.argv];
+  const argv = assembleArgv(worker, 'p', false, undefined, { model: 'm1', provider: 'openai', effort: null, flag: 'supported' });
+  assert.deepEqual(argv.filter((item: string, i: number) => argv[i - 1] === '--provider'), ['kept', 'openai']);
+  assert.equal(argv.includes('fixed'), false);
 });
 
 test('169: a part the descriptor cannot take is refused with its reason, a value outside its pattern too', () => {
@@ -345,35 +349,37 @@ test('169: a part the descriptor cannot take is refused with its reason, a value
   assert.throws(() => argvShape(unknown, 'p', false, { model: 'm1', provider: null, effort: 'high', flag: 'supported' }), { code: 'model-part-unsupported' });
 });
 
-// ---- 169 review A-01: a keyed effort transport strips only its own key ------------------------------------------------
+// ---- 169 review A-01: a keyed provider transport strips only its own key ----------------------------------------------
 
-/** The reviewer's case: codex-shaped, effort carried by `-c model_reasoning_effort={effort}`, other fixed `-c k=v` pairs around it. */
-function keyedEffort() {
+/** The reviewer's case: codex-shaped, provider carried by `-c model_provider={provider}`, other fixed `-c k=v` pairs around it. */
+function keyedProvider() {
   const worker = workerOf('codex');
-  worker.effort = { status: 'supported', ...ENTRY, via: 'flag', argv: ['-c', 'model_reasoning_effort={effort}'], levels: ['low', 'high'] };
-  worker.oneShot.argv = ['-c', 'hide_agent_reasoning=true', '-c', 'file_opener=none', '-c', 'model_reasoning_effort=low', '-'];
-  worker.structuredOutput.argv = ['--json', '-c', 'hide_agent_reasoning=true', '-c=model_reasoning_effort=medium', '-o', '{lastMessageFile}'];
-  worker.mainSession.argv = ['exec', '-c', 'file_opener=none', '-c', 'model_reasoning_effort=low', '--json', '-o', '{lastMessageFile}', '-'];
+  worker.provider = { status: 'supported', ...ENTRY, via: 'flag', argv: ['-c', 'model_provider={provider}'] };
+  worker.oneShot.argv = ['-c', 'hide_agent_reasoning=true', '-c', 'file_opener=none', '-c', 'model_provider=old', '-'];
+  worker.structuredOutput.argv = ['--json', '-c', 'hide_agent_reasoning=true', '-c=model_provider=older', '-o', '{lastMessageFile}'];
+  worker.mainSession.argv = ['exec', '-c', 'file_opener=none', '-c', 'model_provider=old', '--json', '-o', '{lastMessageFile}', '-'];
   return worker;
 }
 const PAIRS = (argv: string[]) => argv.flatMap((item: string, i: number) => (item === '-c' ? [`${item} ${argv[i + 1]}`] : []));
 
-test('169 A-01: a keyed effort transport drops only its own `-c <key>=...` pair; every other fixed pair survives', () => {
-  const bound = { model: 'm1', provider: null, effort: 'high', flag: 'supported' };
-  const argv = assembleArgv(keyedEffort(), 'p', false, '/tmp/lm', bound);
+test('169 A-01: a keyed provider transport drops only its own `-c <key>=...` pair; every other fixed pair survives', () => {
+  const bound = { model: 'm1', provider: 'acme', effort: null, flag: 'supported' };
+  const argv = assembleArgv(keyedProvider(), 'p', false, '/tmp/lm', bound);
   for (const pair of ['-c hide_agent_reasoning=true', '-c file_opener=none']) assert.ok(PAIRS(argv).includes(pair), pair);
-  assert.equal(PAIRS(argv).filter((pair: string) => pair.startsWith('-c model_reasoning_effort=')).length, 1);
-  assert.equal(argv.includes('-c=model_reasoning_effort=medium'), false, 'the `F=key=...` token of the same key is dropped too');
+  assert.equal(PAIRS(argv).filter((pair: string) => pair.startsWith('-c model_provider=')).length, 1);
+  assert.equal(argv.includes('-c=model_provider=older'), false, 'the `F=key=...` token of the same key is dropped too');
   assert.equal(argv.filter((item: string) => item === 'hide_agent_reasoning=true').length, 2, 'both pieces keep their pair');
-  const main = mainArgv(keyedEffort(), 'p', '/tmp/lm', { model: 'm1', provider: null, effort: 'high' });
+  const main = mainArgv(keyedProvider(), 'p', '/tmp/lm', { model: 'm1', provider: 'acme', effort: null });
   assert.ok(main.includes('file_opener=none'));
-  assert.equal(PAIRS(main).filter((pair: string) => pair.startsWith('-c model_reasoning_effort=')).length, 1);
-  assert.ok(main.includes('model_reasoning_effort=high'));
+  assert.equal(PAIRS(main).filter((pair: string) => pair.startsWith('-c model_provider=')).length, 1);
+  assert.ok(main.includes('model_provider=acme'));
 });
 
-test('169 A-01: a bare effort value (no key) still drops every `F v` pair of its flag', () => {
-  const argv = assembleArgv(piShaped(), 'p', false, undefined, { model: 'm1', provider: null, effort: 'high', flag: 'supported' });
-  assert.equal(argv.includes('off'), false);
+test('169 A-01: a bare provider value (no key) drops every `F v` pair of its flag', () => {
+  const worker = piShaped({ provider: { status: 'supported', ...ENTRY, via: 'flag', argv: ['--provider', '{provider}'] } });
+  worker.oneShot.argv = ['--provider', 'fixed', ...worker.oneShot.argv];
+  const argv = assembleArgv(worker, 'p', false, undefined, { model: 'm1', provider: 'acme', effort: null, flag: 'supported' });
+  assert.equal(argv.includes('fixed'), false);
 });
 
 // ---- 169 review A-06: the launcher runs the secret check on the final argv ---------------------------------------------

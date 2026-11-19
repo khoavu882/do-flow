@@ -50,7 +50,8 @@ const { readBindings } = require('./models.ts');
 const { workerCatalogue } = require('./catalogue.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
 const evidence = require('./evidence.ts');
-const { launchEnv, launchRecord, PROMPT_LIMITS, STARTED_RUN_VAR } = require('./launch.ts');
+const { launchEnv, launchRecord, scrubbed, PROMPT_LIMITS, STARTED_RUN_VAR } = require('./launch.ts');
+const { sessionVariables } = require('../context/session-effort.ts');
 const { BASE_FILE } = require('../worktree.ts');
 const { SUPERVISOR_FILE, resultOfRun } = require('./supervisor.ts');
 const { cancelRun, callerRefusal, RELAY_LABEL } = require('./cancel.ts');
@@ -63,7 +64,7 @@ const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 const { isSafeSlug } = require('../task-scope.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { readDispatch, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
+const { readDispatch, validEffortPlan, storeFileFor: dispatchStoreFileFor } = require('../dispatch/store.ts');
 const { startSession, startOptions, STARTED_SLUG, KIND: MAIN_SESSION_KIND } = require('./start-session.ts');
 const { steerSession } = require('./steer.ts');
 const { conform, conformLines } = require('./conform.ts');
@@ -317,10 +318,12 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs
 }
 
 /** The supervisor of run `runId`, detached, with the caller's environment and cwd (IC-014, DEC-022, DEC-038);
- * its pid and start are written by compare-and-set. */
-function spawnSupervisor({ file, runId, cwd, env, platform }: any) {
+ * its pid and start are written by compare-and-set. 178 D9: the one scrub site of every worker and started-session launch: the
+ * environment drops the registry's harness-session variables here, so a `worker run` started by hand from a harness shell and a
+ * started session never read that shell as their own session (the supervisor has no registry and launches from this env). */
+function spawnSupervisor({ file, runId, cwd, env, platform, reg }: any) {
   const child = spawn(process.execPath, [...allowedExecArgv((process as any).execArgv), SUPERVISOR_FILE, file, runId], {
-    detached: true, stdio: 'ignore', cwd, env,
+    detached: true, stdio: 'ignore', cwd, env: scrubbed(env, { sessionVariables: sessionVariables(reg) }),
   });
   // A spawn error leaves the run `starting` with no live supervisor, which status reads as lost.
   child.on('error', () => {});
@@ -335,6 +338,8 @@ function spawnSupervisor({ file, runId, cwd, env, platform }: any) {
 async function runAction(o: any) {
   const { env, cwd, root, platform, clock, sleep, slug, harness, task, token, needs, timeoutSeconds, prompt, worker, reg, coverage } = o;
   const binding = o.binding ?? null;
+  // 178 §7.3: the plan the dispatch loop resolved for this launch, kept on the record's binding when it is a valid plan.
+  const effortPlan = validEffortPlan(o.effortPlan ?? null);
   const edit = o.edit === true;
   const childOf: string | null = o.childOf ?? null;
   const nowMs = () => clock().getTime();
@@ -407,7 +412,7 @@ async function runAction(o: any) {
     },
     edit: editRecord, childOf, request: childOf ? o.request : null,
     ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit, binding),
-    ...(binding ? { binding: { model: binding.model, provider: binding.provider ?? null, effort: binding.effort ?? null, flag: binding.flag } } : {}),
+    ...(binding ? { binding: { model: binding.model, provider: binding.provider ?? null, effort: binding.effort ?? null, flag: binding.flag, ...(effortPlan ? { effortPlan } : {}) } } : {}),
     // The binary the probe found, as an absolute path: the supervisor spawns from the execution worktree,
     // where a relative PATH entry would name another file than the one probed.
     descriptor: evaluated.binaryPath && worker?.cli ? { ...worker, cli: { ...worker.cli, binary: evaluated.binaryPath } } : worker,
@@ -417,7 +422,7 @@ async function runAction(o: any) {
   const inserted = insertRun(file, record);
   if (!inserted.applied) return refused('run-exists', { task, token, runId: inserted.runId, phase: inserted.phase });
 
-  spawnSupervisor({ file, runId, cwd, env, platform });
+  spawnSupervisor({ file, runId, cwd, env, platform, reg });
 
   // Poll up to 10 s for the record to leave `starting`.
   const startUntil = nowMs() + START_WAIT_MS;
@@ -585,7 +590,7 @@ async function executeWorkerCommand({
   workerRun, checks, out, docsRoot, by, reason, edit = false, childOf, request, execWorktree, operator = false, via,
   projectKey, worktreeKey, model, provider, effort, entry, requestId, stdin = false, text, readStdin = () => fs.readFileSync(0, 'utf8'),
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
-  descriptors, registry, coverage, sleep = defaultSleep, binding = null, projects = null,
+  descriptors, registry, coverage, sleep = defaultSleep, binding = null, effortPlan = null, projects = null,
   view, // test seam: the package view the start verbs read their worker list from
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
@@ -656,7 +661,7 @@ async function executeWorkerCommand({
         const o = {
           projectKey, worktreeKey, harness, model, provider, effort, entry, via, requestId, stdin, readStdin,
           env, cwd, root, reg, descriptors, view, platform, clock, sleep, projects: listProjects,
-          spawnSupervisor: ({ file, runId }: any) => spawnSupervisor({ file, runId, cwd, env, platform }),
+          spawnSupervisor: ({ file, runId }: any) => spawnSupervisor({ file, runId, cwd, env, platform, reg }),
         };
         body = action === 'start-session' ? await startSession(o) : startOptions(o);
         break;
@@ -691,7 +696,7 @@ async function executeWorkerCommand({
         body = await runAction({
           env, cwd, root, platform, clock, sleep, slug: feature, harness: String(harness), task: String(task), token: Number(token),
           needs, timeoutSeconds: seconds, prompt, worker, reg, coverage: cov, wait: Boolean(wait),
-          binding,
+          binding, effortPlan,
           edit: given(edit), childOf: given(childOf) ? String(childOf) : null, request: given(request) ? String(request) : null,
           execWorktree: given(execWorktree) ? String(execWorktree) : null,
         });

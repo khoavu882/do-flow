@@ -10,7 +10,7 @@ A harness is a coding tool that DoFlow installs into and can run as a worker. Mo
 
 The registry rows for a harness:
 
-- [`harnesses.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/harnesses.json): the harness itself. Its id, display name, adapter, install paths, capabilities and `worker` descriptor.
+- [`harnesses.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/harnesses.json): the harness itself. Its id, display name, adapter, install paths, capabilities, `worker` descriptor and `sessionEffort` entry.
 - [`assets.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/assets.json): which shared assets the harness gets and how each is rendered for it.
 - [`lifecycle.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/lifecycle.json): which hook event, if any, carries each lifecycle policy for the harness.
 - [`contracts.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/contracts.json): the skill and agent fields the harness accepts.
@@ -42,13 +42,44 @@ Two per-id fact pins in `test/guards/worker-descriptors.test.ts` are still added
 A tier binding can carry a provider and an effort beside the model id (`{"model": <id>, "provider": <p>, "effort": <e>}`). The `provider` and `effort` entries say how each reaches the harness, as data; no code names a harness for this. Both are capability entries, so the rules above hold: `supported` cites evidence and carries the recipe, `unknown` carries a `reason`. A harness with no evidence for a part is `unknown`, and `models --action bind` and a prepared run refuse that part (`unknown` and `unsupported` alike).
 
 - `via` is the transport. `provider` takes `flag` or `id-prefix`; `effort` takes `flag` or `id-suffix`.
-- `via: "flag"` carries `argv`: `["--provider-flag", "{provider}"]`, or for effort `["--effort-flag", "{effort}"]` or `["-c", "<key>={effort}"]`. The flag must not appear in `readOnly`, `spawnDenial` or `isolatedEdit`, and where another recipe carries it, it must have a fixed value.
+- `via: "flag"` carries `argv`: `["--provider-flag", "{provider}"]`, or for effort `["--effort-flag", "{effort}"]` or `["-c", "<key>={effort}"]`. A provider flag must not appear in `readOnly`, `spawnDenial` or `isolatedEdit`, and where another recipe carries it, it must have a fixed value.
+- An effort flag appears in no recipe argv at all, with a fixed value or without one: not in `oneShot`, `structuredOutput`, `mainSession`, `controlChannel`, `readOnly`, `spawnDenial` or `isolatedEdit`. An effort comes only from a binding or the session ([Session effort](reference.md#session-effort)); with neither, the harness runs its own default. The registry refuses such a descriptor with `transport flag '<flag>' must not appear in <recipe>: an effort comes only from a binding or the session`.
 - `via: "id-prefix"` or `"id-suffix"` carries `separator` (one of `/`, `:`, `#`, `@`) instead of `argv`: the provider is joined before the model id, the effort after it.
-- `effort` may carry `levels`: a list of 1 to 16 distinct names, or `"per-model"` when each model lists its own. `offLevel` names the level that switches reasoning off and needs a list. `mayLower: true` says the harness may run a lower level than bound when the model cannot run the one asked for; every display of such a binding says so. Pi sets it.
+- `effort` may carry `levels`: a list of 1 to 16 distinct names, lowest first, or `"per-model"` when each model lists its own. The order is data: a session level the worker lacks is mapped down along it. The registry refuses two harnesses whose lists hold two shared names in opposite order; it cannot prove that one list ascends. `offLevel` names the level that switches reasoning off and needs a list. `mayLower: true` says the harness may run a lower level than bound when the model cannot run the one asked for; every display of such a binding says so. Pi sets it.
+- `effort` may carry `overrideEnv`: 1 to 4 distinct variable names (`^[A-Z][A-Z0-9_]{0,63}$`) that the harness lets take precedence over its effort argument, backed by the entry's evidence. When DoFlow passes an effort it drops them from the worker's environment, so the passed level holds; with no effort passed they stay, as the person's own setting. Claude declares `CLAUDE_CODE_EFFORT_LEVEL`.
 - `provider` and `effort` need `model` to be `supported`. Every level, and a sample provider value, is put through the widening and secret-flag checks, so a level cannot add a widening flag.
 - `modelList` (when `supported`) may add `columns`, an object from a field (`provider`, `displayName`, `contextTokens`, `maxOutputTokens`, `reasoning`, `imageInput`, `effortLevels`) to a header of the listing's table, which needs `parse: "table-column:<id column>"`, and `providerInId: true`, which says each listed id is `<provider><separator><id>` and needs `provider` to be `supported` via `id-prefix`. A column for a provider needs `provider` `supported`; one for `effortLevels` or `reasoning` needs `effort` `supported`.
 
 The evidence bar is the same as for every other entry: a `supported` provider or effort cites a recorded check that establishes it (add the check to `core/worker-evidence/<id>/checks.json`; guard G41.4 recomputes it from the record). When the CLI cannot be run, a record may hold matched lines copied verbatim from a capture or an earlier record, if it carries a top-level `handAdded` string that says which file the lines come from and that no CLI was run. No evidence means `unknown` with the reason, not a guess. `doflow worker --action conform` has a `provider` and an `effort` part that check the composed argv against the fake harness.
+
+### The session's effort (`sessionEffort`)
+
+`sessionEffort` is a top-level key of the harness row, beside `primaryProbe` and outside `worker`: it describes the harness as the main session, which a harness can be without being a worker. It says how DoFlow reads the effort that session runs at, so a worker launched from it takes the same level ([Session effort](reference.md#session-effort)). It is checked by `validateSessionEffort` (`src/registry/session-effort.ts`), and every shipped harness declares it.
+
+- `status` is `supported` or `unknown`. Declare `unknown` until you have evidence: it needs a `reason` (one line, at most 240 characters) and a `verification` that names the check which would open it, may carry `evidence` and `verifiedOn`, and carries no `marker` and no `sources`.
+- `supported` needs `evidence` (not empty), `verifiedOn`, `verification`, a `marker` and `sources`, and the harness's `worker.effort` must be `supported`, since its `levels` check the value read.
+- `marker` is `{env, equals}`: a variable (`^[A-Z][A-Z0-9_]{0,63}$`) and a value (1 to 32 printable ASCII characters) that only this harness sets, in its own tool shells. It proves DoFlow runs inside that harness's session; without it nothing is read.
+- `sources` is 1 to 8 entries, highest precedence first, each `{kind, name, modes}`. `kind` is `env`, the only kind: a source is one environment variable the session sets. There is no configuration-file kind; one is added with the first harness whose session level lives in a file and has the evidence. `name` follows the same pattern, is not the marker's own variable and is distinct across sources.
+- `modes` is 1 or 2 distinct of `subscription` and `api-key`: the login modes your evidence shows the variable is set in. Declare a mode only on evidence. A source declared for one mode is not read when the session's login mode is unknown or is the other one.
+- `note` is optional, at most 240 characters. The whole entry serializes to at most 2 KiB.
+
+The shipped Claude entry:
+
+```json
+"sessionEffort": {
+  "status": "supported",
+  "marker": { "env": "CLAUDE_CODE_CHILD_SESSION", "equals": "1" },
+  "sources": [
+    { "kind": "env", "name": "CLAUDE_EFFORT", "modes": ["subscription", "api-key"] }
+  ],
+  "note": "effortLevel is not read: CLAUDE_EFFORT is unset exactly when the model takes no effort",
+  "evidence": ["https://code.claude.com/docs/en/env-vars"],
+  "verification": "Read the env-vars page for CLAUDE_EFFORT and CLAUDE_CODE_CHILD_SESSION; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
+  "verifiedOn": "2026-11-19"
+}
+```
+
+Evidence is the harness's own documentation for the variables, or a capture of them: run `env` once in one of the harness's tool shells, once per login mode you declare, and record what you read in `verification`. A setting the harness reads at startup is not a source unless it is the level the session runs: Pi's `defaultThinkingLevel` is not one. Every marker and source name you declare joins the variables DoFlow drops from the environment of each worker, started session and Console verb it launches, so DoFlow in a child never reads the parent's session as its own. The Console keeps its own copy of that list (`SESSION_VARIABLES` in `console/src/verb-runner.ts`, since the Console imports nothing from the core), and guard G86 (`test/guards/session-effort.test.ts`) fails until the copy equals the registry's names.
 
 ### The login recipe
 

@@ -48,7 +48,7 @@ test('isolatedEdit: exported as an optional capability, WORKER_KEYS unchanged', 
     model: { allowed: ['argv'], required: ['argv'] },
     mainSession: { allowed: ['argv', 'promptVia', 'parser'], required: ['argv', 'promptVia', 'parser'] },
     provider: { allowed: ['via', 'argv', 'separator'], required: ['via'] },
-    effort: { allowed: ['via', 'argv', 'separator', 'levels', 'offLevel', 'mayLower'], required: ['via', 'levels'] },
+    effort: { allowed: ['via', 'argv', 'separator', 'levels', 'offLevel', 'mayLower', 'overrideEnv'], required: ['via', 'levels'] },
   });
   assert.ok(!WORKER_KEYS.includes('isolatedEdit'));
 });

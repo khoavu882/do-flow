@@ -1769,6 +1769,32 @@ const sLabel = (value: unknown): string => (typeof value !== 'string' ? fail()
 const sWords = (value: unknown): string => (typeof value !== 'string' ? fail() : START_WORDS.test(value) && !START_PATH.test(value) ? value : WITHHELD);
 const sOneOf = (set: readonly string[]) => (value: unknown): string => (typeof value === 'string' && set.includes(value) ? value : fail());
 
+/**
+ * 178 IC-005: an entry's effort plan (src/runtime/worker/effort-resolution.ts `EffortPlan`). A level and a harness id are tokens, an
+ * origin is display text (a variable name today, withheld when it looks like a path), a reason a lowercase id the start form words.
+ */
+const START_PLAN_REASON = /^[a-z][a-z-]{0,63}$/;
+function startEffortPlan(value: unknown) {
+  const p = sRecord(value);
+  if (p.source === 'binding') return { pass: sMatch(START_EFFORT)(p.pass), source: 'binding' };
+  if (p.source === 'session') {
+    const mapped = sNull((v) => {
+      const m = sRecord(v);
+      return { from: sMatch(START_EFFORT)(m.from), to: sMatch(START_EFFORT)(m.to) };
+    })(p.mapped);
+    return {
+      pass: sMatch(START_EFFORT)(p.pass), source: 'session', harness: sMatch(START_HARNESS)(p.harness), level: sMatch(START_EFFORT)(p.level),
+      origin: sWords(p.origin), mapped, check: sOneOf(['listed', 'unchecked'])(p.check),
+    };
+  }
+  if (p.source !== 'none' || p.pass !== null) fail();
+  const s = sRecord(p.session);
+  return {
+    pass: null, source: 'none', reason: sMatch(START_PLAN_REASON)(p.reason),
+    session: { harness: sNull(sMatch(START_HARNESS))(s.harness), reason: sNull(sMatch(START_PLAN_REASON))(s.reason), level: sNull(sMatch(START_EFFORT))(s.level), origin: sNull(sWords)(s.origin) },
+  };
+}
+
 // ---- 172 IC-001, IC-005: the login answer of a worker harness (`LoginAnswer`, src/runtime/worker/login.ts) ----
 
 const LOGIN_STATES: readonly string[] = Object.freeze(['logged-in', 'logged-out', 'expired', 'unknown']);
@@ -1857,6 +1883,7 @@ function startOptions(value: unknown, context?: Context) {
         model: id, provider: sNull(sMatch(START_PROVIDER))(e.provider), effort: sNull(sMatch(START_EFFORT))(e.effort), source: sOneOf(START_SOURCES)(e.source), check,
         ...(e.effortMayLower === undefined ? {} : { effortMayLower: sBool(e.effortMayLower) }),
         ...(e.refused === undefined ? {} : { refused: sMatch(START_REFUSED)(e.refused) }),
+        ...(e.effortPlan === undefined ? {} : { effortPlan: startEffortPlan(e.effortPlan) }),
       };
     };
     return {

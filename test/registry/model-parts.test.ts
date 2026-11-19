@@ -5,7 +5,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { loadRegistry, validateWorker } = require('../../src/registry/index.ts');
+const { loadRegistry, validateRegistry, validateWorker } = require('../../src/registry/index.ts');
 const parts = require('../../src/registry/model-parts.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -57,7 +57,7 @@ test('the Pi shape of design §8 is accepted (id-prefix provider, flag effort wi
   w.provider = piProvider();
   assert.deepEqual(errorsOf(w), []);
   assert.equal(w.effort.argv[0], '--thinking');
-  assert.ok(w.oneShot.argv.includes('--thinking'), "Pi's fixed one-shot `--thinking off` stays; rule 3 accepts a fixed value");
+  assert.equal(w.oneShot.argv.includes('--thinking'), false, 'the one-shot carries no effort flag; the effort comes from the transport');
 });
 
 test('a flag provider [--provider, {provider}] is accepted', () => {
@@ -130,7 +130,8 @@ test('rule 2: levels are 1 to 16 distinct names or per-model; offLevel is one of
 test('rule 3: a transport flag may not be a flag of readOnly, spawnDenial or isolatedEdit', () => {
   for (const key of ['readOnly', 'spawnDenial']) {
     const w = pi();
-    w[key] = { ...w[key], argv: [...w[key].argv, '--thinking', 'low'] };
+    // 178 G-1: pi's own readOnly and spawnDenial are `unknown` and carry no argv, so the rule is tried on a supported entry.
+    w[key] = entry({ argv: ['--thinking', 'low'] });
     refused(w, new RegExp(`worker 'effort': transport flag '--thinking' must not appear in ${key}`));
   }
   const w = pi();
@@ -138,19 +139,74 @@ test('rule 3: a transport flag may not be a flag of readOnly, spawnDenial or iso
   refused(w, /worker 'effort': transport flag '--thinking' must not appear in isolatedEdit/);
 });
 
-test('rule 3: in oneShot, structuredOutput and mainSession the transport flag carries a fixed value', () => {
+test('(f) rule 3: the effort flag, fixed value or not, is refused in oneShot, structuredOutput, mainSession and controlChannel', () => {
+  const effortFlag = /worker 'effort': transport flag '--thinking' must not appear in (\w+): an effort comes only from a binding or the session/;
+  const cases: [string, any][] = [
+    ['oneShot', (w: any) => { w.oneShot = { ...w.oneShot, argv: ['-p', '--thinking', 'off', '{prompt}'] }; }],
+    ['oneShot', (w: any) => { w.oneShot = { ...w.oneShot, argv: ['-p', '--thinking=off', '{prompt}'] }; }],
+    ['oneShot', (w: any) => { w.oneShot = { ...w.oneShot, argv: ['-p', '--thinking', '{prompt}'] }; }],
+    ['structuredOutput', (w: any) => { w.structuredOutput = { ...w.structuredOutput, argv: ['--mode', 'json', '--thinking', 'low'] }; }],
+    ['mainSession', (w: any) => { w.mainSession = { ...w.mainSession, argv: ['-p', '--thinking', 'off', '--', '{prompt}'] }; }],
+    ['controlChannel', (w: any) => { w.controlChannel = { ...w.controlChannel, argv: ['--thinking', 'off', ...w.controlChannel.argv] }; }],
+  ];
+  for (const [recipe, edit] of cases) {
+    const w = pi();
+    edit(w);
+    const errors = errorsOf(w).filter((line) => effortFlag.test(line));
+    assert.equal(errors.length, 1, `${recipe}: ${errorsOf(w).join('\n')}`);
+    assert.equal(effortFlag.exec(errors[0])?.[1], recipe);
+  }
+});
+
+test('(f) rule 3: a provider flag with a fixed value is still accepted in a recipe; without one it is refused', () => {
   let w = pi();
-  w.oneShot = { ...w.oneShot, argv: ['-p', '--thinking', '{prompt}'] };
-  refused(w, /worker 'effort': transport flag '--thinking' in oneShot must be followed by a fixed value/);
-  w = pi();
-  w.structuredOutput = { ...w.structuredOutput, argv: ['--mode', 'json', '--thinking'] };
-  refused(w, /worker 'effort': transport flag '--thinking' in structuredOutput must be followed by a fixed value/);
-  w = pi();
-  w.oneShot = { ...w.oneShot, argv: ['-p', '--thinking={model}', '{prompt}'] };
-  refused(w, /worker 'effort': transport flag '--thinking' in oneShot must be followed by a fixed value/);
-  w = pi();
-  w.oneShot = { ...w.oneShot, argv: ['-p', '--thinking=off', '{prompt}'] };
+  w.oneShot = { ...w.oneShot, argv: ['-p', '--provider', 'openai', '{prompt}'] };
   assert.deepEqual(errorsOf(w), []);
+  w = pi();
+  w.oneShot = { ...w.oneShot, argv: ['-p', '--provider=openai', '{prompt}'] };
+  assert.deepEqual(errorsOf(w), []);
+  w = pi();
+  w.oneShot = { ...w.oneShot, argv: ['-p', '--provider', '{prompt}'] };
+  refused(w, /worker 'provider': transport flag '--provider' in oneShot must be followed by a fixed value/);
+});
+
+test('(g) overrideEnv is 1 to 4 distinct variable names on a supported effort entry', () => {
+  const effortWith = (overrideEnv: any) => { const w = pi(); w.effort = { ...piEffort(), overrideEnv }; return w; };
+  assert.deepEqual(errorsOf(effortWith(['CLAUDE_CODE_EFFORT_LEVEL'])), []);
+  assert.deepEqual(errorsOf(effortWith(['A_1', 'B_2', 'C_3', 'D_4'])), []);
+  const pattern = /worker 'effort': overrideEnv must be 1 to 4 distinct variable names matching/;
+  refused(effortWith(['lower_case']), pattern);
+  refused(effortWith(['BAD NAME']), pattern);
+  refused(effortWith(['A_1', 'B_2', 'C_3', 'D_4', 'E_5']), pattern);
+  refused(effortWith([]), pattern);
+  refused(effortWith(['A_1', 'A_1']), pattern);
+  refused(effortWith('A_1'), pattern);
+  const w = pi();
+  w.provider = { ...piProvider(), overrideEnv: ['A_1'] };
+  refused(w, /worker 'provider': has unknown field 'overrideEnv'/);
+  const unknownEffort = pi();
+  unknownEffort.effort = { ...entry({ overrideEnv: ['A_1'] }, 'unknown'), reason: 'no evidence' };
+  unknownEffort.modelList.columns = { displayName: 'name' };
+  refused(unknownEffort, /worker 'effort': recipe field 'overrideEnv' is allowed only when status is supported/);
+});
+
+test('(h) levelOrderProblem refuses two harnesses that list two shared levels in opposite order', () => {
+  const harness = (id: string, levels: any) => ({ id, worker: { effort: { status: 'supported', levels } } });
+  const message = parts.levelOrderProblem([harness('a', ['low', 'high']), harness('b', ['high', 'low'])]);
+  assert.match(message, /'a'.*'b'|'b'.*'a'/);
+  assert.match(message, /low.*high|high.*low/);
+  assert.equal(parts.levelOrderProblem([harness('a', ['low', 'high']), harness('b', ['minimal', 'low', 'medium', 'high'])]), null);
+  assert.equal(parts.levelOrderProblem([harness('a', ['low', 'high']), harness('b', ['high', 'max'])]), null, 'one shared name has no order');
+  assert.equal(parts.levelOrderProblem([harness('a', ['low', 'high']), harness('b', 'per-model'), { id: 'c', worker: { effort: { status: 'unknown' } } }, { id: 'd' }]), null);
+});
+
+test('(h) validateRegistry reports a reversed level list across the loaded harness set', () => {
+  const registry = structuredClone(loadRegistry({ repoRoot: REPO }));
+  const claudeEffort = registry.harnesses.find((h: any) => h.id === 'claude').worker.effort;
+  assert.equal(claudeEffort.status, 'supported');
+  claudeEffort.levels = [...claudeEffort.levels].reverse();
+  const errors: string[] = validateRegistry(registry, { repoRoot: registry.repoRoot, sources: 'skip' }).errors;
+  assert.ok(errors.some((line) => /opposite order/.test(line)), errors.join('\n'));
 });
 
 test('rule 4: a widening or secret value among the levels, or a widening key=, is refused', () => {

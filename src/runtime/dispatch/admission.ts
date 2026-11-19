@@ -31,7 +31,7 @@ const { readTaskState } = require('../task-state.ts');
 const { procStart, alive } = require('../worker/process-tree.ts');
 const { storeFileFor: runStoreFileFor, readRuns } = require('../worker/run-store.ts');
 const { statusView } = require('../worker/command.ts');
-const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, setRunState, DispatchStoreError } = require('./store.ts');
+const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, setRunState, validEffortPlan, DispatchStoreError } = require('./store.ts');
 const { managerFor, createAttemptWorktree } = require('./integrate.ts');
 const { copyGrant } = require('./grants.ts');
 const { resolveTaskModel } = require('../worker/models.ts');
@@ -136,7 +136,8 @@ function modeOf(answer: any, task: string) {
 }
 
 /** IC-013 / IC-010: validate and copy an optional admission model snapshot. 169: `provider` and `effort` (nullable strings) are
- * copied only when set, so a record of a plain model keeps the shape it had. */
+ * copied only when set, so a record of a plain model keeps the shape it had. 178: an `effortPlan` is kept when it is a valid
+ * plan and dropped, never refused, when it is not (`validEffortPlan`). */
 function modelOf(answer: any, task: string): any {
   if (answer === undefined || answer === null) {
     return { model: { tier: null, requested: null, source: null }, primary: null };
@@ -153,8 +154,12 @@ function modelOf(answer: any, task: string): any {
       || typeof primary.state !== 'string' || primary.state.length === 0))) {
     throw usage(`modelFor('${task}') returned an invalid model snapshot`);
   }
+  const effortPlan = validEffortPlan(model.effortPlan);
   return {
-    model: { tier: model.tier, requested: model.requested, source: model.source, ...(model.provider ? { provider: model.provider } : {}), ...(model.effort ? { effort: model.effort } : {}) },
+    model: {
+      tier: model.tier, requested: model.requested, source: model.source, ...(model.provider ? { provider: model.provider } : {}), ...(model.effort ? { effort: model.effort } : {}),
+      ...(effortPlan === null ? {} : { effortPlan: structuredClone(effortPlan) }),
+    },
     primary: primary === null ? null : { harness: primary.harness, model: primary.model, state: primary.state },
   };
 }
