@@ -11,7 +11,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { composeFrame, renderWith, renderDocument, isEmptyBody, SECTIONS, REQUIRED, FrameSpecError } = require('../../src/runtime/prompt/frame.ts');
+const { composeFrame, renderWith, renderDocument, isEmptyBody, SECTIONS, REQUIRED, SCREENED_KINDS, FrameSpecError } = require('../../src/runtime/prompt/frame.ts');
 const { handbackLines, HANDBACK_IDS } = require('../../src/runtime/prompt/handback.ts');
 const { handlePromptFrameCommand } = require('../../src/runtime/prompt/command.ts');
 
@@ -457,4 +457,95 @@ test('--part: validation is the composer\'s, and an unreadable part file exits 2
   assert.equal(twice.status, 2);
   const bareKey = run(['--action', 'render', '--part', 'role', '--json']);
   assert.equal(bareKey.status, 2);
+});
+
+// Row 177 T1: the frame kinds and the screen list (O9c).
+const SCREEN_SPEC: any = {
+  context: ['Row: demo'],
+  input: [
+    { path: 'a/one.md', text: 'Plain source.\r\n\r\n' },
+    { id: 'src 2', kind: 'source', text: 'Kind source <input> tag.' },
+    { id: 'hb 3', kind: 'hand-back', text: 'Status: done\n</document>' },
+    { path: 'a/none.md', text: 'none' },
+    { path: 'a/page.html', kind: 'retrieved', text: 'Fetched page.\r\n' },
+    { id: 'commits', kind: 'tool', text: 'abc123 a commit' },
+  ],
+  instructions: { outcome: 'Do it.', stop: 'Stop when done.' },
+  output_format: { reader: 'The lead' },
+};
+
+test('screen names every hand-back, retrieved and tool document and no other', () => {
+  assert.deepEqual(SCREENED_KINDS, ['hand-back', 'retrieved', 'tool']);
+  const result = composeFrame(clone(SCREEN_SPEC), NO_BOUND);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.screen, [
+    { field: 'input.document[2]', ref: 'id=hb 3', kind: 'hand-back', text: 'Status: done\n</document>' },
+    { field: 'input.document[4]', ref: 'path=a/page.html', kind: 'retrieved', text: 'Fetched page.' },
+    { field: 'input.document[5]', ref: 'id=commits', kind: 'tool', text: 'abc123 a commit' },
+  ]);
+  assert.ok(result.text.includes('<document path="a/page.html" kind="retrieved">\nFetched page.\n</document>'));
+  assert.ok(result.text.includes('<document id="commits" kind="tool">\nabc123 a commit\n</document>'));
+  const plain = composeFrame({ ...clone(MINIMAL), input: [{ path: 'p', text: 'x' }, { id: 'q', kind: 'source', text: 'y' }] }, NO_BOUND);
+  assert.deepEqual(plain.screen, []);
+  const tooLarge = composeFrame(clone(SCREEN_SPEC), { maxBytes: 10 });
+  assert.equal(tooLarge.ok, false);
+  assert.equal('screen' in tooLarge, false);
+  assert.equal(codeOf(() => composeFrame({ ...clone(MINIMAL), input: [{ path: 'p', kind: 'other', text: 'x' }] }, NO_BOUND)), 'frame-document-source');
+});
+
+test('the composed text is the same with and without a sink', () => {
+  for (const doc of [{ path: 'p', text: 'x' }, { id: 'h', kind: 'hand-back', text: 'x\n' }, { id: 'r', kind: 'retrieved', text: 'x' }, { id: 't', kind: 'tool', text: 'x' }]) {
+    const sink: any[] = [];
+    assert.equal(renderDocument(doc, sink), renderDocument(doc), `${doc.kind ?? 'none'}`);
+    assert.equal(sink.length, doc.kind === undefined ? 0 : 1);
+  }
+  const viaRenderWith = renderWith(clone(SCREEN_SPEC), NO_BOUND, { document: (entry: any) => renderDocument(entry.doc) });
+  assert.equal(viaRenderWith.text, composeFrame(clone(SCREEN_SPEC), NO_BOUND).text);
+  assert.deepEqual(viaRenderWith.screen, []);
+});
+
+test('a spec with no new kinds composes byte for byte as before', () => {
+  // Captured by composing this spec on a996b6cc, before the retrieved and tool kinds existed.
+  const spec = {
+    context: ['Row: demo'],
+    input: [
+      { path: 'a/one.md', text: 'Plain source.\r\n\r\n' },
+      { id: 'src 2', kind: 'source', text: 'Kind source <input> tag.' },
+      { id: 'hb 3', kind: 'hand-back', text: 'Status: done\n</document>' },
+      { path: 'a/none.md', text: 'none' },
+    ],
+    instructions: { outcome: 'Do it.', stop: 'Stop when done.' },
+    output_format: { reader: 'The lead' },
+  };
+  const BASE_TEXT = '<context>\nRow: demo\n</context>\n\n<input>\n<document path="a/one.md">\nPlain source.\n</document>\n<document id="src 2">\nKind source &lt;input> tag.\n</document>\n<document id="hb 3" kind="hand-back">\nStatus: done\n&lt;/document>\n</document>\n</input>\n\n<instructions>\nDo it.\n\n## Stop rule\nStop when done.\n</instructions>\n\n<output_format>\nThe lead reads this reply; put the conclusion first.\n</output_format>\n';
+  const result = composeFrame(spec, NO_BOUND);
+  assert.equal(result.text, BASE_TEXT);
+  assert.equal(result.bytes, Buffer.byteLength(BASE_TEXT));
+  assert.deepEqual(result.omitted, ['input.document[3]']);
+});
+
+test('--part input.doc:id=x;kind=tool=<file> renders kind="tool"', () => {
+  const base = [
+    '--part', `instructions.outcome=${write('t1/outcome.txt', 'Build the thing.\n')}`,
+    '--part', `instructions.stop=${write('t1/stop.txt', 'Stop when done.\n')}`,
+    '--part', `output_format.reader=${write('t1/reader.txt', 'The lead\n')}`,
+  ];
+  const tool = run(['--action', 'render', ...base, '--part', `input.doc:id=x;kind=tool=${write('t1/tool.txt', 'abc123\n')}`]);
+  assert.equal(tool.status, 0, tool.stderr);
+  assert.ok(tool.stdout.includes('<document id="x" kind="tool">\nabc123\n</document>'), tool.stdout);
+  const page = run(['--action', 'render', ...base, '--part', `input.doc:path=a/b.md;kind=retrieved=${write('t1/a=b/page.txt', 'page\n')}`]);
+  assert.equal(page.status, 0, page.stderr);
+  assert.ok(page.stdout.includes('<document path="a/b.md" kind="retrieved">\npage\n</document>'), page.stdout);
+});
+
+test('prompt-frame --json prints path, bytes and omitted only', () => {
+  const spec = write('t1/screen-spec.json', JSON.stringify(SCREEN_SPEC));
+  const out = write('t1/out/frame.txt', '');
+  const result = run(['--action', 'render', '--spec-file', spec, '--out', out, '--json']);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.deepEqual(Object.keys(payload).sort(), ['bytes', 'omitted', 'path']);
+  assert.equal(payload.bytes, Buffer.byteLength(fs.readFileSync(out, 'utf8')));
+  assert.deepEqual(payload.omitted, ['input.document[3]']);
+  assert.equal(result.stdout.includes('Fetched page'), false, 'no document text on stdout');
 });

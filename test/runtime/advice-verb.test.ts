@@ -179,6 +179,19 @@ test('IC-008 off prints its status and unavailable prints the none line, both ex
   assert.equal(JSON.parse(unavailableJson.stdout).reason, 'unreachable');
 });
 
+test('177 IC-010 flags is an advise action: the not-shown line exits 0, --json has flags [], a bad --limit exits 2', (t) => {
+  const f = fixture(t);
+  const text = f.run(['--action', 'flags']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.equal(text.stdout, 'Flags are recorded and not shown: the kind is unset\n');
+  const json = f.run(['--action', 'flags', '--json']);
+  assert.equal(json.status, 0, json.stderr);
+  assert.deepEqual(JSON.parse(json.stdout), {
+    schema: 1, kind: 'instructs-reader', model: null, shown: false, standing: null, reason: 'the kind is unset', flags: [],
+  });
+  assertUsage(f, ['--action', 'flags', '--limit', '201'], '--limit');
+});
+
 test('IC-009 outcome appends to the pick store and works while the feature is off', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();

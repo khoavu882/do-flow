@@ -243,3 +243,63 @@ test('175 T5: the digest helpers are sha256 over canonical JSON, independent of 
   assert.notEqual(caseSetDigest([a, b]), caseSetDigest([a, { ...b, state: 'one!' }]), 'the state is part of the digest');
   assert.match(projectKey(REPO_ROOT), /^sha256:[0-9a-f]{64}$/);
 });
+
+test('177 T4: a stored result goes stale when builderVersion rises', async (t) => {
+  const f = setup(t);
+  const reg = registry();
+  const irKind = reg.kinds.find((entry: any) => entry.id === 'instructs-reader');
+  const irQuestion = materializeKind('instructs-reader', { adviceRegistry: reg }).question;
+  const v1 = getSource('instructs-reader-corpus');
+  assert.equal(v1.builderVersion, 1);
+  const bars = effectiveBars({ registry: reg, kind: 'instructs-reader', roots: f.roots });
+  writeResult({ roots: f.roots, entry: {
+    kind: 'instructs-reader', provider: 'local', model: 'decider:4b', modelDigest: MODEL_DIGEST,
+    questionDigest: questionDigest(irQuestion), builderDigest: builderDigest(v1, irKind), barsDigest: barsDigest(bars.bars, irKind.budgetMs),
+    caseSet: { source: v1.id, origin: v1.origin, projectKey: projectKey(f.project), digest: caseSetDigest([]), eligible: 120, replayed: 120 },
+    metrics: PASSING, runAt: '2026-11-19T08:00:00.000Z', doflowVersion: '2.4.0',
+  } });
+  const standing = (source: any) => evaluateTrust({
+    kind: 'instructs-reader', model: 'decider:4b', provider: 'local', endpoint: 'http://127.0.0.1:1', question: irQuestion,
+    registry: reg, roots: f.roots, client: f.client, projectRoot: f.project, sourceOf: () => source,
+  });
+  const fresh = await standing(v1);
+  assert.deepEqual([fresh.standing, fresh.staleDigest], ['act', null]);
+  const raised = await standing({ ...v1, builderVersion: v1.builderVersion + 1 });
+  assert.deepEqual([raised.standing, raised.staleDigest], ['stale', 'builder']);
+});
+
+test('177 F-02: a moved corpus or rule pin gives another builder digest, and a result stored under the old one is stale', async (t) => {
+  const f = setup(t);
+  const reg = registry();
+  const irKind = reg.kinds.find((entry: any) => entry.id === 'instructs-reader');
+  const irQuestion = materializeKind('instructs-reader', { adviceRegistry: reg }).question;
+  const shipped = getSource('instructs-reader-corpus');
+  assert.deepEqual(Object.keys(shipped.params).sort(), ['corpusDigest', 'ruleDigest']);
+  const moved = (params: any) => ({ ...shipped, params: { ...shipped.params, ...params } });
+  const old = builderDigest(shipped, irKind);
+  assert.notEqual(builderDigest(moved({ corpusDigest: 'f'.repeat(64) }), irKind), old, 'a moved corpus pin moves the digest');
+  assert.notEqual(builderDigest(moved({ ruleDigest: 'f'.repeat(64) }), irKind), old, 'a moved rule pin moves the digest');
+  const bars = effectiveBars({ registry: reg, kind: 'instructs-reader', roots: f.roots });
+  writeResult({ roots: f.roots, entry: {
+    kind: 'instructs-reader', provider: 'local', model: 'decider:4b', modelDigest: MODEL_DIGEST,
+    questionDigest: questionDigest(irQuestion), builderDigest: old, barsDigest: barsDigest(bars.bars, irKind.budgetMs),
+    caseSet: { source: shipped.id, origin: shipped.origin, projectKey: projectKey(f.project), digest: caseSetDigest([]), eligible: 120, replayed: 120 },
+    metrics: PASSING, runAt: '2026-11-19T08:00:00.000Z', doflowVersion: '2.4.0',
+  } });
+  const standing = (source: any) => evaluateTrust({
+    kind: 'instructs-reader', model: 'decider:4b', provider: 'local', endpoint: 'http://127.0.0.1:1', question: irQuestion,
+    registry: reg, roots: f.roots, client: f.client, projectRoot: f.project, sourceOf: () => source,
+  });
+  const fresh = await standing(shipped);
+  assert.deepEqual([fresh.standing, fresh.staleDigest], ['act', null]);
+  for (const params of [{ corpusDigest: 'f'.repeat(64) }, { ruleDigest: 'f'.repeat(64) }]) {
+    const trust = await standing(moved(params));
+    assert.deepEqual([trust.standing, trust.staleDigest], ['stale', 'builder'], Object.keys(params)[0]);
+  }
+});
+
+test('177 F-02: a source with no params keeps its builder digest, so no stored claim-support result goes stale', () => {
+  const kind = { params: { passageCap: 100 } };
+  assert.equal(getSource('claim-ledger').params, undefined);
+  assert.equal(builderDigest(getSource('claim-ledger'), kind), 'sha256:adc7b224d4dd11669664236ffd17984973cf226316241dd2a2c6138cb685c00c');
+});

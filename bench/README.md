@@ -126,7 +126,7 @@ the flag with exit 2, as it does an unknown option.
 
 `bench/advice/<kind>.json` holds the cases the decision model is scored on. Format 2 has `schemaVersion` 2, `kind`, an integer `corpusVersion`, and cases with `id`, `split` (`train` or `heldout`), `state`, `staticPick`, `expected`, `origin` and `note`. `origin` is `synthetic` or `consented`; a case is never copied from a user's prompt, state or records. `advice-coverage` checks the format and `advice-gate` scores the `heldout` cases only.
 
-Committed heldout counts (n per kind, all `synthetic`): `tier` 32, `task-class` 36, `verify-risk` 32, `review-depth` 31, `claim-support` 36, `mcp-need` 1. `advice-gate` prints figures only, so no count here is a bar and nothing it prints is stored; no kind shows or acts on it. The bars, the standings and the local results are explained in [Reference](../docs/reference.md#decision-model-replay-and-local-results); the scorer and the shadow kinds in [Reference](../docs/reference.md#decision-model-report-evidence-and-shadow-kinds).
+Committed heldout counts (n per kind, all `synthetic`): `tier` 32, `task-class` 36, `verify-risk` 32, `review-depth` 31, `claim-support` 36, `mcp-need` 1, `instructs-reader` 2. `advice-gate` prints figures only, so no count here is a bar and nothing it prints is stored; no kind shows or acts on it. The bars, the standings and the local results are explained in [Reference](../docs/reference.md#decision-model-replay-and-local-results); the scorer and the shadow kinds in [Reference](../docs/reference.md#decision-model-report-evidence-and-shadow-kinds).
 
 ## Case format
 

@@ -40,9 +40,10 @@ function questionDigest(question: any): string {
   return digestOf(question ?? null);
 }
 
-/** How the cases were built: the source's id and builder version and the kind's params. */
+/** How the cases were built: the source's id, builder version and own `params` (when it has any) and the kind's params. */
 function builderDigest(source: any, kind: any): string {
-  return digestOf({ source: source?.id ?? null, builderVersion: source?.builderVersion ?? null, params: kind?.params ?? null });
+  const built = { source: source?.id ?? null, builderVersion: source?.builderVersion ?? null, params: kind?.params ?? null };
+  return digestOf(source?.params ? { ...built, sourceParams: source.params } : built);
 }
 
 /** The effective bars of the kind (`effectiveBars(...).bars`) and the kind's `budgetMs`. */

@@ -17,8 +17,8 @@ const REGISTRY: any = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/
 // A kind nothing asks at runtime (empty askedBy) has no settings; the guard in test/guards/settings.test.ts (G44 S7) holds that.
 const KINDS: string[] = REGISTRY.kinds.filter((kind: any) => kind.askedBy.length > 0).map((kind: any) => kind.id);
 
-test('the advice registry asks these six kinds at runtime; rerank stays only for offline measurement', () => {
-  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support']);
+test('the advice registry asks these seven kinds at runtime; rerank stays only for offline measurement', () => {
+  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support', 'instructs-reader']);
   assert.deepEqual(REGISTRY.kinds.find((kind: any) => kind.id === 'rerank').askedBy, []);
 });
 

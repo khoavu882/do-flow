@@ -40,6 +40,8 @@ const PICK_KINDS_LIMIT = 32;
 const ANSWER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const WITHHELD = '(withheld)';
 const KIND = /^[a-z][a-z0-9-]{0,31}$/;
+/** 177 D11: the kind whose `pick` and `static` this feed never shows. */
+const WITHHELD_KIND = 'instructs-reader';
 /** `PICK_ID`, src/runtime/advice/record.ts:115. */
 const PICK_ID = /^adv-[0-9]{13}-[0-9a-f]{6}$/;
 const ISO_TIME = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,3})?Z$/;
@@ -216,8 +218,10 @@ function compute(options: PicksOptions): Answer {
     return ib < ia ? -1 : ib > ia ? 1 : 0;
   });
   const picks = candidates.slice(0, PICKS_LIMIT).map((record) => {
-    const pick = answerOf(record.pick);
-    const statik = staticOf(record.static);
+    // 177 D11: an instructs-reader pick is a per-document flag, shown only by `advise --action flags` past the show bar.
+    const withheld = record.kind === WITHHELD_KIND;
+    const pick = withheld ? WITHHELD : answerOf(record.pick);
+    const statik = withheld ? WITHHELD : staticOf(record.static);
     const found = typeof record.pickId === 'string' ? outcomes.get(record.pickId) : undefined;
     let outcome: { actual: string; at: string; agree: boolean | null } | null = null;
     if (found) {

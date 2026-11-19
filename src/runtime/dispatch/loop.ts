@@ -66,6 +66,7 @@ const { registerDriver, endDriver, admit, dispatchModelFor, MAIN_SESSION_MODES, 
 const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
 const { buildHandoff, buildResult, writeEnvelope, writeHandoffPrompt, cutUtf8, normalizeFile } = require('./envelope.ts');
+const { screenDocuments } = require('../advice/instructs-reader.ts');
 const { handoffPrompt } = require('./handoff-prompt.ts');
 const { loadBriefRules } = require('../brief-rules.ts');
 const { runVerification } = require('./verify-run.ts');
@@ -1278,6 +1279,10 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
     return;
   }
   const promptFile = writeHandoffPrompt({ stateRoot: p.stateRoot, dispatchId: d.dispatchId, text: prompt.text });
+  // 177: each upstream hand-back is asked about in a detached shadow call; never awaited, and nothing it does reaches the prompt or the launch.
+  try {
+    screenDocuments({ screen: prompt.screen, site: 'dispatch', brief: d.dispatchId, taskId: d.task, projectRoot: p.root, env: p.env });
+  } catch { /* advisory */ }
 
   let outcome: any;
   try {

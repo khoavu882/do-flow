@@ -12,13 +12,15 @@ const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { finishRuntime, usageError, EXIT } = require('../cli-result.ts');
 const { composeFrame, FrameSpecError } = require('./frame.ts');
+const { screenDocuments } = require('../advice/instructs-reader.ts');
+const { projectRoot: lifecycleProjectRoot } = require('../lifecycle/root.ts');
 
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 const GUIDE = path.join('core', 'shared', 'guidance', 'references', 'PROMPT_FRAME.md');
-const DOC_KEY = /^input\.doc:(path|id)=(.+?)(?:;kind=(source|hand-back))?$/;
+const DOC_KEY = /^input\.doc:(path|id)=(.+?)(?:;kind=(source|hand-back|retrieved|tool))?$/;
 // The key of an `input.doc:` part holds its own `=` (`path=<rel>`, `id=<id>`), so the file begins at the first `=`
 // after that value (and after `;kind=...`); a document path or id therefore holds no `=`. Any other key ends at the first `=`.
-const DOC_PART = /^input\.doc:(?:path|id)=[^=]+?(?:;kind=(?:source|hand-back))?(?==)/;
+const DOC_PART = /^input\.doc:(?:path|id)=[^=]+?(?:;kind=(?:source|hand-back|retrieved|tool))?(?==)/;
 const CONSTRAINT_PREFIX = 'instructions.constraint:';
 
 /** Reads one input file as UTF-8 text, at most 4 MiB; `code` names the failure for the error shape. */
@@ -40,7 +42,7 @@ const lines = (body: string): string[] => body.split(/\r?\n/).filter((line) => l
  * The FrameSpec of a list of `<key>=<file>` parts. The file is whatever follows the key's end (the first `=`, or for
  * `input.doc:` the first `=` after its path or id and `;kind=`), so a file path may hold `=`; the key is
  * one of header, role, context, instructions.outcome|success|steps|stop, instructions.constraint:<Heading>
- * (repeatable), example, output_format.reader|lines, input.doc:path=<rel>|input.doc:id=<id>[;kind=hand-back]
+ * (repeatable), example, output_format.reader|lines, input.doc:path=<rel>|input.doc:id=<id>[;kind=hand-back|retrieved|tool]
  * (repeatable). Unknown keys and empty parts are the composer's to refuse, as for a spec file.
  */
 function specFromParts(parts: string[], { budgetLines, cwd }: { budgetLines?: number, cwd: string }): any {
@@ -58,7 +60,7 @@ function specFromParts(parts: string[], { budgetLines, cwd }: { budgetLines?: nu
     if (doc) {
       (spec.input = spec.input || []).push({ [doc[1]]: doc[2], ...(doc[3] ? { kind: doc[3] } : {}), text: body() });
     } else if (key.startsWith('input.doc:')) {
-      throw new FrameSpecError('frame-document-source', `--part ${key} is input.doc:path=<rel> or input.doc:id=<id>, then ;kind=hand-back`);
+      throw new FrameSpecError('frame-document-source', `--part ${key} is input.doc:path=<rel> or input.doc:id=<id>, then ;kind=source|hand-back|retrieved|tool`);
     } else if (key.startsWith(CONSTRAINT_PREFIX)) {
       (ins().constraints = ins().constraints || []).push({ heading: key.slice(CONSTRAINT_PREFIX.length), body: body() });
     } else {
@@ -95,7 +97,7 @@ function report(payload: any, exit: number, json: boolean): number {
 
 const specInvalid = (error: any, json: boolean) => report({ error: 'frame-spec-invalid', code: error.code, detail: error.detail }, EXIT.USAGE, json);
 
-function render({ specFile, parts, budgetLines, maxBytes, out, json, cwd }: any): number {
+function render({ specFile, parts, budgetLines, maxBytes, out, json, cwd, projectRoot, env, services }: any): number {
   if (specFile && parts?.length) return usageError('prompt-frame', '--spec-file and --part are two ways to give the same spec; use one', json);
   if (!specFile && !parts?.length) return usageError('prompt-frame', '--action render needs --spec-file <json> or one or more --part <key>=<file>', json);
   if (specFile && budgetLines !== undefined) return usageError('prompt-frame', '--budget-lines goes with --part; a spec file states budgetLines itself', json);
@@ -130,6 +132,11 @@ function render({ specFile, parts, budgetLines, maxBytes, out, json, cwd }: any)
     if (json) console.log(JSON.stringify({ path: target, bytes: result.bytes, omitted: result.omitted }));
   } else if (json) console.log(JSON.stringify({ text: result.text, bytes: result.bytes, omitted: result.omitted }));
   else process.stdout.write(result.text);
+  // After the text is delivered; detached, never awaited, and a throw is swallowed: nothing printed, written or exited with changes.
+  try {
+    // The root is resolved (git work) only when something is screened (FR-013).
+    if (result.screen.length) screenDocuments({ screen: result.screen, site: 'prompt-frame', brief: out ? path.basename(out) : null, projectRoot: projectRoot || lifecycleProjectRoot(cwd), env, services });
+  } catch { /* advisory */ }
   return finishRuntime(EXIT.OK);
 }
 
@@ -151,11 +158,14 @@ function guide({ repoRoot, json }: any): number {
  * @param {number} [input.budgetLines] render, with parts: the line budget of the reply
  * @param {string} [input.maxBytes] render: refuse a frame larger than this many bytes (exit 3)
  * @param {string} [input.out] render: write the frame here, by temp file and rename
+ * @param {string} [input.projectRoot] render: where the screening of retrieved, tool and hand-back documents reads its settings; the project root of the working directory when omitted
+ * @param {Object} [input.env] render: the environment that screening reads; the process's when omitted
+ * @param {Object} [input.services] render: the screening's test seam (see screenDocuments)
  * @param {boolean} [input.json]
  * @returns {number} the exit status
  */
-function handlePromptFrameCommand({ action, specFile, parts, budgetLines, maxBytes, out, json = false, repoRoot = REPO_ROOT, cwd = process.cwd() }: any = {}): number {
-  if (action === 'render') return render({ specFile, parts, budgetLines, maxBytes, out, json, cwd });
+function handlePromptFrameCommand({ action, specFile, parts, budgetLines, maxBytes, out, json = false, repoRoot = REPO_ROOT, cwd = process.cwd(), projectRoot, env, services }: any = {}): number {
+  if (action === 'render') return render({ specFile, parts, budgetLines, maxBytes, out, json, cwd, projectRoot, env, services });
   if (action === 'guide') return guide({ repoRoot, json });
   return usageError('prompt-frame', `--action is render or guide${action ? `, got '${action}'` : ''}`, json);
 }

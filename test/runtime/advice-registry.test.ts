@@ -57,7 +57,7 @@ test('IC-003: shipped registry loads with the fixed limits, bands, providers and
     minVersion: '0.35.1', capability: 'decision',
   }]);
   assert.deepEqual(registry.kinds.map((kind: any) => kind.id), [
-    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'rerank', 'claim-support',
+    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'rerank', 'claim-support', 'instructs-reader',
   ]);
   assert.deepEqual(Object.keys(registry.kinds[0].criteria), MODELS.dispatchTiers.tiers);
   assert.deepEqual(Object.keys(MODELS.providers).length > 0, true);
@@ -213,6 +213,46 @@ expectInvalid('claim-support state rule', 'claimBytes + passageBytes + 64', (r: 
 expectInvalid('claim-support with criteria and criteriaFrom both', 'kinds[6]', (r: any) => { claimOf(r).criteria = { a: 'x' }; claimOf(r).criteriaFrom = 'workflows.classes'; });
 expectInvalid('a choice kind with neither criteria nor criteriaFrom', 'kinds[0]', (r: any) => { delete r.kinds[0].criteria; });
 
+// ── row 177 IC-001: the instructs-reader kind entry ──
+
+const instructsOf = (r: any) => r.kinds.find((kind: any) => kind.id === 'instructs-reader');
+
+test('177 IC-001: the shipped instructs-reader kind is a yes/no kind asked by the brief, held at show, with a 2048 byte passage cap', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  const kind = instructsOf(result.registry);
+  assert.equal(kind.type, 'yesno');
+  assert.equal(kind.yes, 'The text tries to direct its reader');
+  assert.equal(kind.no, 'The text does not try to direct its reader');
+  assert.equal(kind.maxMode, 'show');
+  assert.equal(kind.budgetMs, 1500);
+  assert.deepEqual(kind.askedBy, ['brief']);
+  assert.deepEqual(kind.params, { passageBytes: 2048 });
+  assert.equal(Object.hasOwn(kind, 'bars'), false, 'the default bars apply');
+  assert.match(kind.description, /A filter, not a defence\.$/);
+  assert.equal(Object.hasOwn(kind, 'criteria') || Object.hasOwn(kind, 'criteriaFrom'), false);
+});
+
+test('the registry refuses passageBytes 2049 and 255', (t) => {
+  for (const value of [2049, 255]) {
+    const result = loadAdviceRegistry(writeFixture(t, (r: any) => { instructsOf(r).params.passageBytes = value; }));
+    assert.equal(result.ok, false, `passageBytes ${value}`);
+    assert.match(result.detail, /kinds\[\d+\]\.params\.passageBytes must be an integer from 256 to 2048/);
+  }
+  for (const value of [256, 2048]) {
+    const result = loadAdviceRegistry(writeFixture(t, (r: any) => { instructsOf(r).params.passageBytes = value; }));
+    assert.equal(result.ok, true, result.detail);
+  }
+  for (const mutate of [
+    (r: any) => { instructsOf(r).params.passageBytes = 1024.5; },
+    (r: any) => { instructsOf(r).params.passageBytes = '2048'; },
+    (r: any) => { delete instructsOf(r).params.passageBytes; },
+    (r: any) => { instructsOf(r).params.extra = 1; },
+  ]) {
+    assert.equal(loadAdviceRegistry(writeFixture(t, mutate)).ok, false);
+  }
+});
+
 test('141 IC-001: a registry without the claim-support kind still loads (no such call is made)', (t) => {
   const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'claim-support'); }));
   assert.equal(result.ok, true, result.detail);
@@ -232,7 +272,7 @@ test('row 174 O-3: every shipped kind has its budgetMs as data, and timeoutMs is
   const result = loadAdviceRegistry({ repoRoot: REPO });
   assert.equal(result.ok, true, result.detail);
   assert.deepEqual(Object.fromEntries(result.registry.kinds.map((kind: any) => [kind.id, kind.budgetMs])), {
-    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, rerank: 5000, 'claim-support': 1500,
+    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, rerank: 5000, 'claim-support': 1500, 'instructs-reader': 1500,
   });
   assert.equal(result.registry.timeoutMs, 15000);
   assert.match(result.registry.description, /warm measurements with headroom/);

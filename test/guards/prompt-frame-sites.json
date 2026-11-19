@@ -3,7 +3,8 @@
     "Anthropic", "OpenAI", "Google", "Amazon", "Claude", "GPT", "Gemini", "Codex", "Copilot", "Kiro", "OpenCode",
     "Antigravity", "Opus", "Sonnet", "Haiku", "Fable", "Mythos"
   ],
-  "composerFiles": { "src/runtime/prompt/command.ts": "the prompt-frame verb: it renders a spec the caller supplies, so it is the composer's own entry, not a site that composes a prompt of its own" },
+  "composerFiles": { "src/runtime/prompt/command.ts": "the prompt-frame verb: it renders a spec the caller supplies, so it is the composer's own entry, not a site that composes a prompt of its own",
+    "src/runtime/advice/instructs-reader.ts": "renders one quoted document as the state of a decision call (the scorer protocol's state), never a prompt of its own" },
   "sites": [
     { "id": "C1", "file": "core/shared/scripts/doflow/bash/do-task-brief.sh", "status": "framed", "fixture": "C1" },
     { "id": "C2", "file": "core/shared/scripts/doflow/bash/do-task-brief.sh", "status": "framed", "fixture": "C2" },

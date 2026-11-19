@@ -38,7 +38,7 @@ const READER = 'The DoFlow dispatcher, which parses your final message,';
  * @param {Array<{id: string, summary: string}>} [input.upstream] the `dependsOn` tasks that have a result
  *   envelope, each with that result's summary; a `dependsOn` id missing here has no hand-back yet
  * @param {string[]} [input.rules] the must-carry rule lines (`loadBriefRules`)
- * @returns {{ok: true, text: string, bytes: number} | {ok: false, code: 'prompt-too-large', bytes: number, maxBytes: number}}
+ * @returns {{ok: true, text: string, bytes: number, screen: Array<{field: string, ref: string, kind: string, text: string}>} | {ok: false, code: 'prompt-too-large', bytes: number, maxBytes: number}}
  * @throws {FrameSpecError} for an envelope the frame cannot hold (a path with a newline)
  */
 function handoffPrompt({ envelope, envelopePath, upstream = [], rules = [] }: { envelope: string, envelopePath: string, upstream?: Array<{ id: string, summary: string }>, rules?: string[] }) {
@@ -86,7 +86,7 @@ function handoffPrompt({ envelope, envelopePath, upstream = [], rules = [] }: { 
     output_format: { reader: READER, lines: handbackLines({ group: false }) },
   }, { maxBytes: MAX_BYTES });
   if (!framed.ok) return { ok: false, code: 'prompt-too-large', bytes: framed.bytes, maxBytes: MAX_BYTES };
-  return { ok: true, text: framed.text, bytes: framed.bytes };
+  return { ok: true, text: framed.text, bytes: framed.bytes, screen: framed.screen };
 }
 
 module.exports = { handoffPrompt, RENDERED_RULES, MAX_BYTES, HANDBACK_BYTES, TRIM_MARK };

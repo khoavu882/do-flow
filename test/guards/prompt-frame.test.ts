@@ -95,7 +95,7 @@ function documents(body: string): Array<{ attrs: string; body: string }> | null 
   const out: Array<{ attrs: string; body: string }> = [];
   let rest = body;
   while (rest !== '') {
-    const open = rest.match(/^<document ((?:path|id)="[^"]*"(?: kind="hand-back")?)>\n/);
+    const open = rest.match(/^<document ((?:path|id)="[^"]*"(?: kind="(?:hand-back|retrieved|tool)")?)>\n/);
     if (!open) return null;
     const close = rest.indexOf('\n</document>', open[0].length - 1);
     if (close < 0) return null;

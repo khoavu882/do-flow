@@ -28,7 +28,7 @@ const STORAGE = loadStorageRegistry({ repoRoot: REPO_ROOT });
 const NOW = () => new Date('2026-06-10T12:00:00.000Z');
 const FROM = '2026-03-12';
 const TO = '2026-06-10';
-const REGISTRY_KINDS = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support'];
+const REGISTRY_KINDS = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support', 'instructs-reader'];
 const BODY_KEYS = ['v', 'window', 'kind', 'kinds', 'stores', 'days', 'picks', 'limits'];
 const DAY_KEYS = ['day', 'coverage', 'unreadableLines', 'picks'];
 const PICK_KEYS = ['pickId', 'kind', 'at', 'mode', 'pick', 'static', 'agree', 'outcome'];
@@ -448,6 +448,21 @@ test('the body is the same line with or without --json, and advicePicksBody retu
   const answer = advicePicksBody({ cwd: fx.project, env: fx.env, now: NOW });
   assert.equal(answer.exit, 0);
   assert.equal(`${JSON.stringify(answer.json)}\n`, json.out);
+});
+
+test('advice-picks withholds pick and static of instructs-reader', (t) => {
+  const fx = fixture(t);
+  const yesno = { name: 'instructs-reader', type: 'yesno', pick: 'yes', probabilities: { yes: 0.9, no: 0.1 } };
+  const id = pick(fx, '2026-06-08T05:00:00.000Z', { kind: 'instructs-reader', answer: yesno, question: { name: 'instructs-reader', type: 'yesno' }, staticAnswer: 'yes', mode: 'shadow' });
+  outcome(fx, '2026-06-08T06:00:00.000Z', id, 'yes');
+  pick(fx, '2026-06-08T04:00:00.000Z', { pick: 'feature', staticAnswer: 'feature' });
+  const b = body(fx);
+  assert.deepEqual(b.picks.map((p: any) => [p.kind, p.pick, p.static, p.agree]), [
+    ['instructs-reader', WITHHELD, WITHHELD, null],
+    ['task-class', 'feature', 'feature', true],
+  ]);
+  assert.equal(b.picks[0].outcome.agree, null, 'no agreement can be read back from a withheld pick');
+  assert.deepEqual(body(fx, { kind: 'instructs-reader', flags: ['--kind', '--json'] }).picks.map((p: any) => [p.pick, p.static, p.agree]), [[WITHHELD, WITHHELD, null]]);
 });
 
 // ── Read-only ────────────────────────────────────────────────────────────────────────────────────

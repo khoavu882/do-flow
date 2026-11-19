@@ -21,7 +21,7 @@ const { materializeKind } = require('../kinds.ts');
 const { inWorkerSession } = require('../../context/identity.ts');
 const { readSeedSwitch } = require('../../settings/autopilot.ts');
 const { listCheckouts } = require('../../checkouts.ts');
-const { score, judge } = require('./score.ts');
+const { score, judge, effectiveAnswers, confusion } = require('./score.ts');
 const { effectiveBars, OVERRIDE_FILE } = require('./bars.ts');
 const { getSource, buildCases, optionNames } = require('./sources/index.ts');
 const { readResults, writeResult, resultsFile } = require('./results.ts');
@@ -106,6 +106,11 @@ function renderText(r: any): string {
   const perClass = Object.entries(m.perClass).map(([name, figures]: [string, any]) =>
     `${name} ${two(figures.model.precision)}/${two(figures.model.recall)} | ${two(figures.rule.precision)}/${two(figures.rule.recall)}`);
   lines.push(`Per class, precision/recall (model | rule): ${perClass.join(' · ')}`);
+  if (r.confusion) {
+    const { model, rule } = r.confusion;
+    lines.push(`Misses (labelled yes, answered no): model ${model.misses} of ${model.nYes} · rule ${rule.misses} of ${rule.nYes}`);
+    lines.push(`False alarms (labelled no, answered yes): model ${model.falseAlarms} of ${model.nNo} · rule ${rule.falseAlarms} of ${rule.nNo}`);
+  }
   lines.push(`Gain over the rule: kappa ${two(m.kappa.gain)} (low ${two(m.kappa.gainLower)}) · worse ${m.worse} (${pct(m.worseShare)}), better ${m.better}`);
   if (m.worse === 0) lines.push('Worse ids: none');
   else if (m.worse > r.worseIds.length) lines.push(`Worse ids (first ${r.worseIds.length} of ${m.worse}): ${r.worseIds.join(', ')}`);
@@ -244,10 +249,13 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   }
 
   const { worseIds, ...shown } = metrics;
+  // Not part of `metrics`: the stored entry and the report read those figures unchanged.
+  const misses = confusion(effectiveAnswers(answered, { options: optionList, budgetMs }), optionList);
   const result = {
     schema: 1, kind, provider: provider.id, model, modelDigest, source: source.id,
     caseSet: { eligible: eligible.cases.length, replayed: cases.length, digest: setDigest, skipped: eligible.skipped },
     metrics: shown, standing: judged.standing, failedChecks: judged.failedChecks, worseIds: worseIds.slice(0, MAX_WORSE_IDS),
+    ...(misses ? { confusion: misses } : {}),
     stored, written, refused, replaced,
   };
   if (json) {
@@ -260,4 +268,4 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   return finishRuntime(options.write === true && !written ? 1 : 0);
 }
 
-module.exports = { handleReplay, writeRefusal };
+module.exports = { handleReplay, writeRefusal, renderText };

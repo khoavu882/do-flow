@@ -39,11 +39,14 @@ const BLOCK_KEYS = ['heading', 'body'];
  * @typedef {Object} Doc
  * @property {string} [path] the source path (exactly one of `path` and `id`)
  * @property {string} [id] the document id
- * @property {'source'|'hand-back'} [kind]
+ * @property {'source'|'hand-back'|'retrieved'|'tool'} [kind] `hand-back`, `retrieved` and `tool` are screened (SCREENED_KINDS)
  * @property {string} text the body
  * @property {boolean} [keep] the body is a person's own words: a placeholder such as `none` or `N/A` is text, not an
  *   empty part, so it is kept and escaped like any other. Only a blank body is still left out.
  */
+/** The kinds of document whose text is named on the result's `screen` list, to be screened before the prompt is used. */
+const SCREENED_KINDS = Object.freeze(['hand-back', 'retrieved', 'tool']);
+const DOC_KINDS = Object.freeze(['source', ...SCREENED_KINDS]);
 const DOC_KEYS = ['path', 'id', 'kind', 'text', 'keep'];
 const FORMAT_KEYS = ['reader', 'budgetLines', 'lines'];
 
@@ -65,11 +68,19 @@ function escAttr(value: string, field: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** The one place every document passes through (row 177's instruction-text flag attaches here). */
-function renderDocument(doc: any): string {
+/**
+ * The one place every document passes through. A `hand-back`, `retrieved` or `tool` document renders its `kind`
+ * attribute; `source` and no kind render none. With a `sink` and a screened kind it also pushes
+ * `{ ref: '<path|id>=<value>', kind, text }` (the normalised body) for the caller to screen; the returned string never
+ * depends on the sink.
+ */
+function renderDocument(doc: any, sink?: Array<{ ref: string, kind: string, text: string }>): string {
   const name = doc.path !== undefined ? 'path' : 'id';
-  const kind = doc.kind === 'hand-back' ? ' kind="hand-back"' : '';
-  return `<document ${name}="${escAttr(String(doc[name]), name)}"${kind}>\n${escBody(norm(doc.text))}\n</document>`;
+  const body = norm(doc.text);
+  const screened = SCREENED_KINDS.includes(doc.kind);
+  if (sink && screened) sink.push({ ref: `${name}=${doc[name]}`, kind: doc.kind, text: body });
+  const kind = screened ? ` kind="${doc.kind}"` : '';
+  return `<document ${name}="${escAttr(String(doc[name]), name)}"${kind}>\n${escBody(body)}\n</document>`;
 }
 
 const fail = (code: string, detail: string): never => { throw new FrameSpecError(code, detail); };
@@ -156,7 +167,7 @@ function normalize(spec: any, omitted: string[]): any {
       if ((doc.path !== undefined) === (doc.id !== undefined)) fail('frame-document-source', `input[${i}] needs exactly one of path and id`);
       const name = doc.path !== undefined ? 'path' : 'id';
       if (typeof doc[name] !== 'string' || doc[name].trim() === '') fail('frame-document-source', `input[${i}].${name} is not a non-empty string`);
-      if (doc.kind !== undefined && doc.kind !== 'source' && doc.kind !== 'hand-back') fail('frame-document-source', `input[${i}].kind is source or hand-back`);
+      if (doc.kind !== undefined && !DOC_KINDS.includes(doc.kind)) fail('frame-document-source', `input[${i}].kind is ${DOC_KINDS.join(', ')}`);
       if (doc.keep !== undefined && typeof doc.keep !== 'boolean') fail('frame-document-source', `input[${i}].keep is true or false`);
       escAttr(doc[name], `input[${i}].${name}`);
       const body = text(doc.text, `input[${i}].text`);
@@ -267,7 +278,14 @@ function renderWith(spec: any, opts: any, renderers: any = {}): any {
   }
   const omitted: string[] = [];
   const n = normalize(spec, omitted);
-  const r = { ...RENDERERS, ...renderers };
+  const screen: Array<{ field: string, ref: string, kind: string, text: string }> = [];
+  const document = (entry: any) => {
+    const hits: Array<{ ref: string, kind: string, text: string }> = [];
+    const rendered = renderDocument(entry.doc, hits);
+    for (const hit of hits) screen.push({ field: `input.document[${entry.i}]`, ...hit });
+    return rendered;
+  };
+  const r = { ...RENDERERS, document, ...renderers };
   const pieces = [
     n.header.length ? r.header(n.header, r) : null,
     n.role ? r.role(n.role, r) : null,
@@ -284,18 +302,18 @@ function renderWith(spec: any, opts: any, renderers: any = {}): any {
   }
   const bytes = Buffer.byteLength(out);
   if (bound !== null && bytes > bound) return { ok: false, code: 'frame-too-large', bytes, maxBytes: bound };
-  return { ok: true, text: out, bytes, omitted };
+  return { ok: true, text: out, bytes, omitted, screen };
 }
 
 /**
  * Composes one prompt from a spec.
  * @param {*} spec the FrameSpec (design §5.1)
  * @param {{maxBytes: number|null}} opts
- * @returns {{ok: true, text: string, bytes: number, omitted: string[]} | {ok: false, code: 'frame-too-large', bytes: number, maxBytes: number}}
+ * @returns {{ok: true, text: string, bytes: number, omitted: string[], screen: Array<{field: string, ref: string, kind: string, text: string}>} | {ok: false, code: 'frame-too-large', bytes: number, maxBytes: number}}
  * @throws {FrameSpecError} for a spec that cannot be rendered
  */
 function composeFrame(spec: any, opts: any): any {
   return renderWith(spec, opts, {});
 }
 
-module.exports = { composeFrame, renderWith, renderDocument, isEmptyBody, SECTIONS, REQUIRED, FRAME_TAG, FrameSpecError };
+module.exports = { composeFrame, renderWith, renderDocument, isEmptyBody, SCREENED_KINDS, SECTIONS, REQUIRED, FRAME_TAG, FrameSpecError };

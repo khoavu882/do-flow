@@ -82,6 +82,11 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/advice/shadow-config.ts'],
     description: "Advice mode for the claim-support kind: off or shadow (record only); show (needs a passing local result) and act are accepted but held at shadow with a warning; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off." },
+  'advice.kinds.instructs-reader': { type: 'enum', values: ['off', 'shadow', 'show', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the instructs-reader kind: off or shadow (record only); show needs a passing local result; act is held at show; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. A filter, not a defence." },
   'advice.models.tier': { type: 'string', default: null,
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: { gate: 'advice.enabled' },
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
@@ -112,6 +117,11 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/advice/shadow-config.ts'],
     description: 'Decision-model name for the claim-support kind; unset uses advice.model.' },
+  'advice.models.instructs-reader': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: { gate: 'advice.enabled' },
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the instructs-reader kind; unset uses advice.model.' },
   'storage.prune': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'on',
     scope: 'project-overridable', combine: 'override', views: ['project', 'global'], securityRelevant: false,
     failSafe: 'off', env: null, flag: null, shellRead: null, needsConfigHome: false,
@@ -325,7 +335,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 42);
+  assert.equal(Object.keys(SHIPPED.keys).length, 44);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -627,12 +637,14 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'advice.kinds.review-depth': 'off',
     'advice.kinds.mcp-need': 'off',
     'advice.kinds.claim-support': 'off',
+    'advice.kinds.instructs-reader': 'off',
     'advice.models.tier': { gate: 'advice.enabled' },
     'advice.models.task-class': { gate: 'advice.enabled' },
     'advice.models.verify-risk': { gate: 'advice.enabled' },
     'advice.models.review-depth': { gate: 'advice.enabled' },
     'advice.models.mcp-need': { gate: 'advice.enabled' },
     'advice.models.claim-support': { gate: 'advice.enabled' },
+    'advice.models.instructs-reader': { gate: 'advice.enabled' },
     'storage.prune': 'off',
     'storage.retentionHours': { state: 'invalid' },
     'failure.capture': 'off',

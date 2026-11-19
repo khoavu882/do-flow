@@ -66,6 +66,24 @@ function effectiveAnswers(cases: any[], { options = null, budgetMs }: { options?
 }
 
 /**
+ * Misses (labelled yes, answered no) and false alarms (labelled no, answered yes) for a yes/no kind, per arm, over the
+ * effective answers of `effectiveAnswers` (a no-answer already reads as the rule's answer). `nYes` and `nNo` are the label
+ * counts the figures are out of. Null for any other kind.
+ */
+function confusion(effective: any[], options?: string[] | null): { model: any; rule: any } | null {
+  if (!Array.isArray(options) || options.length !== 2 || !options.includes('yes') || !options.includes('no')) return null;
+  const arm = (pick: (e: any) => string) => {
+    const figures = { misses: 0, falseAlarms: 0, nYes: 0, nNo: 0 };
+    for (const e of effective) {
+      if (e.label === 'yes') { figures.nYes++; if (pick(e) === 'no') figures.misses++; }
+      else if (e.label === 'no') { figures.nNo++; if (pick(e) === 'yes') figures.falseAlarms++; }
+    }
+    return figures;
+  };
+  return { model: arm((e) => e.answer), rule: arm((e) => e.rule) };
+}
+
+/**
  * Cohen's kappa from counts: (n*correct - S) / (n^2 - S) with S = sum over classes of n_answer(c) * n_label(c). This is
  * (p_o - p_e) / (1 - p_e) in integers; null when p_e = 1 (the denominator is 0).
  */
@@ -241,4 +259,4 @@ function judge(metrics: any, bars: any, budgetMs: number, source: any): { standi
   return { standing: belowAct.length ? 'show' : 'act', failedChecks: belowAct };
 }
 
-module.exports = { effectiveAnswers, score, judge, mulberry32, percentile };
+module.exports = { effectiveAnswers, confusion, score, judge, mulberry32, percentile };
