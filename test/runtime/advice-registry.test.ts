@@ -332,7 +332,7 @@ test('row 174 O-3: every shipped kind has its budgetMs as data, and timeoutMs is
   const result = loadAdviceRegistry({ repoRoot: REPO });
   assert.equal(result.ok, true, result.detail);
   assert.deepEqual(Object.fromEntries(result.registry.kinds.map((kind: any) => [kind.id, kind.budgetMs])), {
-    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, rerank: 5000, 'claim-support': 1500, 'instructs-reader': 1500, 'same-issue': 6000,
+    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, rerank: 5000, 'claim-support': 1500, 'instructs-reader': 1500, 'same-issue': 9500,
   });
   assert.equal(result.registry.timeoutMs, 15000);
   assert.match(result.registry.description, /warm measurements with headroom/);

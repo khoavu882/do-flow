@@ -176,7 +176,7 @@
       "askedBy": ["review", "followup"],
       "maxMode": "show",
       "replay": { "source": "review-findings" },
-      "budgetMs": 6000,
+      "budgetMs": 9500,
       "params": {
         "itemBytes": 512,
         "questionsPerCall": 8,

@@ -194,7 +194,7 @@ async function replayInProcess(f: any, registry: any, kind: string) {
 }
 
 test('(b) each case takes its call\'s latency; an answer past budgetMs is over-budget for every case of that call', async (t) => {
-  // The shipped budget is 6000 ms; a registry with a 250 ms budget keeps the late call short.
+  // The shipped budget is 9500 ms; a registry with a 250 ms budget keeps the late call short.
   const budgetMs = 250;
   const slow = budgetMs + 200;
   const registry = structuredClone(REGISTRY);
@@ -241,7 +241,7 @@ test('(d)(e) the text form prints model and rule, misses, false alarms, the skip
     /^Misses \(labelled yes, answered no\): model 0 of \d+ · rule \d+ of \d+$/m,
     /^False alarms \(labelled no, answered yes\): model 0 of \d+ · rule \d+ of \d+$/m,
     /^Asked in 3 calls of up to 8 cases; a case's latency is its call's$/m,
-    /^Latency ms: first \d+ · p50 \d+ · p95 \d+ · max \d+ \(budget 6000\)$/m,
+    /^Latency ms: first \d+ · p50 \d+ · p95 \d+ · max \d+ \(budget 9500\)$/m,
     /^Standing: below-minimum: /m,
     /^Stored: none · not written /m,
   ]) assert.match(out, pattern);
