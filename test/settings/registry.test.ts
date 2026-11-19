@@ -86,7 +86,7 @@ const V1 = {
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: 'off',
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/advice/shadow-config.ts'],
-    description: "Advice mode for the instructs-reader kind: unset records in shadow, show needs a passing local result, act is held at show. A filter, not a defence." },
+    description: "Advice mode for the instructs-reader kind: off or shadow (record only); show needs a passing local result; act is held at show; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. A filter, not a defence." },
   'advice.models.tier': { type: 'string', default: null,
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: { gate: 'advice.enabled' },
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
