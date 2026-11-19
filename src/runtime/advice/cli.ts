@@ -15,7 +15,7 @@ const { interceptDecisionPoint } = require('./shadow-dispatcher.ts');
 const { resolveShadowConfig } = require('./shadow-config.ts');
 const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
-const { findPick, appendOutcome } = require('./record.ts');
+const { findPick, appendOutcome, FOLLOWED } = require('./record.ts');
 const { removedKeyDiagnostics } = require('./retired.ts');
 const { strengthWords } = require('./strength.ts');
 const { buildReport, renderText } = require('./report.ts');
@@ -327,25 +327,36 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
   return { ...reply, answers: reply.answers.map((answer: any, index: number) => (index === 0 ? { ...answer, pickId: intercepted.pickId } : answer)) };
 }
 
+/**
+ * `--action outcome` (175 IC-010): `--actual` (an option of the pick) and `--followed` (FOLLOWED), at least one. The
+ * followed label is only for a pick the person was shown: a line with mode `show` or `act`, or an ad hoc ask.
+ */
 function handleOutcome(options: any, runtime: any) {
   const { json } = options;
   if (typeof options.pickId !== 'string' || !options.pickId) return usageError('advise', '--pick-id is required', json);
-  if (typeof options.actual !== 'string' || !options.actual) return usageError('advise', '--actual is required', json);
+  const given = (value: any) => typeof value === 'string' && value !== '';
+  const actual = given(options.actual) ? options.actual : undefined;
+  const followed = given(options.followed) ? options.followed : undefined;
+  if (actual === undefined && followed === undefined) return usageError('advise', '--actual or --followed is required', json);
+  if (followed !== undefined && !FOLLOWED.includes(followed)) return usageError('advise', `--followed must be one of: ${FOLLOWED.join(', ')}`, json);
   const found = findPick({ pickId: options.pickId, roots: runtime.roots });
   if (!found) {
     if (json) console.log(JSON.stringify({ ok: false, error: 'not-found', message: `no pick ${options.pickId} in the retained record` }, null, 2));
     else console.error(`advise: no pick ${options.pickId} in the retained record`);
     return finishRuntime(1);
   }
-  if (!found.pick.options?.includes(options.actual)) {
-    return usageError('advise', `--actual must be one of: ${found.pick.options.join(', ')}`, json);
+  if (actual !== undefined && !found.pick.options?.includes(actual)) {
+    return usageError('advise', `--actual must be one of: ${(found.pick.options || []).join(', ')}`, json);
   }
-  const written = appendOutcome({
-    pickId: options.pickId, actual: options.actual, source: 'caller', roots: runtime.roots, store: found.store,
-  });
+  const shown = found.pick.mode === 'show' || found.pick.mode === 'act' || found.pick.kind === 'adhoc';
+  if (followed !== undefined && !shown) {
+    return usageError('advise', `--followed: this pick was never shown (mode ${found.pick.mode ?? 'unrecorded'}); record what was done with --actual`, json);
+  }
+  const written = appendOutcome({ pickId: options.pickId, actual, followed, source: 'caller', roots: runtime.roots, store: found.store });
   if (!written) return writeFailure(`could not record outcome for ${options.pickId}`, json);
-  if (json) console.log(jsonBody({ pickId: options.pickId, actual: options.actual, recorded: true, file: written.file }, options));
-  else console.log(`Recorded outcome ${options.actual} for ${options.pickId}.`);
+  const labels = { ...(actual !== undefined ? { actual } : {}), ...(followed !== undefined ? { followed } : {}) };
+  if (json) console.log(jsonBody({ pickId: options.pickId, ...labels, recorded: true, file: written.file }, options));
+  else console.log(`Recorded outcome for ${options.pickId}: ${[actual !== undefined ? `actual ${actual}` : null, followed ?? null].filter(Boolean).join(', ')}.`);
   return finishRuntime(0);
 }
 
@@ -358,7 +369,10 @@ function handleReport(options: any, runtime: any) {
   if (options.kind !== undefined && options.kind !== null && !ids.includes(options.kind) && options.kind !== 'adhoc') {
     return usageError('advise', `unknown --kind '${options.kind}'; known kinds: ${ids.join(', ')}`, json);
   }
-  const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null, global: options.global === true });
+  const report = buildReport({
+    roots, kinds: ids, kind: options.kind ?? null, global: options.global === true,
+    registry: adviceRegistry, sources: runtime.sources, projectRoot: options.projectRoot || null,
+  });
   console.log(json ? jsonBody(report, options) : renderText(report));
   return finishRuntime(0);
 }

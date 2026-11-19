@@ -228,7 +228,7 @@ function compute(options: PicksOptions): Answer {
       pickId: idOf(record),
       kind: record.kind as string,
       at: record.at as string,
-      mode: record.mode === 'shadow' || record.mode === 'act' ? record.mode as string : 'unrecorded',
+      mode: record.mode === 'shadow' || record.mode === 'show' || record.mode === 'act' ? record.mode as string : 'unrecorded',
       pick,
       static: statik,
       agree: agreeOf(pick, statik),

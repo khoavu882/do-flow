@@ -331,6 +331,24 @@ describe('claim link: the shadow hook', () => {
     assert.equal(on.exit, off.exit);
   });
 
+  test('show goes through the dispatcher like shadow and act: held at shadow, a line is recorded, the trust evaluator is never consulted', async (t) => {
+    const s = setup(t);
+    const registry = registryWith();
+    await advised(s);
+    const off = await link(s, { services: { adviceRegistry: registry, shadowConfig: { ...SHADOW, mode: 'off' } } });
+    let gateCalls = 0;
+    const trust = () => { gateCalls += 1; return { standing: 'act', reason: 'injected' }; };
+    const on = await link(s, { services: { adviceRegistry: registry, trust, shadowConfig: { ...SHADOW, mode: 'show' } } });
+    const line = await waitFor(() => s.lines()[0]);
+    assert.equal(gateCalls, 0);
+    assert.equal(line.type, 'pick');
+    assert.equal(line.mode, 'shadow');
+    assert.equal(line.kind, 'claim-support');
+    assert.deepEqual(on.out, off.out, 'show prints nothing the shadow run does not');
+    assert.deepEqual(on.files, off.files);
+    assert.equal(on.exit, off.exit);
+  });
+
   test('a long passage is cut to its byte cap and the line says truncated', async (t) => {
     const s = setup(t, { passage: `${'wide '.repeat(1000)}${SENTINEL_PASSAGE}` });
     const a = await advised(s);

@@ -389,6 +389,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--risk', 'risk'],                  // verify: risk level selecting the required tiers
   ['--pick-id', 'pickId'],             // advise --action outcome: retained pick to label
   ['--actual', 'actual'],              // advise --action outcome: observed outcome
+  ['--followed', 'followed'],          // advise --action outcome: followed | partly | overruled, for a pick that was shown (175 IC-010)
   ['--model', 'model'],                // advise --action configure: installed decision-capable model · worker start-session: the model id, default when absent
   ['--effort', 'effort'],              // models bind: the effort level to bind with the model, in the harness's own vocabulary · worker start-session: the effort level
   ['--project-key', 'projectKey'],     // worker start-session|start-options|send|steer|stop: the project's 16-hex key (165 IC-001)
@@ -828,7 +829,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --kind, --state, --state-file,
       --questions-file, --server,
       --static                           advise --action ask
-      --pick-id, --actual                advise --action outcome
+      --pick-id, --actual, --followed    advise --action outcome (--followed followed|partly|overruled, only for a pick
+                                         that was shown; at least one of --actual and --followed)
       --kind [--json]                    advise --action report (read-only counts and latency from this project's records)
       --kind [--limit <n>] [--write]     advise --action replay (asks the decision model this project's recorded cases; --write
                                          stores the figures at user level, refused in a worker session, CI or an autopilot run)

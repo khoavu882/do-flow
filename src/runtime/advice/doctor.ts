@@ -35,7 +35,8 @@ function agreementRows(registry: any, records: any) {
   const picks = records.filter(({ record }: any) => record.type === 'pick');
   const outcomes = new Map();
   for (const { record } of records) {
-    if (record.type !== 'outcome' || typeof record.pickId !== 'string' || isRetiredOutcome(record)) continue;
+    // Only a line with `actual` names what was done; a `followed` label alone (175 IC-010) is not a done value here.
+    if (record.type !== 'outcome' || typeof record.pickId !== 'string' || typeof record.actual !== 'string' || isRetiredOutcome(record)) continue;
     const current = outcomes.get(record.pickId);
     if (!current || String(record.at).localeCompare(String(current.at)) >= 0) outcomes.set(record.pickId, record);
   }
@@ -115,7 +116,7 @@ async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.c
         decisionModels: [], lastCall: latestCall(window.records),
       };
     }
-    return { decisionModel, advice, _removedKeys: removedKeys, _inspection: inspection, _offReason: setting.state === 'off' ? (loaded.ok ? offReason(setting) : `unreadable advice registry: ${loaded.detail}`) : null };
+    return { decisionModel, advice, _provider: setting.provider || null, _removedKeys: removedKeys, _inspection: inspection, _offReason: setting.state === 'off' ? (loaded.ok ? offReason(setting) : `unreadable advice registry: ${loaded.detail}`) : null };
   } catch (error: any) {
     return { decisionModel: { setting: { state: 'off', reason: 'config-invalid', decidedBy: { user: null, project: null }, modelFrom: null, notes: [error.message] },
       endpoint: { url: null, state: 'not-checked', version: null, minVersion: null, versionOk: false, message: null },
@@ -127,6 +128,8 @@ async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.c
 function printAdviceDoctor(report: any) {
   const decision = report.decisionModel;
   const inspection = report._inspection;
+  // O-7: the provider is named by its id from data, never by a product name.
+  const provider = `provider ${report._provider || 'unknown'}`;
   console.log('\n[Decision Model] — advisory, never blocking');
   for (const line of report._removedKeys || []) console.log(`  ${line}`);
   if (decision.setting.state === 'off') {
@@ -135,13 +138,14 @@ function printAdviceDoctor(report: any) {
     const setting = decision.setting;
     console.log(`  setting       on (${setting.decidedBy.user || 'user setting'}${setting.modelFrom === 'project' ? `; model from ${setting.decidedBy.project}` : ''})`);
     const endpoint = decision.endpoint;
+    const unreachable = `  endpoint      ${endpoint.url}  ○ UNREACHABLE  ${provider} did not answer; start it yourself; DoFlow does not start it`;
     if (endpoint.state === 'refused') console.log(`  endpoint      ${endpoint.url}  ✗ REFUSED  ${endpoint.message || inspection?.endpoint.message || 'endpoint refused'}`);
-    else if (endpoint.state === 'unreachable') console.log(`  endpoint      ${endpoint.url}  ○ UNREACHABLE  start Ollama yourself; DoFlow does not start it`);
-    else if (endpoint.version && !endpoint.versionOk) console.log(`  endpoint      ${endpoint.url}  ▲ Ollama ${endpoint.version} is older than ${endpoint.minVersion}`);
-    else if (endpoint.state === 'reached') console.log(`  endpoint      ${endpoint.url}  ✓ REACHED  Ollama ${endpoint.version || 'version unknown'}`);
-    else console.log(`  endpoint      ${endpoint.url}  ○ UNREACHABLE  start Ollama yourself; DoFlow does not start it`);
+    else if (endpoint.state === 'unreachable') console.log(unreachable);
+    else if (endpoint.version && !endpoint.versionOk) console.log(`  endpoint      ${endpoint.url}  ▲ ${provider} version ${endpoint.version} is older than ${endpoint.minVersion}`);
+    else if (endpoint.state === 'reached') console.log(`  endpoint      ${endpoint.url}  ✓ REACHED  ${provider} ${endpoint.version || 'version unknown'}`);
+    else console.log(unreachable);
     const model = decision.model;
-    if (!model.installed) console.log(`  model         ${model.name}  ✗ not installed; run 'ollama pull ${model.name}' yourself; DoFlow does not download models`);
+    if (!model.installed) console.log(`  model         ${model.name}  ✗ not installed at ${provider}; install it with that provider's own tool; DoFlow does not download models`);
     else if (!model.decisionCapable) console.log(`  model         ${model.name}  ✗ installed, not decision-capable`);
     else console.log(`  model         ${model.name}  ✓ installed, decision-capable`);
     console.log(`  decision-capable here: ${decision.decisionModels.length ? decision.decisionModels.join(', ') : 'none'}`);

@@ -262,13 +262,14 @@ test('picks of the same time are ordered by pickId descending; a pickId that is 
   assert.equal(b.picks[3].agree, true);
 });
 
-test('mode is shadow or act as recorded, and unrecorded for no mode or an unknown one', (t) => {
+test('mode is shadow, show or act as recorded, and unrecorded for no mode or an unknown one', (t) => {
   const fx = fixture(t);
+  pick(fx, '2026-06-08T05:00:00.000Z', { mode: 'show' });
   pick(fx, '2026-06-08T04:00:00.000Z', { mode: 'shadow' });
   pick(fx, '2026-06-08T03:00:00.000Z', { mode: 'act' });
   pick(fx, '2026-06-08T02:00:00.000Z');
   pick(fx, '2026-06-08T01:00:00.000Z', { mode: 'sideways' });
-  assert.deepEqual(body(fx).picks.map((p: any) => p.mode), ['shadow', 'act', 'unrecorded', 'unrecorded']);
+  assert.deepEqual(body(fx).picks.map((p: any) => p.mode), ['show', 'shadow', 'act', 'unrecorded', 'unrecorded']);
 });
 
 test('caller text is withheld; a static that is not a string is null; agree only between two shown answers', (t) => {

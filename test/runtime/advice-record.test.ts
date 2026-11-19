@@ -141,6 +141,20 @@ test('IC-013: miss and outcome lines match their fixed shapes', (t) => {
   ]);
 });
 
+test('175 IC-010: an outcome line carries followed beside actual, and leaves out a label it was not given', (t) => {
+  const { roots } = fixture(t);
+  const both = appendOutcome({ roots, now: NOW, pickId: 'adv-1780279200000-abcdef', actual: 'light', followed: 'overruled', source: 'caller' });
+  appendOutcome({ roots, now: NOW, pickId: 'adv-1780279200000-abcdef', followed: 'partly', source: 'caller' });
+  assert.equal(appendOutcome({ roots, now: NOW, pickId: 'adv-1780279200000-abcdef', followed: 'sideways', source: 'caller' }), null, 'a label outside the three words writes nothing');
+  assert.equal(appendOutcome({ roots, now: NOW, pickId: 'adv-1780279200000-abcdef', source: 'caller' }), null, 'no label writes nothing');
+  const lines = fs.readFileSync(both.file, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.deepEqual(lines, [
+    { schema: 1, type: 'outcome', pickId: 'adv-1780279200000-abcdef', at: AT.toISOString(), source: 'caller', actual: 'light', followed: 'overruled' },
+    { schema: 1, type: 'outcome', pickId: 'adv-1780279200000-abcdef', at: AT.toISOString(), source: 'caller', followed: 'partly' },
+  ]);
+  assert.equal('actual' in lines[1], false);
+});
+
 test('IC-013: project store is selected when present and user store otherwise', (t) => {
   const project = fixture(t);
   const fromProject = appendMiss({ roots: project.roots, now: NOW, kind: 'tier', caller: 'advise', reason: 'unreachable' });

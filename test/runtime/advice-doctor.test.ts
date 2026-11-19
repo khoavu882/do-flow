@@ -82,7 +82,8 @@ test('an error thrown while building the report is named by its message, not as 
   const f = fixture(t, enabled(await closedEndpoint()));
   const result = f.run();
   assert.equal(result.status, 0, result.stderr);
-  assert.match(section(result.stdout, '[Decision Model]'), /UNREACHABLE/);
+  assert.match(section(result.stdout, '[Decision Model]'), /UNREACHABLE {2}provider ollama did not answer; start it yourself; DoFlow does not start it/);
+  assert.doesNotMatch(section(result.stdout, '[Decision Model]'), /Ollama/, 'O-7: the provider is named by its id from data');
   // An off setting must not touch even a live loopback listener.
   const userDisabled = fixture(t);
   const userLive = await startFakeServer();
@@ -124,7 +125,8 @@ test('IC-014 probes in order, renders status rows', async (t) => {
   assert.equal(report.decisionModel.endpoint.state, 'reached');
   const text = f.run();
   const decision = section(text.stdout, '[Decision Model]');
-  assert.match(decision, /older than 0\.35\.1/);
+  assert.match(decision, /▲ provider ollama version 0\.30\.0 is older than 0\.35\.1/);
+  assert.doesNotMatch(decision, /Ollama/);
   assert.match(decision, /installed, not decision-capable/);
   assert.match(decision, /unknown-8.*capability unknown/);
   assert.doesNotMatch(decision, /unknown-0.*capability unknown/);
@@ -140,7 +142,8 @@ test('IC-014 reports refusal, missing model, empty capable list, and last answer
   const capableServer = await capable.start();
   write(capable.settingFile, JSON.stringify(enabled(capableServer.origin)));
   const capableText = section(capable.run().stdout, '[Decision Model]');
-  assert.match(capableText, /✓ REACHED/);
+  assert.match(capableText, /✓ REACHED {2}provider ollama /);
+  assert.doesNotMatch(capableText, /Ollama/);
   assert.match(capableText, /✓ installed, decision-capable/);
 
   const f = fixture(t, enabled('http://127.0.0.1:9', 'absent'));
@@ -149,7 +152,8 @@ test('IC-014 reports refusal, missing model, empty capable list, and last answer
   const first = JSON.parse(f.run(true).stdout).decisionModel;
   assert.equal(first.model.installed, false);
   assert.deepEqual(first.decisionModels, []);
-  assert.match(section(f.run().stdout, '[Decision Model]'), /model\s+absent\s+✗ not installed/);
+  assert.match(section(f.run().stdout, '[Decision Model]'), /model\s+absent\s+✗ not installed at provider ollama; install it with that provider's own tool; DoFlow does not download models/);
+  assert.doesNotMatch(section(f.run().stdout, '[Decision Model]'), /ollama pull|Ollama/);
   assert.match(section(f.run().stdout, '[Decision Model]'), /decision-capable here: none/);
   assert.deepEqual(first.lastCall, null);
   assert.match(section(f.run().stdout, '[Decision Model]'), /last call\s+none recorded/);
@@ -176,6 +180,8 @@ test('IC-015 aggregates retained picks and outcomes by registry kind, includes a
     { type: 'pick', pickId: 'p4', at, kind: 'tier', pick: 'standard' },
     { type: 'outcome', pickId: 'p4', at, actual: 'frontier', source: 'brief-record' },
     { type: 'outcome', pickId: 'p4', at, actual: 'standard', source: 'brief-record' },
+    { type: 'pick', pickId: 'p5', at, kind: 'tier', pick: 'light', mode: 'show' },
+    { type: 'outcome', pickId: 'p5', at, followed: 'partly', source: 'brief-record' },
     { type: 'pick', pickId: 'p2', at, kind: 'adhoc', pick: 'a' },
     { type: 'outcome', pickId: 'p2', at, actual: 'a', source: 'caller' },
   ];
@@ -186,7 +192,7 @@ test('IC-015 aggregates retained picks and outcomes by registry kind, includes a
   assert.deepEqual(Object.keys(json), ['windowDays', 'store', 'kinds', 'unreadableLines']);
   assert.equal(json.unreadableLines, 1);
   assert.deepEqual(json.kinds.map((row: any) => row.kind), [...kinds, 'adhoc']);
-  assert.equal(json.kinds[0].picks, 3); assert.equal(json.kinds[0].withOutcome, 2); assert.equal(json.kinds[0].matched, 1);
+  assert.equal(json.kinds[0].picks, 4); assert.equal(json.kinds[0].withOutcome, 2, 'a followed label without --actual names no done value (175 IC-010)'); assert.equal(json.kinds[0].matched, 1);
   assert.deepEqual(json.kinds[0].outcomeSources, ['brief-record'], 'an old classify-verdict outcome counts in no figure (174 R-05)');
   const text = section(f.run().stdout, '[Advice Agreement]');
   assert.match(text, /done = tier the brief named\)/, 'the retired classify-verdict source has no label of its own');

@@ -19,6 +19,7 @@ const BIN = path.join(REPO, 'bin/doflow.js');
 const STORAGE = loadStorageRegistry({ repoRoot: REPO });
 const NOW = () => new Date('2026-06-10T12:00:00.000Z');
 const KINDS = ['tier', 'task-class'];
+const SENTINEL = 'SENTINEL-Q7Z-do-not-print';
 
 function fixture(t: any) {
   const home = tempDir(t, 'doflow-report-home-');
@@ -58,6 +59,7 @@ test('counts, agreement, modes, misses by reason and nearest-rank durations carr
     { staticAnswer: 'light', durationMs: 200, mode: 'shadow' },
     { staticAnswer: null, durationMs: 300, mode: 'act', elevated: true },
     { staticAnswer: 'standard', durationMs: 400 },
+    { staticAnswer: 'standard', durationMs: 500, mode: 'show' },
   ];
   specs.forEach((spec, i) => ids.push(pick(roots, i, spec).pickId));
   appendOutcome({ roots, now: NOW, pickId: ids[0], actual: 'standard', source: 'caller', store: 'project-state' });
@@ -68,13 +70,13 @@ test('counts, agreement, modes, misses by reason and nearest-rank durations carr
 
   const report = buildReport({ roots, kinds: KINDS, now: NOW });
   const tier = report.kinds.tier;
-  assert.deepEqual(tier.n, { picks: 4, misses: 3 });
+  assert.deepEqual(tier.n, { picks: 5, misses: 3 });
   assert.deepEqual(tier.missesByReason, { timeout: 2, unreachable: 1 });
-  assert.deepEqual(tier.agreeStatic, { n: 3, agree: 2 });
+  assert.deepEqual(tier.agreeStatic, { n: 4, agree: 3 });
   assert.deepEqual(tier.agreeOutcome, { n: 2, agree: 1 });
   assert.equal(tier.elevated, 1);
-  assert.deepEqual(tier.modes, { shadow: 2, act: 1, unrecorded: 1 });
-  assert.deepEqual(tier.durationMs, { n: 4, p50: 200, p90: 400, p95: 400 });
+  assert.deepEqual(tier.modes, { shadow: 2, show: 1, act: 1, unrecorded: 1 }, 'a show pick is a recorded mode');
+  assert.deepEqual(tier.durationMs, { n: 5, p50: 300, p90: 500, p95: 500 });
   assert.deepEqual(tier.missDurationMs, { n: 3, p50: 50, p90: 70, p95: 70 });
   assert.deepEqual(report.window, { from: '2026-03-12', to: '2026-06-10', maxAgeDays: 90 });
   assert.equal(report.scope, 'this project only');
@@ -98,7 +100,7 @@ test('lines in the old record format stay readable and unreadable lines are coun
   const report = buildReport({ roots, kinds: KINDS, now: NOW });
   assert.equal(report.unreadable, 1);
   assert.deepEqual(report.kinds.tier.n, { picks: 1, misses: 1 });
-  assert.deepEqual(report.kinds.tier.modes, { shadow: 0, act: 0, unrecorded: 1 });
+  assert.deepEqual(report.kinds.tier.modes, { shadow: 0, show: 0, act: 0, unrecorded: 1 });
   assert.equal(report.kinds.tier.elevated, 0);
   assert.deepEqual(report.kinds.tier.durationMs, { n: 1, p50: 900, p90: 900, p95: 900 });
   assert.deepEqual(report.kinds.tier.missDurationMs, { n: 0, p50: null, p90: null, p95: null });
@@ -137,24 +139,201 @@ test('141 N1: -g labels the report as the user-level store; the default keeps th
   assert.ok(renderText(project).endsWith(FOOTER));
 });
 
-test('verdict rows come from the verdict file with the evaluator reason; the shipped empty file gives none', (t) => {
+// 175 T8 (IC-010, FR-018): the followed counts, "agreement with what you did", and "Local results".
+
+function labelled(roots: any, minutes: number, kind: string, spec: any) {
+  const yesno = kind === 'mcp-need';
+  const answer = yesno
+    ? { name: kind, type: 'yesno', pick: spec.pick, probabilities: {}, confidence: 0.6, strength: { word: 'clear', between: null } }
+    : { name: kind, type: 'choice', pick: spec.pick, probabilities: {}, confidence: 0.6, strength: { word: 'clear', between: null } };
+  const question = yesno ? { name: kind, type: 'yesno' } : { name: kind, type: 'choice', options: { light: 'l', standard: 's', frontier: 'f' } };
+  const id = appendPick({
+    roots, now: () => new Date(Date.parse('2026-06-10T00:00:00.000Z') + minutes * 60000), kind, answer, question,
+    state: 'private state text', caller: 'advise', staticAnswer: spec.static === undefined ? 'standard' : spec.static, durationMs: 10,
+    ...(spec.mode ? { mode: spec.mode } : {}),
+  }).pickId;
+  if (spec.actual !== undefined || spec.followed !== undefined) {
+    appendOutcome({ roots, now: NOW, pickId: id, actual: spec.actual, followed: spec.followed, source: 'caller', store: 'project-state' });
+  }
+  return id;
+}
+
+/** tier (choice) and mcp-need (yes/no) picks with every way a label is known, derived, or only counted. */
+function labelledWindow(roots: any) {
+  labelled(roots, 0, 'tier', { mode: 'show', pick: 'frontier', actual: 'frontier' });                          // label frontier: better
+  labelled(roots, 1, 'tier', { mode: 'act', pick: 'frontier', followed: 'followed' });                         // derived frontier: better
+  labelled(roots, 2, 'tier', { mode: 'show', pick: 'light', followed: 'overruled' });                          // choice, no actual: counted
+  labelled(roots, 3, 'tier', { mode: 'show', pick: 'light', followed: 'partly' });                             // counted
+  labelled(roots, 4, 'tier', { mode: 'shadow', pick: 'light', actual: 'standard' });                           // label standard: worse
+  labelled(roots, 5, 'tier', { mode: 'shadow', pick: 'light', followed: 'followed' });                         // never shown: ignored
+  labelled(roots, 6, 'tier', { mode: 'show', pick: 'frontier', followed: 'overruled', actual: 'standard' });   // actual wins: worse
+  labelled(roots, 7, 'tier', { mode: 'show', pick: 'frontier', followed: 'followed', static: null });          // no rule answer: counted
+  labelled(roots, 8, 'mcp-need', { mode: 'show', pick: 'yes', static: 'no', followed: 'overruled' });         // derived no: worse
+  labelled(roots, 9, 'mcp-need', { mode: 'act', pick: 'no', static: 'no', followed: 'followed' });            // derived no: both right
+  labelled(roots, 10, 'mcp-need', { mode: 'show', pick: 'yes', static: 'yes', followed: 'partly' });          // counted
+}
+
+test('(b) the followed, partly and overruled counts per kind carry n, the shown picks', (t) => {
   const { roots } = fixture(t);
-  assert.deepEqual(buildReport({ roots, kinds: KINDS, now: NOW }).verdicts, []);
-  const repoRoot = tempDir(t, 'doflow-report-verdicts-');
-  fs.mkdirSync(path.join(repoRoot, 'core/registry'), { recursive: true });
-  fs.writeFileSync(path.join(repoRoot, 'core/registry/advice-verdicts.json'), JSON.stringify({
-    schemaVersion: 1, corpora: {}, verdicts: [
-      { kind: 'tier', model: 'm1', result: 'pass' }, { kind: 'tier', model: 'm2', result: 'pass' }, { kind: 'other', model: 'm3', result: 'pass' },
-    ],
-  }));
-  const evaluate = (kind: string, model: string) => (model === 'm1'
-    ? { passed: true, reason: 'passes' } : { passed: false, reason: 'verdict stale: corpus changed' });
-  const rows = buildReport({ roots, kinds: KINDS, now: NOW, repoRoot, evaluate }).verdicts;
+  labelledWindow(roots);
+  const report = buildReport({ roots, kinds: ['tier', 'mcp-need', 'task-class'], now: NOW });
+  assert.deepEqual(report.kinds.tier.followed, { n: 6, followed: 2, partly: 1, overruled: 2 });
+  assert.deepEqual(report.kinds['mcp-need'].followed, { n: 3, followed: 1, partly: 1, overruled: 1 });
+  assert.equal(report.kinds['task-class'].followed, null);
+  assert.deepEqual(report.kinds.tier.agreeOutcome, { n: 3, agree: 1 }, 'a followed-only line is not an actual');
+  const text = renderText(report);
+  assert.match(text, /tier\n(?: {2}.*\n)*? {2}followed \(n=6 shown picks\): followed 2, partly 1, overruled 2/);
+  assert.match(text, /mcp-need\n(?: {2}.*\n)*? {2}followed \(n=3 shown picks\): followed 1, partly 1, overruled 1/);
+});
+
+test('(c) agreement with what you did scores the known and derived labels and counts the rest', (t) => {
+  const { roots } = fixture(t);
+  labelledWindow(roots);
+  const report = buildReport({ roots, kinds: ['tier', 'mcp-need'], now: NOW });
+  const tier = report.kinds.tier.agreement;
+  assert.equal(tier.n, 4);
+  assert.deepEqual(tier.counted, { partly: 1, overruledWithoutActual: 1, noStaticAnswer: 1 });
+  assert.deepEqual(tier.figures.accuracy, { model: 0.5, rule: 0.5 });
+  assert.equal(tier.figures.worse, 2);
+  assert.equal(tier.figures.better, 2);
+  assert.equal('worseIds' in tier.figures, false, 'no pick id is listed');
+  assert.equal('standing' in tier, false, 'figures only, never a standing');
+  const yesno = report.kinds['mcp-need'].agreement;
+  assert.equal(yesno.n, 2);
+  assert.deepEqual(yesno.counted, { partly: 1, overruledWithoutActual: 0, noStaticAnswer: 0 });
+  assert.deepEqual(yesno.figures.accuracy, { model: 0.5, rule: 1 });
+  assert.equal(yesno.figures.worse, 1);
+  // The bootstrap uses the fixed statistics of the effective bars, so the same window gives the same lower bound.
+  assert.deepEqual(buildReport({ roots, kinds: ['tier', 'mcp-need'], now: NOW }).kinds.tier.agreement, tier);
+  const text = renderText(report);
+  assert.match(text, /agreement with what you did \(n=4\): model 0\.50, rule 0\.50 accuracy; kappa model .*; worse 2, better 2/);
+  assert.match(text, /counted, not scored: partly 1, overruled without --actual 1, no static answer 1/);
+  assert.doesNotMatch(text, /certif/i);
+  assert.equal(buildReport({ roots, kinds: ['task-class'], now: NOW }).kinds['task-class'].agreement, null);
+});
+
+// "Local results": stored replay entries re-judged against the current question, builder and bars, with no network call.
+
+const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
+const { materializeKind } = require('../../src/runtime/advice/kinds.ts');
+const { effectiveBars } = require('../../src/runtime/advice/replay/bars.ts');
+const { getSource } = require('../../src/runtime/advice/replay/sources/index.ts');
+const { writeResult } = require('../../src/runtime/advice/replay/results.ts');
+const { score } = require('../../src/runtime/advice/replay/score.ts');
+const { questionDigest, builderDigest, barsDigest, caseSetDigest, projectKey } = require('../../src/runtime/advice/replay/trust.ts');
+
+const REGISTRY = loadAdviceRegistry({ repoRoot: REPO }).registry;
+const CS = 'claim-support';
+const digest = (c: string) => `sha256:${c.repeat(64)}`;
+
+function writeClaims(project: string, count: number) {
+  const dir = path.join(project, '.doflow', 'state', 'evidence', 'feature-r');
+  const at = '2026-06-01T10:00:00.000Z';
+  const ids = Array.from({ length: count }, (_v, i) => i);
+  const claims = ids.map((i) => ({ id: `claim_${i}`, taskId: 'T1', statement: `${SENTINEL} claim ${i}`, role: null, status: 'supported',
+    supportingEvidence: [`ev_${i}`], contradictingEvidence: [], createdAt: at, updatedAt: at }));
+  const evidence = ids.map((i) => ({ id: `ev_${i}`, taskId: 'T1', kind: 'generated-analysis',
+    source: { provider: 'general-task-execution', capability: 'coverage-reverify' }, locator: {}, provenance: 'inferred',
+    content: `${SENTINEL} passage ${i}`, freshness: { gitCommit: null, fileHash: null, observedAt: at, status: 'FRESH' },
+    establishes: [], observation: null, supports: [`claim_${i}`], contradicts: [], status: 'active', supersededBy: null }));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'T1_claims.json'), JSON.stringify({ taskId: 'T1', updatedAt: at, claimsCount: count, claims, version: 1, revision: 1 }));
+  fs.writeFileSync(path.join(dir, 'T1.json'), JSON.stringify({ taskId: 'T1', updatedAt: at, evidenceCount: count, evidence, version: 1, revision: 1 }));
+}
+
+/** Four stored entries for claim-support: fresh, question moved, builder and bars moved, and another project's. */
+function localResults(t: any) {
+  const f = fixture(t);
+  writeClaims(f.project, 3);
+  const registryKind = REGISTRY.kinds.find((kind: any) => kind.id === CS);
+  const source = getSource(registryKind.replay.source);
+  const bars = effectiveBars({ registry: REGISTRY, kind: CS, roots: f.roots }).bars;
+  const cases = source.build({ projectRoot: f.project, roots: f.roots, kind: registryKind }).cases;
+  assert.equal(cases.length, 3);
+  const { worseIds, perClass, labelCounts, ...metrics } = score(cases.map((c: any) => ({ ...c, model: c.label, latencyMs: 20 })), { options: ['yes', 'no'], bars, budgetMs: registryKind.budgetMs });
+  const base = {
+    kind: CS, provider: 'ollama', model: 'clef-flash',
+    questionDigest: questionDigest(materializeKind(CS, { adviceRegistry: REGISTRY }).question),
+    builderDigest: builderDigest(source, registryKind), barsDigest: barsDigest(bars, registryKind.budgetMs),
+    caseSet: { source: source.id, origin: source.origin, projectKey: projectKey(f.project), digest: caseSetDigest(cases), eligible: 3, replayed: 3 },
+    metrics, runAt: '2026-06-09T10:00:00.000Z', doflowVersion: '2.6.0',
+  };
+  writeResult({ roots: f.roots, entry: { ...base, modelDigest: digest('a') } });
+  writeResult({ roots: f.roots, entry: { ...base, modelDigest: digest('b'), questionDigest: digest('0') } });
+  writeResult({ roots: f.roots, entry: { ...base, modelDigest: digest('c'), builderDigest: digest('1'), barsDigest: digest('2') } });
+  writeResult({ roots: f.roots, entry: { ...base, modelDigest: digest('d'), caseSet: { ...base.caseSet, projectKey: digest('e') } } });
+  return f;
+}
+
+test('(d) Local results: standing re-judged, each moved digest named, the case set compared in this project only', (t) => {
+  const f = localResults(t);
+  const report = buildReport({ roots: f.roots, kinds: ['tier', CS], now: NOW, projectRoot: f.project });
+  assert.equal('verdicts' in report, false);
+  const rows = report.localResults.map((row: any) => [row.modelDigest.slice(7, 8), row.standing, row.stale, row.caseSet]);
   assert.deepEqual(rows, [
-    { kind: 'tier', model: 'm1', arm: null, result: 'pass', stale: false, reason: null },
-    { kind: 'tier', model: 'm2', arm: null, result: 'pass', stale: true, reason: 'verdict stale: corpus changed' },
+    ['a', 'measure-only', [], 'same'],
+    ['b', 'stale', ['question'], 'same'],
+    ['c', 'stale', ['builder', 'bars'], 'same'],
+    ['d', 'measure-only', [], 'other-project'],
   ]);
-  assert.match(renderText({ ...buildReport({ roots, kinds: KINDS, now: NOW, repoRoot, evaluate }) }), /tier m2: pass, stale: verdict stale: corpus changed/);
+  let text = renderText(report);
+  assert.doesNotMatch(text, /Bench verdicts/);
+  assert.match(text, /\nLocal results\n {2}The model build is not checked here/);
+  assert.match(text, /claim-support clef-flash \(provider ollama, digest sha256:aaaaaaaa…\), run 2026-06-09: measure-only: .*; case set same/);
+  assert.match(text, /sha256:bbbbbbbb…\), run 2026-06-09: stale: the question changed since the replay; replay again; case set same/);
+  assert.match(text, /sha256:cccccccc…\), run 2026-06-09: stale: the builder and bars changed since the replay; replay again/);
+  assert.match(text, /sha256:dddddddd…\), run 2026-06-09: measure-only: .*; measured in another project/);
+  assert.ok(text.trimEnd().endsWith(FOOTER), 'the footer stays last');
+
+  writeClaims(f.project, 4);
+  const grown = buildReport({ roots: f.roots, kinds: ['tier', CS], now: NOW, projectRoot: f.project });
+  assert.deepEqual(grown.localResults.map((row: any) => row.caseSet), ['changed', 'changed', 'changed', 'other-project']);
+  text = renderText(grown);
+  assert.match(text, /sha256:aaaaaaaa…\), run 2026-06-09: measure-only: .*; case set changed: replay again/);
+  assert.equal(JSON.stringify(grown).includes(SENTINEL) || text.includes(SENTINEL), false, 'no claim or passage text');
+
+  assert.deepEqual(buildReport({ roots: f.roots, kinds: ['tier'], kind: 'tier', now: NOW, projectRoot: f.project }).localResults, [], 'narrowed to the kind shown');
+  const none = renderText(buildReport({ roots: fixture(t).roots, kinds: ['tier'], now: NOW }));
+  assert.match(none, /\nLocal results\n {2}The model build is not checked here.*\n {2}none stored for the kinds shown/);
+});
+
+test('(d) advise --action report passes this project to the local results, so the case set is compared here', (t) => {
+  const f = localResults(t);
+  const run = (...args: string[]) => spawnSync(process.execPath, [BIN, 'advise', '--action', 'report', ...args], { cwd: f.project, env: { ...process.env, ...f.env }, encoding: 'utf8' });
+  const json = run('--kind', CS, '--json');
+  assert.equal(json.status, 0, json.stderr);
+  assert.deepEqual(JSON.parse(json.stdout).localResults.map((row: any) => row.caseSet), ['same', 'same', 'same', 'other-project']);
+  const text = run('--kind', CS);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /\nLocal results\n/);
+  assert.match(text.stdout, /measured in another project/);
+});
+
+test('(e) the report makes no network call and writes nothing, with stored results and labelled picks', (t) => {
+  const f = localResults(t);
+  labelledWindow(f.roots);
+  const net = require('node:net');
+  const http = require('node:http');
+  const https = require('node:https');
+  const saved = { connect: net.connect, createConnection: net.createConnection, socket: net.Socket.prototype.connect, request: http.request, get: http.get, srequest: https.request, sget: https.get };
+  let calls = 0;
+  const refuse = () => { calls += 1; throw new Error('network call from the report'); };
+  net.connect = refuse; net.createConnection = refuse; net.Socket.prototype.connect = refuse;
+  http.request = refuse; http.get = refuse; https.request = refuse; https.get = refuse;
+  const home = path.dirname(f.env.XDG_CONFIG_HOME);
+  const before = [snapshot(f.project), snapshot(home)];
+  let report: any;
+  try {
+    report = buildReport({ roots: f.roots, kinds: ['tier', 'mcp-need', CS], now: NOW, projectRoot: f.project });
+    renderText(report);
+  } finally {
+    net.connect = saved.connect; net.createConnection = saved.createConnection; net.Socket.prototype.connect = saved.socket;
+    http.request = saved.request; http.get = saved.get; https.request = saved.srequest; https.get = saved.sget;
+  }
+  assert.equal(typeof report.then, 'undefined', 'built synchronously: nothing is awaited');
+  assert.equal(calls, 0);
+  assert.equal(report.localResults.length, 4);
+  assert.deepEqual([snapshot(f.project), snapshot(home)], before);
 });
 
 test('the report writes nothing', (t) => {
@@ -197,7 +376,6 @@ test('advise --action report: JSON, text, --kind narrowing, unknown kind exits 2
   assert.deepEqual(snapshot(advice), before);
 });
 
-const SENTINEL = 'SENTINEL-Q7Z-do-not-print';
 
 // Row 174: the rerank block and the rerank hook are gone, and so is the followup-triage kind. Picks of both that an
 // earlier version wrote stay in a user's store; the report neither crashes on them nor prints a rerank block.
