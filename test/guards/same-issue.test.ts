@@ -83,11 +83,12 @@ test('G89.1: the require closure of followup.ts reaches no model client, ask, --
 
 test('G89.1 control: a planted require of same-issue/ask.ts, a lazy-looking http require and a transitive one are each found', () => {
   assert.deepEqual(addFindings(new Map([[FOLLOWUP, read(FOLLOWUP)]])), [], 'the copy is clean before the plant');
-  const planted = `${read(FOLLOWUP)}\nconst { checkPairs: planted } = require('../advice/same-issue/ask.ts');\n`;
+  const plant = (spec: string) => `require('${spec}')`; // built, so G16 does not read it as a real require
+  const planted = `${read(FOLLOWUP)}\nconst { checkPairs: planted } = ${plant('../advice/same-issue/ask.ts')};\n`;
   assert.ok(addFindings(new Map([[FOLLOWUP, planted]])).includes(`${FOLLOWUP} reaches ${ASK}`));
   const http = `${read(FOLLOWUP)}\nconst plantedHttp = require('http');\n`;
   assert.deepEqual(addFindings(new Map([[FOLLOWUP, http]])), [`${FOLLOWUP} reaches node:http`]);
-  const viaReader = `${read('src/runtime/lifecycle/status.ts')}\nconst plantedClient = require('../advice/client.ts');\n`;
+  const viaReader = `${read('src/runtime/lifecycle/status.ts')}\nconst plantedClient = ${plant('../advice/client.ts')};\n`;
   assert.ok(addFindings(new Map([['src/runtime/lifecycle/status.ts', viaReader]])).includes(`${FOLLOWUP} reaches src/runtime/advice/client.ts`));
 });
 

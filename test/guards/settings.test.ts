@@ -639,11 +639,12 @@ test('G44 S8 control: a planted key, a kind nothing asks, a caller that does not
 
 test('G44 S8 control: a caller literal counts through one required module that dispatches the kind, and through nothing else', () => {
   const inputs = adviceReaderInputs();
+  const plant = (spec: string) => `require('${spec}');\n`; // built, so G16 does not read it as a real require
   const adjacency = "checkIt({ kind: 'tier', caller: 'planted' });";
   const dispatch = (kind: string) => `interceptDecisionPoint({ kind: '${kind}', caller });`;
   const run = (files: Record<string, string>) => {
     const sources = new Map(inputs.sources);
-    sources.set(ADVICE_ENTRY, `${sources.get(ADVICE_ENTRY)}\nrequire('./planted-caller.ts');\n`);
+    sources.set(ADVICE_ENTRY, `${sources.get(ADVICE_ENTRY)}\n${plant('./planted-caller.ts')}`);
     for (const [file, text] of Object.entries(files)) sources.set(file, text);
     const draft = JSON.parse(JSON.stringify(inputs.advice));
     draft.kinds.find((kind: any) => kind.id === 'tier').askedBy.push('planted');
@@ -653,13 +654,13 @@ test('G44 S8 control: a caller literal counts through one required module that d
   // No dispatch and no required dispatcher: reported.
   assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${adjacency}\n` }), reported);
   // The required module dispatches a different kind: reported.
-  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `require('./planted-ask.ts');\n${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('mcp-need')}\n` }), reported);
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-ask.ts')}${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('mcp-need')}\n` }), reported);
   // The dispatcher is two hops away: reported.
-  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `require('./planted-mid.ts');\n${adjacency}\n`, 'src/cli/planted-mid.ts': "require('./planted-ask.ts');\n", 'src/cli/planted-ask.ts': `${dispatch('tier')}\n` }), reported);
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-mid.ts')}${adjacency}\n`, 'src/cli/planted-mid.ts': plant('./planted-ask.ts'), 'src/cli/planted-ask.ts': `${dispatch('tier')}\n` }), reported);
   // The dispatcher only names the kind in a comment: reported.
-  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `require('./planted-ask.ts');\n${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('mcp-need')}\n// 'tier'\n` }), reported);
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-ask.ts')}${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('mcp-need')}\n// 'tier'\n` }), reported);
   // One hop to a module that dispatches the kind: live.
-  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `require('./planted-ask.ts');\n${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('tier')}\n` }), []);
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-ask.ts')}${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('tier')}\n` }), []);
 });
 
 test('G44 S8 control: the comment-stripping and fence rules ignore a call that only a comment or a shell comment makes', () => {
