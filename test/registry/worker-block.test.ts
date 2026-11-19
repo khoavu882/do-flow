@@ -303,7 +303,7 @@ test('170 D12: no shipped worker block carries steering, and each declares contr
 });
 
 const cases = [
-  ['a missing block', (_w: any, harness: any) => { delete harness.worker; }, /worker '\*': worker block is required/],
+  ['a missing block', (_w: any, harness: any) => { delete harness.worker; delete harness.sessionEffort; }, /worker '\*': worker block is required/],
   ['a missing key', (w: any) => { delete w.loginProbe; }, /worker 'loginProbe': is missing/],
   ['an unknown key', (w: any) => { w.dispatch = {}; }, /worker 'dispatch': is not a worker key/],
   ['a block still carrying steering (170 D12)', (w: any) => { w.steering = structuredClone(w.controlChannel); }, /worker 'steering': steering was replaced by controlChannel \(row 170\)/],
