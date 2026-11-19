@@ -13,8 +13,8 @@
 // scratch bin/ holding only the fake CLI links and a link to git (DEC-055) plus a scratch directory
 // holding one `node` link (never the node install directory, which can hold real codex or gemini
 // binaries), and the caller env sets every DOFLOW_* identity variable explicitly. Process cases skip on win32
-// (DEC-008, DEC-050). The credentials scenario is D.4's (test/runtime/worker-secrets.test.ts), and
-// the forwarding scenario's real-launcher reruns are B.4's (test/runtime/worker-launcher.test.ts).
+// (DEC-008, DEC-050). The credentials scenario is D.4's (test/runtime/worker/secrets.test.ts), and
+// the forwarding scenario's real-launcher reruns are B.4's (test/runtime/worker/launcher.test.ts).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
