@@ -1,6 +1,6 @@
 'use strict';
 // 093 V.2: the marker scan for the synthetic V8 transcript fixtures (IC-022, IC-026). V.4's reader tests
-// reuse FIXTURES, MARKERS and scanFixtures(); the tiny test test/runtime/transcript-fixtures.test.ts runs it.
+// reuse FIXTURES, MARKERS and scanFixtures(); the tiny test test/runtime/transcripts/fixtures.test.ts runs it.
 //
 // scanFixtures() returns findings (an empty list is a pass):
 //   - every text-bearing fixture holds every marker that applies to its kind;
