@@ -237,7 +237,7 @@ When `doflow-run` selects a CLI from the caller's checkout, it warns on stderr i
 | `failure` | Workflow and evidence | list, settle or switch off the failures DoFlow captured on this machine |
 | `roadmap` | Workflow and evidence | autopilot runner: render, status, next, audit, report, init-policy, seed, promote |
 | `plan-check` | Workflow and evidence | check a plan's task lines the way the task-attempt ledger reads them |
-| `review` | Workflow and evidence | validate a feature's review/findings.json, print counts and advisories \(review-package assembles the payload\) |
+| `review` | Workflow and evidence | validate a feature's review/findings.json, print counts and advisories, or list possible duplicate seat findings \(--action similar; review-package assembles the payload\) |
 | `protocol` | Workflow and evidence | print the review and debate protocol presets, or the one a run would use \(read-only\) |
 | `rules` | Workflow and evidence | print the values the runtime owns for this project, each with its source \(read-only\) |
 | `primary` | Workflow and evidence | resolve which harness and model the main session runs \(read-only\) |
