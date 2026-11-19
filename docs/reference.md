@@ -640,6 +640,7 @@ load loudly; a `slots` value that is not an array is currently read as no slots 
 | `advice.kinds.mcp-need` | enum | — | project-overridable | — | — | Advice mode for the mcp-need kind: off, shadow \(record only\), show \(see an answer, never act on it; needs a passing local result\) or act; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. |
 | `advice.kinds.claim-support` | enum | — | project-overridable | — | — | Advice mode for the claim-support kind: off or shadow \(record only\); show \(needs a passing local result\) and act are accepted but held at shadow with a warning; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. |
 | `advice.kinds.instructs-reader` | enum | — | project-overridable | — | — | Advice mode for the instructs-reader kind: off or shadow \(record only\); show needs a passing local result; act is held at show; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. A filter, not a defence. |
+| `advice.kinds.same-issue` | enum | — | project-overridable | — | — | Advice mode for the same-issue kind: unset records in shadow, show needs a passing local result, act is held at show. |
 | `advice.models.tier` | string | — | project-overridable | — | — | Decision-model name for the tier kind; unset uses advice.model. |
 | `advice.models.task-class` | string | — | project-overridable | — | — | Decision-model name for the task-class kind; unset uses advice.model. |
 | `advice.models.verify-risk` | string | — | project-overridable | — | — | Decision-model name for the verify-risk kind; unset uses advice.model. |
@@ -647,6 +648,7 @@ load loudly; a `slots` value that is not an array is currently read as no slots 
 | `advice.models.mcp-need` | string | — | project-overridable | — | — | Decision-model name for the mcp-need kind; unset uses advice.model. |
 | `advice.models.claim-support` | string | — | project-overridable | — | — | Decision-model name for the claim-support kind; unset uses advice.model. |
 | `advice.models.instructs-reader` | string | — | project-overridable | — | — | Decision-model name for the instructs-reader kind; unset uses advice.model. |
+| `advice.models.same-issue` | string | — | project-overridable | — | — | Decision-model name for the same-issue kind; unset uses advice.model. |
 | `storage.prune` | enum | `on` | project-overridable | — | — | Storage pruning; project value applies to project roots only. |
 | `storage.retentionHours` | integer | `4320` | project-overridable | `DOFLOW_RETENTION_HOURS` | — | Lifecycle-events window in hours; an explicit value applies even while pruning is off. |
 | `failure.capture` | enum | `on` | global-only | `DOFLOW_FAILURE_CAPTURE` | — | Capture of DoFlow's own failures on this machine; any layer saying off wins. |

@@ -11,14 +11,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
+const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { resolveShadowConfig } = require('../../src/runtime/advice/shadow-config.ts');
+const { interceptDecisionPoint } = require('../../src/runtime/advice/shadow-dispatcher.ts');
 
 const REGISTRY: any = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice.json'), 'utf8'));
 // A kind nothing asks at runtime (empty askedBy) has no settings; the guard in test/guards/settings.test.ts (G44 S7) holds that.
 const KINDS: string[] = REGISTRY.kinds.filter((kind: any) => kind.askedBy.length > 0).map((kind: any) => kind.id);
 
-test('the advice registry asks these seven kinds at runtime; rerank stays only for offline measurement', () => {
-  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support', 'instructs-reader']);
+test('the advice registry asks these eight kinds at runtime; rerank stays only for offline measurement', () => {
+  assert.deepEqual(KINDS, ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support', 'instructs-reader', 'same-issue']);
   assert.deepEqual(REGISTRY.kinds.find((kind: any) => kind.id === 'rerank').askedBy, []);
 });
 
@@ -167,4 +169,28 @@ test('control: the agreement check catches a view that leaves out the project la
   const found = disagreements(f, 'tier', globalView);
   assert.ok(found.length > 0, 'a view that ignores local and project values must disagree');
   assert.ok(found.some((line) => line.includes('"local":{"advice.kinds.tier":"shadow"')), found.slice(0, 3).join('\n'));
+});
+
+// ── row 176 IC-001: the same-issue kind is held at show ───────────────────────────────────────────
+
+test('176 IC-001: advice.kinds.same-issue and advice.models.same-issue default to null, and a user act resolves to show with ACT_NOT_SUPPORTED', async (t) => {
+  const f = createSettingsEnv(t);
+  const unset = f.run(['config', '--json']);
+  for (const key of ['advice.kinds.same-issue', 'advice.models.same-issue']) assert.equal(unset.json.keys[key].value, null, key);
+  writeCase(f, { user: { 'advice.kinds.same-issue': 'act', 'advice.models.same-issue': 'm' } });
+  const shadowConfig = resolveShadowConfig('same-issue', { projectRoot: f.project, env: f.env() });
+  assert.equal(shadowConfig.mode, 'act');
+  const questionSet = { state: 'first: a\nsecond: b', questions: [{ name: 'same-issue', type: 'yesno', instructions: 'Same issue?', no: 'no', yes: 'yes' }] };
+  const answer = { name: 'same-issue', type: 'yesno', pick: 'yes', strength: { word: 'clear', between: null }, probabilities: { yes: 0.9, no: 0.1 }, confidence: 0.9, pickId: null };
+  const adviceClient = { ask: async () => ({ status: 'answered', reason: null, model: 'm', answers: [answer] }) };
+  const trust = async () => ({ standing: 'act', reason: 'injected', failedChecks: [], staleDigest: null, modelDigest: 'sha256:00' });
+  const registry = loadAdviceRegistry({ repoRoot: REPO }).registry;
+  const res = await interceptDecisionPoint(
+    { kind: 'same-issue', caller: 'review', state: questionSet.state, staticPick: 'no', questionSet, adviceRegistry: registry, projectRoot: f.project, env: f.env(), surface: 'show', record: false },
+    { adviceClient, shadowConfig, trust },
+  );
+  assert.equal(res.mode, 'show');
+  assert.equal(res.warning, "ACT_NOT_SUPPORTED: kind 'same-issue' is limited to show");
+  assert.equal(res.effectiveDecision, 'no', 'a shown answer never changes the decision');
+  assert.equal(res.elevated, false);
 });

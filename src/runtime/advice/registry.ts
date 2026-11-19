@@ -207,6 +207,38 @@ function validateInstructsReaderParams(params: any, base: string, errors: string
   }
 }
 
+// `params` of the same-issue kind (176 IC-001): the item cap, the batch size (its 1..16 is the generic rule below), the rule stage's bounds, and the state a full
+// batch builds (each case two items and a label line) must fit limits.maxStateBytes.
+const SAME_ISSUE_FIELDS = ['itemBytes', 'questionsPerCall', 'maxPairs', 'perItem', 'candidateAtPct', 'flagAtPct', 'locatorBonusPct', 'maxCompare'];
+const SAME_ISSUE_CASE_OVERHEAD = 64;
+const SAME_ISSUE_STATE_OVERHEAD = 256;
+function validateSameIssueParams(params: any, limits: any, base: string, errors: string[]): void {
+  for (const field of Object.keys(params)) if (!SAME_ISSUE_FIELDS.includes(field)) addError(errors, `${base}.params.${field}`, 'is not a known key');
+  const inRange = (field: string, low: number, high: number): boolean => {
+    if (!Number.isInteger(params[field]) || params[field] < low || params[field] > high) {
+      addError(errors, `${base}.params.${field}`, `must be an integer from ${low} to ${high}`);
+      return false;
+    }
+    return true;
+  };
+  const itemOk = inRange('itemBytes', 64, 4096);
+  inRange('perItem', 1, Number.MAX_SAFE_INTEGER);
+  inRange('maxCompare', 1, Number.MAX_SAFE_INTEGER);
+  inRange('locatorBonusPct', 0, 100);
+  const flagOk = inRange('flagAtPct', 1, 100);
+  const candidateOk = inRange('candidateAtPct', 1, 100);
+  if (flagOk && candidateOk && params.candidateAtPct > params.flagAtPct) addError(errors, `${base}.params.candidateAtPct`, 'must not exceed params.flagAtPct');
+  const perCall = params.questionsPerCall;
+  if (Number.isInteger(perCall) && Number.isInteger(limits?.maxQuestions) && perCall > limits.maxQuestions) {
+    addError(errors, `${base}.params.questionsPerCall`, 'must be at most limits.maxQuestions');
+  }
+  if (Number.isInteger(perCall) && perCall >= 1 && inRange('maxPairs', perCall, Number.MAX_SAFE_INTEGER)
+    && itemOk && isPositiveInteger(limits?.maxStateBytes)
+    && perCall * (2 * params.itemBytes + SAME_ISSUE_CASE_OVERHEAD) + SAME_ISSUE_STATE_OVERHEAD > limits.maxStateBytes) {
+    addError(errors, `${base}.params`, `questionsPerCall * (2 * itemBytes + ${SAME_ISSUE_CASE_OVERHEAD}) + ${SAME_ISSUE_STATE_OVERHEAD} must be at most limits.maxStateBytes`);
+  }
+}
+
 function validateCallBuiltFields(kind: any, registry: any, base: string, errors: string[]): void {
   const callBuilt = kind.criteriaFrom === CALL_BUILT;
   if (Object.hasOwn(kind, 'maxMode') && !MODES.includes(kind.maxMode)) addError(errors, `${base}.maxMode`, `must be one of ${MODES.join(', ')}`);
@@ -229,11 +261,17 @@ function validateCallBuiltFields(kind: any, registry: any, base: string, errors:
       validateClaimSupportParams(params, registry.limits, base, errors);
     } else if (kind.id === 'instructs-reader') {
       validateInstructsReaderParams(params, base, errors);
+    } else if (kind.id === 'same-issue') {
+      validateSameIssueParams(params, registry.limits, base, errors);
     } else {
       for (const [field, value] of Object.entries(params)) {
         if (field !== 'arm' && !isPositiveInteger(value)) addError(errors, `${base}.params.${field}`, 'must be a positive integer');
       }
     }
+  }
+  // Any kind that batches (176 IC-003): questionsPerCall is a positive integer of at most 16 (the question labels a..p).
+  if (isObject(kind.params) && Object.hasOwn(kind.params, 'questionsPerCall') && !(Number.isInteger(kind.params.questionsPerCall) && kind.params.questionsPerCall >= 1 && kind.params.questionsPerCall <= 16)) {
+    addError(errors, `${base}.params.questionsPerCall`, 'must be an integer from 1 to 16');
   }
   if (Object.hasOwn(kind, 'scoreLadder')) validateScoreLadder(kind.scoreLadder, kind, base, errors);
   else if (callBuilt && isObject(kind.params) && Object.hasOwn(kind.params, 'arm')) {

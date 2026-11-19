@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 2,
+  "kind": "same-issue",
+  "corpusVersion": 1,
+  "cases": [
+    {
+      "id": "same-issue-001",
+      "split": "train",
+      "state": "first: src/zorin/queue.ts:41 — The Zorin queue drops the last entry when it is flushed twice\nsecond: src/zorin/queue.ts:88 — Flushing the Zorin queue two times loses its final entry",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-002",
+      "split": "train",
+      "state": "first: lib/pellet/parse.ts:12 — Pellet parser throws on an empty header line instead of skipping it\nsecond: test/pellet/parse.test.ts:30 — Empty header line makes the Pellet parser throw, no test covers it",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-003",
+      "split": "train",
+      "state": "first: src/zorin/queue.ts:41 — The Zorin queue drops the last entry when it is flushed twice\nsecond: src/zorin/queue.ts:120 — Queue size is read before the lock is taken, so the count can be stale",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-004",
+      "split": "train",
+      "state": "first: lib/pellet/parse.ts:12 — Pellet parser throws on an empty header line instead of skipping it\nsecond: lib/pellet/render.ts:77 — Render step escapes quotes twice in attribute values",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-005",
+      "split": "train",
+      "state": "first: docs/tarn.md:5 — Tarn guide says the retry limit is five but the code uses three\nsecond: src/tarn/retry.ts:9 — Retry limit constant is three, the guide promises five",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-006",
+      "split": "train",
+      "state": "first: src/glim/cache.ts:20 — Glim cache never expires entries written with a zero ttl\nsecond: src/glim/cache.ts:64 — Glim cache key ignores the tenant, so two tenants share one entry",
+      "staticPick": "yes",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-007",
+      "split": "heldout",
+      "state": "first: src/orrin/sync.ts:33 — Orrin sync retries forever when the remote returns a conflict\nsecond: src/orrin/sync.ts:35 — A conflict from the remote sends Orrin sync into an endless retry loop",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-008",
+      "split": "heldout",
+      "state": "first: src/orrin/sync.ts:33 — Orrin sync retries forever when the remote returns a conflict\nsecond: src/orrin/sync.ts:140 — Sync log line prints the access token in clear text",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-009",
+      "split": "heldout",
+      "state": "first: src/vesk/auth.ts:51 — Vesk login accepts an expired session token\nsecond: test/vesk/auth.test.ts:19 — No check that Vesk rejects a session token past its expiry",
+      "staticPick": "no",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-010",
+      "split": "heldout",
+      "state": "first: src/vesk/auth.ts:51 — Vesk login accepts an expired session token\nsecond: src/vesk/menu.ts:8 — Menu labels are not translated for the second locale",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-011",
+      "split": "train",
+      "state": "first: src/pilm/export.ts:70 — Pilm export writes dates in local time while the import expects UTC\nsecond: src/pilm/import.ts:26 — Pilm import reads every date as UTC but export writes local time",
+      "staticPick": "yes",
+      "expected": "yes",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    },
+    {
+      "id": "same-issue-012",
+      "split": "train",
+      "state": "first: src/pilm/export.ts:70 — Pilm export writes dates in local time while the import expects UTC\nsecond: src/pilm/export.ts:12 — Export header lists columns in a different order than the rows",
+      "staticPick": "no",
+      "expected": "no",
+      "origin": "synthetic",
+      "note": "Invented for this corpus: two made-up review findings in the shape a same-issue pair takes; the files, modules and people they name do not exist. Label by the authors."
+    }
+  ]
+}
