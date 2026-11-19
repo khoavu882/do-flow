@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { SOURCE_IDS } = require('./replay/sources/index.ts');
 
 const ADVICE_FILE = 'core/registry/advice.json';
 const MODELS_FILE = 'core/registry/models.json';
@@ -13,7 +14,7 @@ const ADAPTER_DIR = 'src/runtime/advice/providers';
 const ADAPTER_EXT = path.extname(__filename);
 const TIER_KIND = 'tier';
 const CALL_BUILT = 'call';
-const MODES = ['off', 'shadow', 'act'];
+const MODES = ['off', 'shadow', 'show', 'act'];
 // The rerank label alphabet (rerank.ts LABELS): at most this many candidates.
 const RERANK_LABELS = 16;
 const LADDER_LEVELS = 5;
@@ -72,6 +73,86 @@ function validateGate(gate: any, errors: string[]): void {
       }
     }
   }
+}
+
+// The replay bars (175 IC-001): one full block shape, used for the package `bars`, a kind's `bars`, and every block of the
+// user override file (replay/bars.ts), so there is one set of rules. A block is complete (a missing key is refused) and
+// closed (an unknown key is refused).
+const BARS_KEYS: Record<string, string[]> = {
+  '': ['version', 'statistics', 'show', 'act'],
+  statistics: ['confidence', 'resamples', 'seed'],
+  show: ['minCases', 'minMinority', 'kappaLowerAbove', 'notWorseThanRule', 'p95WithinBudget'],
+  act: ['minCases', 'minMinority', 'kappaGainLowerAbove', 'maxWorseShare'],
+};
+
+function checkBarsKeys(block: any, keys: string[], base: string, errors: string[]): void {
+  for (const key of keys) if (!Object.hasOwn(block, key)) addError(errors, `${base}.${key}`, 'is required');
+  for (const key of Object.keys(block)) if (!keys.includes(key)) addError(errors, `${base}.${key}`, 'is not a known key');
+}
+
+function validateBars(bars: any, base: string, errors: string[]): void {
+  if (!isObject(bars)) { addError(errors, base, 'must be an object'); return; }
+  checkBarsKeys(bars, BARS_KEYS[''], base, errors);
+  if (Object.hasOwn(bars, 'version') && (!Number.isInteger(bars.version) || bars.version < 1)) addError(errors, `${base}.version`, 'must be an integer of at least 1');
+
+  const { statistics, show, act } = bars;
+  if (Object.hasOwn(bars, 'statistics')) {
+    if (!isObject(statistics)) addError(errors, `${base}.statistics`, 'must be an object');
+    else {
+      checkBarsKeys(statistics, BARS_KEYS.statistics, `${base}.statistics`, errors);
+      if (Object.hasOwn(statistics, 'confidence') && (!isNumber(statistics.confidence) || statistics.confidence <= 0 || statistics.confidence >= 1)) {
+        addError(errors, `${base}.statistics.confidence`, 'must be a number above 0 and below 1');
+      }
+      if (Object.hasOwn(statistics, 'resamples') && (!Number.isInteger(statistics.resamples) || statistics.resamples < 1000)) {
+        addError(errors, `${base}.statistics.resamples`, 'must be an integer of at least 1000');
+      }
+      if (Object.hasOwn(statistics, 'seed') && !Number.isInteger(statistics.seed)) addError(errors, `${base}.statistics.seed`, 'must be an integer');
+    }
+  }
+
+  const levels: Array<[string, any]> = [['show', show], ['act', act]];
+  for (const [name, level] of levels) {
+    if (!Object.hasOwn(bars, name)) continue;
+    const where = `${base}.${name}`;
+    if (!isObject(level)) { addError(errors, where, 'must be an object'); continue; }
+    checkBarsKeys(level, BARS_KEYS[name], where, errors);
+    if (Object.hasOwn(level, 'minCases') && !isPositiveInteger(level.minCases)) addError(errors, `${where}.minCases`, 'must be an integer of at least 1');
+    if (Object.hasOwn(level, 'minMinority')) {
+      if (!isPositiveInteger(level.minMinority)) addError(errors, `${where}.minMinority`, 'must be an integer of at least 1');
+      else if (isPositiveInteger(level.minCases) && level.minMinority > level.minCases / 2) addError(errors, `${where}.minMinority`, 'must be at most half of minCases');
+    }
+  }
+  if (isObject(show) && isObject(act)) {
+    if (isPositiveInteger(show.minCases) && isPositiveInteger(act.minCases) && act.minCases < show.minCases) addError(errors, `${base}.act.minCases`, 'must be at least show.minCases');
+    if (isPositiveInteger(show.minMinority) && isPositiveInteger(act.minMinority) && act.minMinority < show.minMinority) addError(errors, `${base}.act.minMinority`, 'must be at least show.minMinority');
+  }
+  if (isObject(show)) {
+    if (Object.hasOwn(show, 'kappaLowerAbove') && (!isNumber(show.kappaLowerAbove) || show.kappaLowerAbove < -1 || show.kappaLowerAbove >= 1)) {
+      addError(errors, `${base}.show.kappaLowerAbove`, 'must be a number from -1 up to but not including 1');
+    }
+    for (const field of ['notWorseThanRule', 'p95WithinBudget']) {
+      if (Object.hasOwn(show, field) && typeof show[field] !== 'boolean') addError(errors, `${base}.show.${field}`, 'must be a boolean');
+    }
+  }
+  if (isObject(act)) {
+    if (Object.hasOwn(act, 'kappaGainLowerAbove') && (!isNumber(act.kappaGainLowerAbove) || act.kappaGainLowerAbove < -2 || act.kappaGainLowerAbove >= 2)) {
+      addError(errors, `${base}.act.kappaGainLowerAbove`, 'must be a number from -2 up to but not including 2');
+    }
+    if (Object.hasOwn(act, 'maxWorseShare') && (!isNumber(act.maxWorseShare) || act.maxWorseShare < 0 || act.maxWorseShare > 1)) {
+      addError(errors, `${base}.act.maxWorseShare`, 'must be a number from 0 to 1');
+    }
+  }
+}
+
+// `kinds[].replay` (175 IC-001): the case source a replay reads, by id. A kind nothing asks has no decisions to replay.
+function validateReplay(kind: any, base: string, errors: string[]): void {
+  const replay = kind.replay;
+  if (!isObject(replay)) { addError(errors, `${base}.replay`, 'must be an object'); return; }
+  for (const key of Object.keys(replay)) if (key !== 'source') addError(errors, `${base}.replay.${key}`, 'is not a known key');
+  if (typeof replay.source !== 'string' || !SOURCE_IDS.includes(replay.source)) {
+    addError(errors, `${base}.replay.source`, `must be a case source id: ${SOURCE_IDS.join(', ')}`);
+  }
+  if (Array.isArray(kind.askedBy) && kind.askedBy.length === 0) addError(errors, `${base}.replay`, 'is not allowed on a kind nothing asks (askedBy is empty)');
 }
 
 function utf8Bytes(value: string): number {
@@ -265,6 +346,7 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, s
   }
 
   if (Object.hasOwn(registry, 'gate')) validateGate(registry.gate, errors);
+  validateBars(registry.bars, 'bars', errors);
 
   if (!settings) {
     try { settings = JSON.parse(fsImpl.readFileSync(path.join(repoRoot, SETTINGS_FILE), 'utf8')); }
@@ -332,6 +414,8 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, s
         addError(errors, `${base}.criteriaFrom`, 'must be a non-empty string');
       }
       validateCallBuiltFields(kind, registry, base, errors);
+      if (Object.hasOwn(kind, 'replay')) validateReplay(kind, base, errors);
+      if (Object.hasOwn(kind, 'bars') && kind.bars !== null) validateBars(kind.bars, `${base}.bars`, errors);
       if (typeof kind.staticFrom !== 'string') addError(errors, `${base}.staticFrom`, 'must be a string');
       if (!Array.isArray(kind.askedBy) || kind.askedBy.some((caller: any) => typeof caller !== 'string')) addError(errors, `${base}.askedBy`, 'must be an array of strings');
     }
@@ -361,4 +445,4 @@ function loadAdviceRegistry({ repoRoot = REPO_ROOT, file, fsImpl = fs }: any = {
   return { ok: true, registry };
 }
 
-module.exports = { loadAdviceRegistry, validateAdviceRegistry };
+module.exports = { loadAdviceRegistry, validateAdviceRegistry, validateBars };

@@ -21,6 +21,8 @@ const RULES: Map<string, string[]> = new Map([
 const PROTECTS = new Set(['open-work', 'unfinished-run']);
 const MOMENTS = new Set(['verb', 'session', 'verify', 'install', 'lifecycle-verb', 'uninstall']);
 const STORE_ID = /^[a-z][a-z0-9-]*$/;
+// A file a person edits and DoFlow only reads: the store has no writer to declare.
+const PERSON_OWNED_STORES = new Set(['advice-bars-user']);
 
 function isObject(value: any): boolean { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function positiveInteger(value: any): boolean { return Number.isInteger(value) && value > 0; }
@@ -85,7 +87,7 @@ function validateStorageRegistry(registry: any): { ok: boolean; errors: string[]
       if (!Array.isArray(store.moments) || store.moments.some((moment: any) => !MOMENTS.has(moment)) || new Set(store.moments).size !== store.moments.length) error(errors, `${where}.moments`, 'must be a unique subset of known moments');
       if (store.rule === 'existing' && store.moments?.length) error(errors, `${where}.moments`, 'must be empty for existing stores');
       if (!Array.isArray(store.writers) || store.writers.some((writer: any) => typeof writer !== 'string' || !writer)) error(errors, `${where}.writers`, 'must be an array of repository-relative paths');
-      else if (!store.writers.length && store.rule !== 'control' && !store.id.startsWith('user-settings-')) error(errors, `${where}.writers`, 'may be empty only for control or user-settings stores');
+      else if (!store.writers.length && store.rule !== 'control' && !store.id.startsWith('user-settings-') && !PERSON_OWNED_STORES.has(store.id)) error(errors, `${where}.writers`, 'may be empty only for control, user-settings or person-owned stores');
       if (store.rule === 'existing') {
         if (!isObject(store.source) || typeof store.source.file !== 'string' || !store.source.file
           || typeof store.source.pattern !== 'string' || !store.source.pattern) {

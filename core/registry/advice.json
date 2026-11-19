@@ -27,6 +27,12 @@
       "splitTo": 0.65
     }
   },
+  "bars": {
+    "version": 1,
+    "statistics": { "confidence": 0.95, "resamples": 10000, "seed": 20261119 },
+    "show": { "minCases": 30, "minMinority": 10, "kappaLowerAbove": 0, "notWorseThanRule": true, "p95WithinBudget": true },
+    "act": { "minCases": 100, "minMinority": 25, "kappaGainLowerAbove": 0, "maxWorseShare": 0.02 }
+  },
   "gate": {
     "version": 1,
     "illustrative": true,
@@ -154,6 +160,7 @@
       "staticFrom": "the recorded relation (supports means yes, contradicts means no)",
       "askedBy": ["claim"],
       "maxMode": "shadow",
+      "replay": { "source": "claim-ledger" },
       "budgetMs": 1500,
       "params": {
         "claimBytes": 1024,

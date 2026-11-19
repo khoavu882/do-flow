@@ -1740,6 +1740,24 @@
         "file": "console/src/action-log.ts",
         "pattern": "ACTION_LOG_BYTES = {value}"
       }
+    },
+    {
+      "id": "advice-bars-user",
+      "root": "config-home",
+      "path": "advice-bars.json",
+      "entry": "file",
+      "match": "^advice-bars\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "a file the person edits: DoFlow only reads it and never writes, prunes or removes it"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [],
+      "source": {
+        "file": "src/runtime/advice/replay/bars.ts",
+        "pattern": "OVERRIDE_FILE = 'advice-bars.json'"
+      }
     }
   ],
   "externalWriters": [
