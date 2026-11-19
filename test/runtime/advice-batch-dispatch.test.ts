@@ -1,9 +1,9 @@
 'use strict';
 
-// Row 176 T2 (design §6, IC-004, owner ruling O-1 (a)): a decision whose question set holds more than one question is a
-// batch, and the dispatcher records one pick or miss line per question, each with its own pick id and static answer, so
-// `advise --action report` and `--followed` keep working per question. A single-question decision writes the line it
-// wrote before the change, byte for byte. The model is a fake server or an injected client; HOME and XDG_CONFIG_HOME are
+// Row 176 T2 (design §6, IC-004, owner ruling O-1 (a)): a decision with one static answer per question (`staticPicks`) is
+// a batch, of one question or more, and the dispatcher records one pick or miss line per question, each with its own pick
+// id and static answer, so `advise --action report` and `--followed` keep working per question. A single-question
+// decision without `staticPicks` writes the line it wrote before the change, byte for byte. The model is a fake server or an injected client; HOME and XDG_CONFIG_HOME are
 // temp dirs, and the batched kind is a fixture in a registry passed through the context.
 
 const { test } = require('node:test');
@@ -177,6 +177,24 @@ test('(c) show at a passing standing returns an answer and a pick id per questio
   });
 });
 
+test('(c) a one-question batch is a batch: trust on the materialised question, no static answer asked, its line from staticPicks[0]', async (t) => {
+  const s = store(t);
+  const calls: any[] = [];
+  const reply = { status: 'answered', reason: null, model: 'm', answers: [{ name: `${KIND}-a`, type: 'yesno', pick: 'yes', strength: { word: 'clear', between: null }, probabilities: { no: 0.1, yes: 0.9 }, confidence: 0.9 }] };
+  const adviceClient = { ask: async (options: any) => { calls.push(options); return reply; } };
+  const trust = trustAt('show');
+  const set = batchSet(1);
+  const res = await interceptDecisionPoint(batchCtx(s, { surface: 'show', state: set.state, questionSet: set, staticPick: 'no', staticPicks: ['no'] }), { adviceClient, roots: s.roots, trust, shadowConfig: SHOW });
+  assert.equal(res.mode, 'show');
+  assert.deepEqual(trust.requests[0].question, {
+    name: KIND, type: 'yesno', instructions: FIXTURE_KIND.instructions, no: FIXTURE_KIND.no, yes: FIXTURE_KIND.yes,
+  });
+  assert.equal(calls[0].staticAnswer, null);
+  assert.deepEqual(res.advisorAnswers, [{ pick: 'yes', strength: 'clear' }]);
+  const lines = s.lines();
+  assert.deepEqual(lines.map((line: any) => [line.type, line.question, line.static, line.pickId]), [['pick', `${KIND}-a`, 'no', res.pickId]]);
+});
+
 test('(e) busy slots record a busy miss per question and start no call', async (t) => {
   const s = store(t);
   const a = await advised(t, s, answering((name: string) => YES[name]));
@@ -250,7 +268,7 @@ test('(d) a single-question decision writes, byte for byte, the line the base co
 
 // ── a multi-question decision that declares no batch records what it recorded before the change ────────────────────
 //
-// Only `staticPicks` aligned with more than one question declares a batch. A caller's own multi-question set (the ad hoc
+// Only `staticPicks` aligned with the questions declares a batch. A caller's own multi-question set (the ad hoc
 // `advise` path hands the dispatcher a whole call-criteria set, here a three-candidate rerank ladder) keeps one line and
 // its trust check on the first question. Captured from b25116eb (a scratch export, not a checkout) by running these two
 // scenarios, masked as in (d).

@@ -124,8 +124,8 @@ interface DecisionPointContext {
   state: string;
   staticPick: string;
   /**
-   * 176 IC-004: the static answer of each question, aligned with `questionSet.questions`. Only a set of more than one
-   * question with one static answer each is a batch, recorded one line per question (`staticPick` is then
+   * 176 IC-004: the static answer of each question, aligned with `questionSet.questions`. A set with one static answer
+   * per question, one question included, is a batch, recorded one line per question (`staticPick` is then
    * `staticPicks[0]`); any other decision records its one line (isBatch).
    */
   staticPicks?: string[];
@@ -249,12 +249,12 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
       roots: services.roots,
       fsImpl: services.fsImpl,
     });
-    const callBuilt = (context.questionSet?.questions?.length ?? 0) > 1 || registryKind(context)?.criteriaFrom === 'call';
+    const callBuilt = isBatch(context) || (context.questionSet?.questions?.length ?? 0) > 1 || registryKind(context)?.criteriaFrom === 'call';
     const options: AskOptions = {
       questionSet: context.questionSet,
       kind: context.kind,
       // The client checks a static answer against the first question, which is wrong for a multi-question set (a label is
-      // not a level of a score question) and meaningless for a call-built kind; the dispatcher still records staticPick.
+      // not a level of a score question) and meaningless for a batch or a call-built kind; the dispatcher still records it.
       staticAnswer: callBuilt ? null : staticAnswerOf(context),
       caller: context.caller,
       taskId: context.taskId ?? null,
@@ -314,13 +314,14 @@ const DESCRIBERS: Record<string, (call: AdvisorCall, context: DecisionPointConte
 };
 
 /**
- * A declared batch (176 IC-004): `staticPicks` holds one static answer per question, and there is more than one. Only a
- * batch records a line per question; any other decision, a caller's own multi-question set included (the ad hoc
- * `advise` path), records its one line as before. shadow-runner.ts's spawn-failed fallback repeats this test.
+ * A declared batch (176 IC-004): `staticPicks` holds one static answer per question, of one question or more, so a
+ * one-case batch is judged against the kind's question like any other batch. Only a batch records a line per question;
+ * any other decision, a caller's own multi-question set included (the ad hoc `advise` path), records its one line as
+ * before. shadow-runner.ts's spawn-failed fallback repeats this test.
  */
 function isBatch(context: Pick<DecisionPointContext, 'staticPicks' | 'questionSet'>): boolean {
   const count = context.questionSet?.questions?.length ?? 0;
-  return count > 1 && Array.isArray(context.staticPicks) && context.staticPicks.length === count;
+  return count >= 1 && Array.isArray(context.staticPicks) && context.staticPicks.length === count;
 }
 
 /** How many lines the decision records: one per question for a batch, one otherwise. */

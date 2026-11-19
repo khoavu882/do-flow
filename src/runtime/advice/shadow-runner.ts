@@ -224,7 +224,7 @@ async function askAndRecord(payload: any, fsImpl: any, arrivedAt: number, slot: 
         // A batch records one miss per question, any other decision its one miss, as recordCall writes them (176 IC-004;
         // the dispatcher's isBatch, repeated here because the dispatcher may be what failed to load).
         const questions = Array.isArray(context.questionSet?.questions) ? context.questionSet.questions.length : 0;
-        const batch = questions > 1 && Array.isArray(context.staticPicks) && context.staticPicks.length === questions;
+        const batch = questions >= 1 && Array.isArray(context.staticPicks) && context.staticPicks.length === questions;
         for (let index = 0; index < (batch ? questions : 1); index += 1) {
           appendMiss({ roots: payload.roots, fsImpl, kind: context.kind, caller: context.caller, reason: 'spawn-failed', model: payload.model ?? null, durationMs: 0, mode: 'shadow' });
         }
