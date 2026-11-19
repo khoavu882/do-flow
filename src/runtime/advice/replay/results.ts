@@ -7,7 +7,9 @@
 // field, a digest that is not `sha256:<hex>` or a figure that is not a number is dropped). No standing is ever stored, so
 // a reader always judges the numbers against the bars of the moment; no case id or case text is ever stored either.
 // A write takes the store's lock, re-reads, replaces the key's entry, keeps the newest MAX_RESULTS by `runAt`, and lands
-// through a temp file in the same folder and a rename. An unreadable store reads as no result.
+// through a temp file in the same folder and a rename. An unreadable store reads as no result. A write leaves every other
+// object of the file as it was, also one that fails the read check (an entry another DoFlow version wrote, with a field
+// this one does not know): the read ignores it, the write does not delete it. Such an entry counts toward MAX_RESULTS.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -102,7 +104,7 @@ function rebuild(shape: Shape, value: any, where: string, strict: boolean): { ok
   return { ok: true, value: out };
 }
 
-const keyOf = (entry: any): string => JSON.stringify([entry.caseSet.projectKey, entry.kind, entry.modelDigest]);
+const keyOf = (entry: any): string => JSON.stringify([entry?.caseSet?.projectKey, entry?.kind, entry?.modelDigest]);
 
 /** The store file under `roots['user-state']`, or null when that root does not resolve. */
 function resultsFile(roots: any): string | null {
@@ -124,6 +126,17 @@ function readFrom(file: string | null, fsImpl: any): any[] {
   const seen = new Map<string, number>();
   for (const entry of entries) seen.set(keyOf(entry), (seen.get(keyOf(entry)) || 0) + 1);
   return entries.filter((entry) => seen.get(keyOf(entry)) === 1);
+}
+
+/**
+ * Every object in the store's `results` as it is in the file, whether or not it passes the allowlist; `[]` for a missing,
+ * unparsable or other-schema store. A write keeps these, so an entry another DoFlow version wrote survives it.
+ */
+function rawEntries(file: string, fsImpl: any): any[] {
+  let parsed: any;
+  try { parsed = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { return []; }
+  if (!isObject(parsed) || parsed.schema !== SCHEMA || !Array.isArray(parsed.results)) return [];
+  return parsed.results.filter(isObject);
 }
 
 /** Every entry of the store that passes the allowlist; a missing, unreadable or other-schema store is `[]`. */
@@ -152,9 +165,14 @@ function writeResult({ roots, entry, fsImpl = fs, lock }: { roots: any; entry: a
   }
   try {
     const key = keyOf(built.value);
-    const kept = readFrom(file, fsImpl).filter((other) => keyOf(other) !== key);
+    const kept = rawEntries(file, fsImpl).filter((other) => keyOf(other) !== key);
     kept.push(built.value);
-    kept.sort((a, b) => Date.parse(a.runAt) - Date.parse(b.runAt));
+    // Oldest first. An entry with no readable runAt counts as the oldest, so it is pruned before any dated one.
+    const age = (item: any): number => {
+      const at = typeof item.runAt === 'string' ? Date.parse(item.runAt) : NaN;
+      return Number.isFinite(at) ? at : -Infinity;
+    };
+    kept.sort((a, b) => (age(a) === age(b) ? 0 : age(a) < age(b) ? -1 : 1));
     const results = kept.slice(-MAX_RESULTS);
     writeFileAtomic(file, `${JSON.stringify({ schema: SCHEMA, results }, null, 2)}\n`, {
       fsImpl,

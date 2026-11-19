@@ -210,6 +210,41 @@ test(`175 T5: the store holds at most ${256} entries; the oldest runAt is droppe
   assert.ok(results.some((r: any) => r.runAt === stamp(2)) && results.some((r: any) => r.modelDigest === hex('f')));
 });
 
+test('175 F-03: an entry another DoFlow version wrote (an extra field) survives a write, is ignored by the read, and the file parses', (t) => {
+  const s = store(t);
+  const foreign = entry({ modelDigest: hex('1'), futureField: { keep: ['me'] }, metrics: { ...entry().metrics, extraFigure: 7 } });
+  const undated = { kind: 'claim-support', somethingNew: true };
+  plant(s.file, [foreign, undated, 'not an entry']);
+  assert.deepEqual(readResults({ roots: s.roots }), [], 'the read ignores what fails the allowlist');
+
+  const mine = entry({ caseSet: { ...entry().caseSet, projectKey: hex('9') } });
+  writeResult({ roots: s.roots, entry: mine });
+
+  const file = JSON.parse(fs.readFileSync(s.file, 'utf8'));
+  assert.equal(file.schema, 1);
+  assert.deepEqual(file.results.filter((r: any) => r && typeof r === 'object' && ('futureField' in r || 'somethingNew' in r)), [undated, foreign], 'kept exactly as written, the undated one first');
+  assert.deepEqual(file.results.filter((r: any) => !('futureField' in r) && !('somethingNew' in r)), [mine]);
+  assert.deepEqual(readResults({ roots: s.roots }), [mine], 'still ignored for trust');
+  // A write for the foreign entry's own key replaces it: last write wins for one (project, kind, model digest).
+  writeResult({ roots: s.roots, entry: entry({ modelDigest: hex('1'), runAt: '2026-11-19T10:00:00.000Z' }) });
+  assert.equal(readResults({ roots: s.roots }).length, 2);
+  assert.ok(!JSON.stringify(JSON.parse(fs.readFileSync(s.file, 'utf8'))).includes('futureField'));
+});
+
+test('175 F-03: kept foreign entries count toward the cap; an entry with no runAt is the first to go and the oldest dated one survives', (t) => {
+  const s = store(t);
+  const stamp = (i: number) => new Date(Date.UTC(2026, 0, 1) + i * 60_000).toISOString();
+  const foreign = (i: number) => entry({ modelDigest: `sha256:${i.toString(16).padStart(64, '0')}`, runAt: stamp(i + 1), futureField: i });
+  const planted = [{ kind: 'claim-support', undated: true }, ...Array.from({ length: MAX_RESULTS - 1 }, (_, i) => foreign(i))];
+  plant(s.file, planted);
+  writeResult({ roots: s.roots, entry: entry({ modelDigest: hex('f'), runAt: stamp(10_000) }) });
+  const results = JSON.parse(fs.readFileSync(s.file, 'utf8')).results;
+  assert.equal(results.length, MAX_RESULTS);
+  assert.ok(!results.some((r: any) => r.undated === true), 'the undated entry is pruned first');
+  assert.ok(results.some((r: any) => r.futureField === 0), 'the oldest dated entry survives');
+  assert.ok(results.some((r: any) => r.modelDigest === hex('f')));
+});
+
 test('175 T5: a lock that cannot be taken throws results-locked and writes nothing', (t) => {
   const s = store(t);
   fs.mkdirSync(path.dirname(s.file), { recursive: true });
