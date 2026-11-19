@@ -102,7 +102,7 @@
     {
       "id": "rerank",
       "type": "choice",
-      "description": "Offline measurement only: nothing asks this kind at run time (askedBy is empty, no kind or model setting exists, retrieve makes no decision-model call); `bench advice-gate --kind rerank` scores it. Illustrative defaults, set from one run on one laptop (20 guidance queries, load-confounded): 16 candidates of 800 bytes; arm choice because it measured 2 to 3 times faster than ladder (cold p95 4.5 to 11.6 s against 12.8 to 21.7 s), 120 of 120 replies valid; gate.latency.p95CapMs.rerank stays 3000 and is expected to fail on that laptop.",
+      "description": "Offline measurement only: nothing asks this kind at run time (askedBy is empty, no kind or model setting exists, retrieve makes no decision-model call); `bench advice-gate --kind rerank` scores it. Illustrative defaults, set from one run on one laptop (20 guidance queries, load-confounded): 16 candidates of 800 bytes; arm choice because it measured 2 to 3 times faster than ladder (cold p95 4.5 to 11.6 s against 12.8 to 21.7 s), 120 of 120 replies valid.",
       "instructions": "Select the candidate that best answers the query.",
       "criteriaFrom": "call",
       "staticFrom": "the first-stage top candidate (label A)",

@@ -18,8 +18,6 @@ const { ndcgAt5Of, hits } = require('./metrics.ts');
 
 const RERANK_KIND = 'rerank';
 const ARMS = ['choice', 'ladder'];
-/** Incremented by hand when the dev task set or the way first-stage lists are cut changes (IC-004 `corpusVersion`). */
-const RERANK_CORPUS_VERSION = 1;
 const HOLDOUT_PATH = /(^|[\\/])holdout([\\/]|$)|\.seal(ed)?\.json$/i;
 
 /** Throws when `file` names the holdout directory or a seal file; every read in this module goes through it. */
@@ -248,6 +246,6 @@ function collectFirstStage({ repoRoot, snapshotPath, tmp, deps = {} }: any) {
 }
 
 module.exports = {
-  RERANK_KIND, ARMS, RERANK_CORPUS_VERSION,
+  RERANK_KIND, ARMS,
   assertNotHoldout, toBuilderCandidate, reorder, scoreArm, summarizeCases, armDifference, wouldDrop, collectFirstStage,
 };
