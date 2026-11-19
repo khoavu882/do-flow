@@ -264,7 +264,7 @@ const SESSION_NAMES = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT', 'CLAUDE_COD
 const PI_EFFORT = { status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: '2026-11-16', via: 'flag', argv: ['--thinking', '{effort}'], levels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], offLevel: 'off', mayLower: true };
 
 /** A scratch `fake-pi` worker binary that logs its argv and the session variables it sees, then runs the stock fake CLI. */
-function fakePi(p: any) {
+function fakePi(p: any, effort: any = PI_EFFORT) {
   const wrapper = path.join(p.sb.dir, 'fake-pi.js');
   fs.writeFileSync(wrapper, [
     '#!/usr/bin/env node',
@@ -281,15 +281,15 @@ function fakePi(p: any) {
   p.env.FAKE_ENV_LOG = log;
   const descriptor = structuredClone(p.sb.descriptors.claude);
   descriptor.cli.binary = 'fake-pi';
-  descriptor.effort = structuredClone(PI_EFFORT);
+  descriptor.effort = structuredClone(effort);
   return { descriptors: { pi: descriptor }, runs: () => fs.readFileSync(log, 'utf8').trim().split('\n').map((l: any) => JSON.parse(l)).filter((l: any) => l.argv.includes('--edit-in-cwd')) };
 }
 
-async function piRun(t: any, sessionEnv: any) {
+async function piRun(t: any, sessionEnv: any, effort: any = PI_EFFORT) {
   const scenario: any = { run: [{ write: { path: 'src/retry.js', content: '// retried\n' } }, { emit: { type: 'usage', tokens: 30 } }, { emit: SUCCESS }] };
   const p = await project(t, { plan: 'budget', mode: 'auto', scenario, identity: { DOFLOW_ATTEMPT: undefined } });
   Object.assign(p.env, sessionEnv);
-  const worker = fakePi(p);
+  const worker = fakePi(p, effort);
   assert.equal((await readiness.probe({ descriptors: worker.descriptors, env: p.env, cwd: p.root })).disposition, 'probed');
   const r = await loop.run(p.options({ maxSeconds: 60, descriptors: worker.descriptors }));
   assert.equal(r.outcome, 'completed', JSON.stringify(r.last.blocked || r.last.actions));
@@ -332,6 +332,13 @@ test('178 A-01: a non-orchestrator task still reads the declared main harness, s
   const primary = resolvePrimary({ env: p.env, projectRoot: p.root, registry });
   const brief: any = renderBriefTools({ registry, router, probes, reach: null, owner: 'core-implementer', stage: null, harness: 'pi', primary, env: p.env, loginModeOf: () => null });
   assert.deepEqual(brief.record.effortPlan, d.model.effortPlan, 'the brief and the launch give one plan');
+});
+
+test('178 A-02: the effort is resolved against the descriptor the loop launches, not the registry copy: a level only the registry lists is mapped down', POSIX, async (t) => {
+  const { d, run } = await piRun(t, { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'max' }, { ...PI_EFFORT, levels: ['low', 'high'] });
+  const at = run.argv.indexOf('--thinking');
+  assert.deepEqual(run.argv.slice(at, at + 2), ['--thinking', 'high']);
+  assert.deepEqual(d.model.effortPlan, { pass: 'high', source: 'session', harness: 'claude', level: 'max', origin: 'CLAUDE_EFFORT', mapped: { from: 'max', to: 'high' }, check: 'listed' });
 });
 
 test('row 173 T5 (g): sequential and manual modes yield the envelope and write no handoff prompt', POSIX, async (t) => {

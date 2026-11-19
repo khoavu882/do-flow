@@ -110,3 +110,16 @@ test('(j) effortPlanFor reads the session and resolves against the worker harnes
   assert.equal(unset.session.reason, 'not-set');
   assert.equal(call({ env: {} }).session.reason, 'no-session-harness');
 });
+
+test('(k) effortPlanFor takes the worker block it is given, which the registry need not hold; the registry still serves the session harness', () => {
+  const registry = {
+    harnesses: [{ id: 'sess', sessionEffort: { status: 'supported', marker: { env: 'SESS_MARK', equals: '1' }, sources: [{ kind: 'env', name: 'SESS_EFFORT', modes: ['subscription', 'api-key'] }] }, worker: sessionWorker }],
+  };
+  const call = (over: any = {}) => effortPlanFor({
+    registry, env: { SESS_MARK: '1', SESS_EFFORT: 'd' }, declaredHarness: null, workerHarness: 'pkg', choice: null, loginModeOf: () => null, ...over,
+  });
+  assert.equal(call().reason, 'worker-takes-no-effort', 'the registry holds no such worker');
+  assert.deepEqual(call({ worker: worker(['a', 'b']) }), {
+    pass: 'b', source: 'session', harness: 'sess', level: 'd', origin: 'SESS_EFFORT', mapped: { from: 'd', to: 'b' }, check: 'listed',
+  });
+});
