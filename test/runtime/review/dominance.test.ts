@@ -8,11 +8,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { dominates } = require('../../src/runtime/review/dominance.ts');
+const { dominates } = require('../../../src/runtime/review/dominance.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 // The effective registry: `debate-3` is contributed by the bundled package `doflow` (122 A.6), not held by protocols.json.
-const registry = structuredClone(require('../../src/runtime/review/protocols.ts').loadProtocols().registry);
+const registry = structuredClone(require('../../../src/runtime/review/protocols.ts').loadProtocols().registry);
 const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'models.json'), 'utf8'));
 const context = { tiers: models.dispatchTiers.tiers, synthesizerStrength: registry.synthesizerStrength };
 const preset = (id: string): any => structuredClone(registry.presets[id]);

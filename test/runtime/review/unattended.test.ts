@@ -6,8 +6,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { reviewUnattended } = require('../../src/runtime/settings/autopilot.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { reviewUnattended } = require('../../../src/runtime/settings/autopilot.ts');
 
 function home(t: any, settings?: any) {
   const dir = tempDir(t, 'doflow-review-unattended-');

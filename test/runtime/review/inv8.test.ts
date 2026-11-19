@@ -6,10 +6,10 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { validateFindings, reviewAdvisories } = require('../../src/runtime/review/findings.ts');
+const { validateFindings, reviewAdvisories } = require('../../../src/runtime/review/findings.ts');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const HEAD = 'a'.repeat(40);
 

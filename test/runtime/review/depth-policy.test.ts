@@ -4,9 +4,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadVerificationRegistry, reviewDepthPolicy } = require('../../src/runtime/verification/registry.ts');
+const { loadVerificationRegistry, reviewDepthPolicy } = require('../../../src/runtime/verification/registry.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/verification.json'), 'utf8'));
 
 function load(mutate: any) {

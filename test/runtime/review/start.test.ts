@@ -1,6 +1,6 @@
 'use strict';
 
-// Feature 095b B.1 (IC-001), 119 A.4 (IC-005): `review --action start`; the depth rule is `resolveProtocol` (review-protocol-resolve.test.js). Every case runs in a
+// Feature 095b B.1 (IC-001), 119 A.4 (IC-005): `review --action start`; the depth rule is `resolveProtocol` (review/protocol-resolve.test.ts). Every case runs in a
 // scratch git repository with a scratch HOME; nothing is written to the real record or advice stores.
 
 const { test, before } = require('node:test');
@@ -8,15 +8,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
-const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
-const { reviewPrecondition } = require('../../src/runtime/review/start.ts');
-const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
-const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
-const { cwdHash } = require('../../src/runtime/context/identity.ts');
-const { startFakeServer, answering, closedEndpoint } = require('../helper/fake-decision-server.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { loadVerificationRegistry } = require('../../../src/runtime/verification/registry.ts');
+const { handleReviewCommand } = require('../../../src/runtime/review/command.ts');
+const { reviewPrecondition } = require('../../../src/runtime/review/start.ts');
+const { protocolDigest } = require('../../../src/runtime/review/resolve-protocol.ts');
+const { storeFileFor } = require('../../../src/runtime/dispatch/store.ts');
+const { cwdHash } = require('../../../src/runtime/context/identity.ts');
+const { startFakeServer, answering, closedEndpoint } = require('../../helper/fake-decision-server.ts');
 // an endpoint nothing listens on, resolved once before the tests run
 let CLOSED_ENDPOINT = '';
 before(async () => { CLOSED_ENDPOINT = await closedEndpoint(); });
@@ -810,7 +810,7 @@ test('N-6: every error refusal prints applicable null; a precondition refusal st
  */
 let REAL_INTERCEPT: any = null;
 function stubDispatcher(t: any, resolution: any, during: any = null): any[] {
-  const dispatcher = require('../../src/runtime/advice/shadow-dispatcher.ts');
+  const dispatcher = require('../../../src/runtime/advice/shadow-dispatcher.ts');
   REAL_INTERCEPT ??= dispatcher.interceptDecisionPoint;
   t.after(() => { dispatcher.interceptDecisionPoint = REAL_INTERCEPT; });
   const contexts: any[] = [];

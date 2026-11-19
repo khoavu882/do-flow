@@ -1,5 +1,5 @@
 'use strict';
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 
 // Row 173 T4 — the review package is a prompt frame (design §6.5). do-review-package.sh runs in a scratch
 // git repo with two commits, one adding a file whose diff holds `</document>` and `<T>`; the real
@@ -11,10 +11,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { startFakeServer, answering } = require('../helper/fake-decision-server.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { startFakeServer, answering } = require('../../helper/fake-decision-server.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
 const PACKAGE_SCRIPT = path.join(BASH_DIR, 'do-review-package.sh');
 const FEATURE = '001-auth';

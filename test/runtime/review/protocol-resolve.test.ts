@@ -6,14 +6,14 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
+const { ACTIVE_HARNESS_IDS } = require('../../helper/harness-ids.ts');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadProtocols } = require('../../src/runtime/review/protocols.ts');
-const { resolveProtocol, protocolLines, gateMinSeats } = require('../../src/runtime/review/resolve-protocol.ts');
-const { loadPolicy } = require('../../src/runtime/roadmap/gates.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { loadProtocols } = require('../../../src/runtime/review/protocols.ts');
+const { resolveProtocol, protocolLines, gateMinSeats } = require('../../../src/runtime/review/resolve-protocol.ts');
+const { loadPolicy } = require('../../../src/runtime/roadmap/gates.ts');
 
 const read = (rel: any) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 const loaded = loadProtocols({ repoRoot: REPO_ROOT });
@@ -270,7 +270,7 @@ test('a registry with no single-labelled review preset is refused registry-incom
 // 119 F.1 (IC-003, FR-008): `enforcement` says, per harness, whether the read-only limit of a read-only seat
 // agent is enforced. The expected rows are written out here, never read from the code under test; the harness
 // order is the registry's, fixed by the pin in test/registry/harness-ids.test.ts.
-const { loadEnforcementInputs } = require('../../src/runtime/review/start.ts');
+const { loadEnforcementInputs } = require('../../../src/runtime/review/start.ts');
 
 const HARNESS_ORDER: any = ACTIVE_HARNESS_IDS;
 const UNENFORCED: any = ['codex', 'pi', 'antigravity'];
@@ -373,7 +373,7 @@ test('protocolLines: a clause with control characters is escaped, so it cannot f
 });
 
 test('enforcement is part of the digest', () => {
-  const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
+  const { protocolDigest } = require('../../../src/runtime/review/resolve-protocol.ts');
   const inputs = loadEnforcementInputs(REGISTRY);
   const withRows = resolve({ taskClass: 'feature', ...inputs }).protocol;
   const without = resolve({ taskClass: 'feature' }).protocol;

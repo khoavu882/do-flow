@@ -63,7 +63,9 @@ function targetFiles(): string[] {
   add('test/e2e', (name) => name === 'dispatch-loop.e2e.test.ts');
   // Row 173 T8: the prompt frame's spawning tests: the verb, the brief generator and review package scripts through the real
   // dispatcher, and the G85 guard whose fixtures run those scripts (the started session's prompt test sits in worker/, so the walk takes it).
-  add('test/runtime', (name) => ['prompt-frame.test.ts', 'review-package-frame.test.ts', 'task-brief-tools.test.ts'].includes(name));
+  add('test/runtime', (name) => name === 'task-brief-tools.test.ts');
+  add('test/runtime/prompt', (name) => name === 'frame.test.ts');
+  add('test/runtime/review', (name) => name === 'package-frame.test.ts');
   add('test/guards', (name) => name === 'prompt-frame.test.ts');
   add('test/cli', (name) => name.startsWith('models-'));
   // Row 170: the Console's actions e2e and measure-steer spawn the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.

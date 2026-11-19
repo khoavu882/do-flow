@@ -6,12 +6,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const findings = require('../../src/runtime/review/findings.ts');
-const gates = require('../../src/runtime/roadmap/gates.ts');
+const findings = require('../../../src/runtime/review/findings.ts');
+const gates = require('../../../src/runtime/roadmap/gates.ts');
 
 const { validateFindings, countFindings, reviewAdvisories } = findings;
 const HEAD = 'a'.repeat(40);
-const FIXTURE = path.join(__dirname, '../fixtures/roadmap/findings/schema-1.json');
+const FIXTURE = path.join(__dirname, '../../fixtures/roadmap/findings/schema-1.json');
 
 function record(converged: any, extra: any = {}) {
   return {
@@ -309,7 +309,7 @@ test('095b IC-005: depth-unmet:<depth> when the seats are fewer than the policy;
 });
 
 test('095b IC-005 NFR-004: every committed findings fixture still validates and keeps its counts', () => {
-  const dir = path.join(__dirname, '../fixtures/roadmap/findings');
+  const dir = path.join(__dirname, '../../fixtures/roadmap/findings');
   const files = fs.readdirSync(dir).filter((name: any) => name.endsWith('.json'));
   assert.ok(files.length >= 2);
   for (const name of files) {
@@ -386,7 +386,7 @@ test('120 IC-015: author and seat accept optional harness and model; malformed v
 });
 
 test('120 D.1 negative control: every committed findings.json under agent-docs/ validates as on the base', () => {
-  const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+  const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
   const agentDocsDir = path.join(REPO_ROOT, 'agent-docs');
   if (!fs.existsSync(agentDocsDir)) return;
   function findFindings(dir: string, list: string[] = []) {

@@ -8,11 +8,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
-const { authoringIdentities } = require('../../src/runtime/review/identity.ts');
-const { loadRegistry } = require('../../src/registry/index.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { storeFileFor } = require('../../../src/runtime/dispatch/store.ts');
+const { authoringIdentities } = require('../../../src/runtime/review/identity.ts');
+const { loadRegistry } = require('../../../src/registry/index.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 test('authoringIdentities: empty when no record and no dispatch store exists', (t) => {
   const dir = tempDir(t, 'doflow-authors-empty-');

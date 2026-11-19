@@ -9,14 +9,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createSettingsEnv } = require('../helper/settings-fixtures.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadProtocols } = require('../../src/runtime/review/protocols.ts');
-const { resolveProtocol, protocolDigest, protocolLines } = require('../../src/runtime/review/resolve-protocol.ts');
-const { loadProtocolInputs } = require('../../src/runtime/review/start.ts');
-const { handleProtocolCommand } = require('../../src/runtime/review/protocol-command.ts');
-const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
-const { loadPolicy } = require('../../src/runtime/roadmap/gates.ts');
+const { createSettingsEnv } = require('../../helper/settings-fixtures.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { loadProtocols } = require('../../../src/runtime/review/protocols.ts');
+const { resolveProtocol, protocolDigest, protocolLines } = require('../../../src/runtime/review/resolve-protocol.ts');
+const { loadProtocolInputs } = require('../../../src/runtime/review/start.ts');
+const { handleProtocolCommand } = require('../../../src/runtime/review/protocol-command.ts');
+const { loadSettings } = require('../../../src/runtime/settings/resolve.ts');
+const { loadPolicy } = require('../../../src/runtime/roadmap/gates.ts');
 
 const read = (rel: any) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 const loaded = loadProtocols({ repoRoot: REPO_ROOT });
@@ -295,7 +295,7 @@ test('settings: with no settings files every key is the default layer and the pr
 
 test('settings: a settings view that cannot load is a settings-unavailable refusal, not a silent default', (t): any => {
   const f = createSettingsEnv(t);
-  const resolverModule = require('../../src/runtime/settings/resolve.ts');
+  const resolverModule = require('../../../src/runtime/settings/resolve.ts');
   const original = resolverModule.loadSettings;
   const priorExit = process.exitCode;
   t.after(() => { resolverModule.loadSettings = original; process.exitCode = priorExit; });

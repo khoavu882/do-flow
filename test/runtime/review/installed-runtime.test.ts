@@ -1,5 +1,5 @@
 'use strict';
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 
 // `review --action start` and `protocol --action resolve` through every harness's `doflow-run` shim after a real
 // `doflow install -g` of every harness into a scratch HOME (FU-nnmpc9). The installed runtime
@@ -11,10 +11,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { IS_WIN } = require('../helper-platform.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadRegistry } = require('../../src/registry/index.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { IS_WIN } = require('../../helper-platform.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { loadRegistry } = require('../../../src/registry/index.ts');
 
 const SKIP = IS_WIN ? 'the doflow-run shim is POSIX shell' : false;
 const HARNESSES = loadRegistry({ repoRoot: REPO_ROOT }).harnesses.map((harness: any) => harness.id);
