@@ -21,6 +21,7 @@ const { strengthWords } = require('./strength.ts');
 const { buildReport, renderText } = require('./report.ts');
 const { inWorkerSession } = require('../context/identity.ts');
 const { projectLayerSource } = require('../settings/project-layers.ts');
+const { handleReplay } = require('./replay/run.ts');
 
 function loadSources(repoRoot: any) {
   const read = (name: any) => JSON.parse(fs.readFileSync(path.join(repoRoot, 'core/registry', name), 'utf8'));
@@ -131,10 +132,10 @@ function endpointSource(userSetting: any, endpoint: any) {
 function inspectFailure(inspected: any, { endpoint, model, provider }: any) {
   if (inspected.endpoint.state === 'refused') return inspected.endpoint.message;
   if (inspected.endpoint.state !== 'reached') {
-    return `advise: Ollama did not answer at ${endpoint}; start it yourself and re-run. Nothing was written.`;
+    return `advise: provider ${provider.id} did not answer at ${endpoint}; start it yourself and re-run. Nothing was written.`;
   }
   if (!inspected.endpoint.versionOk) {
-    return `advise: Ollama ${inspected.endpoint.version || 'unknown'} at ${endpoint} is older than ${provider.minVersion}. Nothing was written.`;
+    return `advise: provider ${provider.id} version ${inspected.endpoint.version || 'unknown'} at ${endpoint} is older than ${provider.minVersion}. Nothing was written.`;
   }
   if (!inspected.model.installed) {
     return `advise: model ${model} is not installed; run 'ollama pull ${model}' yourself. Nothing was written.`;
@@ -359,7 +360,7 @@ function handleReport(options: any, runtime: any) {
 
 async function handleAdviseCommand(options: any = {}) {
   const action = options.actionGiven ? options.action : 'ask';
-  if (!['ask', 'outcome', 'configure', 'report'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
+  if (!['ask', 'outcome', 'configure', 'report', 'replay'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
   if (action === 'configure' && inWorkerSession(options.env || process.env)) {
     const message = "configure changes the user's decision-model settings and is not run from a worker session; a person runs it from their own terminal";
     if (options.json) console.log(JSON.stringify({ ok: false, error: 'worker-session', message }, null, 2));
@@ -376,6 +377,7 @@ async function handleAdviseCommand(options: any = {}) {
     if (action === 'configure') return await handleConfigure(shaped, runtime);
     if (action === 'outcome') return handleOutcome(shaped, runtime);
     if (action === 'report') return handleReport(shaped, runtime);
+    if (action === 'replay') return await handleReplay(shaped, runtime, { inspectFailure });
     return await handleAsk(shaped, runtime);
   } catch (error: any) {
     return writeFailure(error?.message || 'advice command failed', options.json);

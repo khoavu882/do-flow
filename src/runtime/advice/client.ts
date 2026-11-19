@@ -181,8 +181,10 @@ function createAdviceClient({
   /**
    * `model`, when given, replaces the setting's model for this call: it is the model asked, recorded and reported.
    * `signal`, when given, ends the call early: an in-flight request is destroyed and the call is unavailable with 'timeout'.
+   * `timeoutMs`, when given, bounds the call in place of the kind's budgetMs: a replay (175 IC-005) waits up to the
+   * registry's timeoutMs so a slow answer is measured as over budget instead of being cut off at the budget.
    */
-  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model, signal }: any = {}) {
+  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model, signal, timeoutMs }: any = {}) {
     const startedAt = Date.now();
     let setting: any = null;
     const effectiveKind = typeof kind === 'string' && kind ? kind : 'adhoc';
@@ -217,6 +219,7 @@ function createAdviceClient({
         }
         if (Number.isInteger(namedKind.budgetMs) && namedKind.budgetMs > 0) budgetMs = namedKind.budgetMs;
       }
+      if (Number.isInteger(timeoutMs) && timeoutMs > 0) budgetMs = timeoutMs;
       const questionValidation = validateQuestionSet(questionSet, { adviceRegistry });
       if (!questionValidation.ok) return unavailable('config-invalid', questionValidation.detail);
       if (staticAnswer !== undefined && staticAnswer !== null) {
@@ -353,7 +356,7 @@ function createAdviceClient({
         state: 'reached',
         version,
         versionOk,
-        message: version ? null : `Ollama version endpoint returned HTTP ${versionResponse.status}`,
+        message: version ? null : `provider ${provider.id} version endpoint returned HTTP ${versionResponse.status}`,
       };
 
       let models = [];
