@@ -1815,6 +1815,10 @@
       "reason": "the file --out names (a prompt or brief the caller keeps), written by a temp file beside it and a rename; removed if the write fails"
     },
     {
+      "file": "src/runtime/review/similar.ts",
+      "reason": "the possible-duplicates document at the path --out names (the caller adds it to a synthesis brief), written by a temp file beside it and a rename; removed if the write fails"
+    },
+    {
       "file": "src/runtime/worker/conform.ts",
       "reason": "OS temp scratch (doflow-conform-*) for the fake harness, its only write; removed in finally and on SIGINT or SIGTERM; the CLI runs no upkeep after conform (runsUpkeep in src/cli/runtime-commands.ts), so it writes no store, telemetry or .gitignore"
     },
