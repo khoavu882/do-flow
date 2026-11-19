@@ -472,7 +472,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
   ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022) · followup --action list: the nextCursor of an earlier page (137 IC-004) · worker-log: read forward from it (150 IC-002)
   ['--before', 'before'],              // worker-log: read backward to this cursor, validated in the verb (150 IC-002)
-  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022) · followup --action list: the page size (137 IC-004) · advise --action replay: at most this many cases (default 200)
+  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022) · followup --action list: the page size (137 IC-004) · advise --action replay: at most this many cases (default 200) · advise --action flags: at most this many flags (default 20, at most 200)
   ['--view', 'view'],                  // followup --action list, lifecycle --action overview, classify: brief or full, validated in the verb (137 IC-001)
   ['--window', 'window'],              // transcript --action stats: minutes, 1 to 60, validated in the verb (093 IC-023)
   ['--channels', 'channels'],          // events --follow: comma-separated channels, at most 64, validated in the verb (149 IC-001, IC-003)
@@ -730,7 +730,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede|retire
                        verify: report|contract · retrieval-plan: declare|report|attempt
-                       outcome: record|show · advise: ask|outcome|configure|report|replay · tools: see below
+                       outcome: record|show · advise: ask|outcome|configure|report|replay|flags · tools: see below
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
                        worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|login-state|send|steer|stop
@@ -834,6 +834,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --kind [--json]                    advise --action report (read-only counts and latency from this project's records)
       --kind [--limit <n>] [--write]     advise --action replay (asks the decision model this project's recorded cases; --write
                                          stores the figures at user level, refused in a worker session, CI or an autopilot run)
+      [--limit <n>] [--json]             advise --action flags (instructs-reader flags past the show bar, read from recorded picks;
+                                         --limit 1 to 200, default 20; writes nothing and prints no passage text)
       --model, --endpoint, --project,
       --off                              advise --action configure
       --harness, --tier, --model, --provider, --effort, --allow-unlisted   models --action bind (unbind: --harness, --tier); describe: --model [--provider]

@@ -22,6 +22,7 @@ const { buildReport, renderText } = require('./report.ts');
 const { inWorkerSession } = require('../context/identity.ts');
 const { projectLayerSource } = require('../settings/project-layers.ts');
 const { handleReplay } = require('./replay/run.ts');
+const { flagsAnswer, renderFlagsText } = require('./flags.ts');
 
 function loadSources(repoRoot: any) {
   const read = (name: any) => JSON.parse(fs.readFileSync(path.join(repoRoot, 'core/registry', name), 'utf8'));
@@ -376,9 +377,27 @@ function handleReport(options: any, runtime: any) {
   return finishRuntime(0);
 }
 
+/**
+ * `--action flags` (177 IC-010): the instructs-reader flags past the show bar, read from recorded picks (flags.ts). Writes
+ * nothing; the one network call is the trust lookup's model listing. Exit 0 shown or not; 1 registry unreadable; 2 usage.
+ */
+async function handleFlags(options: any, runtime: any) {
+  const { json } = options;
+  const { adviceRegistry, adviceError, roots, sources } = runtime;
+  if (adviceError || !adviceRegistry) return writeFailure(`advice registry cannot be read: ${adviceError || 'missing'}`, json);
+  const answer = await flagsAnswer({
+    registry: adviceRegistry, roots, sources, projectRoot: options.projectRoot, env: options.env || process.env,
+    global: options.global === true, limit: options.limit, kind: options.kind,
+    client: createAdviceClient({ adviceRegistry, roots, sources }),
+  });
+  if (answer.exit === 2) return usageError('advise', answer.message, json);
+  console.log(json ? jsonBody(answer.json, options) : renderFlagsText(answer));
+  return finishRuntime(0);
+}
+
 async function handleAdviseCommand(options: any = {}) {
   const action = options.actionGiven ? options.action : 'ask';
-  if (!['ask', 'outcome', 'configure', 'report', 'replay'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
+  if (!['ask', 'outcome', 'configure', 'report', 'replay', 'flags'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
   if (action === 'configure' && inWorkerSession(options.env || process.env)) {
     const message = "configure changes the user's decision-model settings and is not run from a worker session; a person runs it from their own terminal";
     if (options.json) console.log(JSON.stringify({ ok: false, error: 'worker-session', message }, null, 2));
@@ -396,6 +415,7 @@ async function handleAdviseCommand(options: any = {}) {
     if (action === 'outcome') return handleOutcome(shaped, runtime);
     if (action === 'report') return handleReport(shaped, runtime);
     if (action === 'replay') return await handleReplay(shaped, runtime, { inspectFailure });
+    if (action === 'flags') return await handleFlags(shaped, runtime);
     return await handleAsk(shaped, runtime);
   } catch (error: any) {
     return writeFailure(error?.message || 'advice command failed', options.json);
