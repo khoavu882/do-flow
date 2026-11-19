@@ -14,6 +14,7 @@
 //          defence against prompt injection" and names no vendor; PROMPT_FRAME.md holds "a filter, not a defence".
 //   G88.5  no text on the line: a pick of this kind keeps only the design §10 keys under `instructsReader`; a planted
 //          `passage` field never reaches the stored line.
+//   G88.6  bench: every case in bench/advice/instructs-reader.json has `staticPick` equal to `ruleScreen(state)`.
 //   Controls: each check fails on a planted-bad in-memory fixture or temp copy, never on the tree.
 
 const { test } = require('node:test');
@@ -118,13 +119,26 @@ test('G88.1 control: an over-long passage, a corpus of 20, a duplicate id and a 
 
 const providerWords: string[] = [...new Set<string>((ADVICE.providers || []).flatMap((p: any) => [p.id, p.adapter, p.modelProvider]).filter((w: any) => typeof w === 'string' && w))];
 const harnessIds: string[] = (HARNESSES.harnesses || []).map((h: any) => h.id).filter((id: any) => typeof id === 'string' && id);
-const WORD_DENY: Array<[string, string[]]> = [['vendor name', VENDORS], ['provider word', providerWords], ['harness id', harnessIds], ['doflow', ['doflow']]];
+// Design §7.3.2 classes. The verb and skill lists come from the tree, never typed here. Ordinary English is not read as a
+// command: a runtime verb that is also an everyday word (`rules`, `review`, `claim`, `trace`, ...) is denied only in command
+// form (the verb followed by a `--flag`), a hyphenated verb anywhere; the install-level commands (`update`, `status`, ...),
+// the bare skill name `do` (denied in slash form below) and git subcommands that are everyday words (`push`, `pull`,
+// `commit`, `merge`, `branch`, `reset`, `fetch`, `clone`) are left out.
+const runtimeVerbs: string[] = [...fs.readFileSync(path.join(REPO_ROOT, 'src', 'cli', 'runtime-commands.ts'), 'utf8').matchAll(/case '([a-z-]+)': return handle/g)].map((m) => m[1]);
+const skillNames: string[] = fs.readdirSync(path.join(REPO_ROOT, 'core', 'shared', 'skills')).filter((name: string) => name !== 'do');
+const GIT_WORDS = ['git', 'rebase', 'stash', 'cherry-pick', 'checkout', 'force-push'];
+const PACKAGE_MANAGER_WORDS = ['npm', 'npx', 'pnpm', 'yarn', 'pip', 'pip3', 'apt-get', 'brew'];
+const SHELL_WORDS = ['sudo', 'chmod', 'chown', 'curl', 'wget', 'bash', 'zsh', 'grep', 'sed', 'awk', 'ssh', 'scp', 'mkdir', 'rmdir', 'xargs'];
+const WORD_DENY: Array<[string, string[]]> = [['vendor name', VENDORS], ['provider word', providerWords], ['harness id', harnessIds], ['doflow', ['doflow']],
+  ['git word', GIT_WORDS], ['package-manager word', PACKAGE_MANAGER_WORDS], ['shell word', SHELL_WORDS], ['doflow verb', runtimeVerbs.filter((verb) => verb.includes('-'))], ['skill name', skillNames]];
 const SHAPE_DENY: Array<[string, RegExp]> = [
   ['url', /\bhttps?:\/\/|\bwww\./i],
   ['e-mail', /[\w.+-]+@[\w-]+\.[\w.-]+/],
   ['path with an extension', /(?:[\w.-]*\/)+[\w.-]+\.\w{1,5}\b|\b[\w-]+\.(?:js|ts|json|md|sh|py|txt|ya?ml|log|cfg|conf|ini|csv|exe|bat|html?|xml|lock)\b/i],
   ['backtick', /`/],
   ['prompt marker', /(?:^|\n)\s*\$ /],
+  ['skill name', /(?:^|\s)\/do\b/],
+  ['doflow verb', new RegExp(`\\b(?:${runtimeVerbs.map(escapeRegex).join('|')})\\s+--[a-z]`, 'i')],
 ];
 
 /** What is wrong with `corpus` at rest and decoded; ids and the class of finding only, never a passage or a note. */
@@ -174,6 +188,27 @@ test('G88.2 control: a plain-text directive, a decoded URL and a decoded vendor 
   for (const finding of [...plainFindings, ...urlFindings]) {
     assert.ok(!finding.includes(directive) && !finding.includes(link), 'a finding names ids, never a passage');
   }
+});
+
+test('G88.2 control: one planted word of each design §7.3.2 class is found by id and class', () => {
+  const clone = () => JSON.parse(JSON.stringify(CORPUS));
+  assert.deepEqual(inertFindings(clone()), [], 'the copy is clean before the plant');
+  const classes: Array<[string, string]> = [
+    ['git word', 'git'], ['git word', 'rebase'],
+    ['package-manager word', 'npm'], ['package-manager word', 'pnpm'],
+    ['shell word', 'sudo'], ['shell word', 'curl'],
+    ['doflow verb', `${runtimeVerbs[0]} --json`], ['doflow verb', 'context-pack'],
+    ['skill name', skillNames[0]], ['skill name', '/do'],
+  ];
+  for (const [name, word] of classes) {
+    const planted = clone();
+    planted.cases[5].passage = rot13(`Ask the ${word} desk for the plan.`);
+    assert.deepEqual(inertFindings(planted), [`${planted.cases[5].id}: decoded text holds a ${name}`], `${name}: ${word}`);
+  }
+  const ordinary = clone();
+  ordinary.cases[5].passage = rot13('Please push the cart, then pull it back and update the status. The rules and the review of the claim hold.');
+  assert.deepEqual(inertFindings(ordinary), [], 'ordinary English is not a command word');
+  assert.ok(runtimeVerbs.length > 20 && skillNames.length >= 12, 'the verb and skill lists were read from the tree');
 });
 
 // ---------------------------------------------------------------- G88.3
@@ -312,4 +347,26 @@ test('G88.5 control: a planted `passage` field on a line and a planted marker ar
   const planted = { ...line, instructsReader: { ...line.instructsReader, passage: 'PLANTED-PASSAGE' } };
   assert.deepEqual(lineFindings(planted, ['PLANTED-PASSAGE']), ['instructsReader.passage is not a design §10 key', 'the line holds planted text']);
   assert.deepEqual(lineFindings({ ...line, instructsReader: undefined }), ['the line holds no instructsReader object']);
+});
+
+// ---------------------------------------------------------------- G88.6
+
+const BENCH_FILE = path.join(REPO_ROOT, 'bench', 'advice', 'instructs-reader.json');
+
+/** The bench cases whose `staticPick` is not what the rule screen answers on the case's state; ids only. */
+function staticPickFindings(bench: any): string[] {
+  return (bench?.cases || []).filter((entry: any) => entry.staticPick !== ruleScreen(entry.state)).map((entry: any) => `${entry.id}: staticPick is not the rule screen's answer`);
+}
+
+test('G88.6: every bench case carries the rule screen answer as its staticPick', () => {
+  assert.deepEqual(staticPickFindings(JSON.parse(fs.readFileSync(BENCH_FILE, 'utf8'))), []);
+});
+
+test('G88.6 control: a planted wrong staticPick is found by id', () => {
+  const bench = JSON.parse(fs.readFileSync(BENCH_FILE, 'utf8'));
+  const planted = JSON.parse(JSON.stringify(bench));
+  for (const entry of planted.cases) entry.staticPick = ruleScreen(entry.state);
+  assert.deepEqual(staticPickFindings(planted), [], 'the copy is clean before the plant');
+  planted.cases[2].staticPick = ruleScreen(planted.cases[2].state) === 'no' ? 'yes' : 'no';
+  assert.deepEqual(staticPickFindings(planted), [`${planted.cases[2].id}: staticPick is not the rule screen's answer`]);
 });
