@@ -252,6 +252,67 @@ test('IC-022 / DEC-048: with the claude fake supported the attempt runs subagent
   assert.deepEqual(callerState(p.root, p.env), p.before);
 });
 
+// ---- 178 T5 (f), (g): the headless launch follows the driver's session effort ---------------------------------------------
+
+const FAKE_CLI = require('../helper/fake-harness-cli.ts').FAKE_CLI;
+const SESSION_NAMES = ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT', 'CLAUDE_CODE_EFFORT_LEVEL'];
+const PI_EFFORT = { status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: '2026-11-16', via: 'flag', argv: ['--thinking', '{effort}'], levels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], offLevel: 'off', mayLower: true };
+
+/** A scratch `fake-pi` worker binary that logs its argv and the session variables it sees, then runs the stock fake CLI. */
+function fakePi(p: any) {
+  const wrapper = path.join(p.sb.dir, 'fake-pi.js');
+  fs.writeFileSync(wrapper, [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const { spawnSync } = require('node:child_process');",
+    `const names = ${JSON.stringify(SESSION_NAMES)};`,
+    "fs.appendFileSync(process.env.FAKE_ENV_LOG, `${JSON.stringify({ argv: process.argv.slice(2), env: Object.fromEntries(names.map((n) => [n, process.env[n] ?? null])) })}\\n`);",
+    `const r = spawnSync(process.execPath, [${JSON.stringify(FAKE_CLI)}, ...process.argv.slice(2)], { stdio: 'inherit' });`,
+    'process.exit(r.status ?? 1);',
+  ].join('\n'));
+  fs.chmodSync(wrapper, 0o755);
+  fs.symlinkSync(wrapper, path.join(p.sb.bin, 'fake-pi'));
+  const log = path.join(p.sb.dir, 'env-log.jsonl');
+  p.env.FAKE_ENV_LOG = log;
+  const descriptor = structuredClone(p.sb.descriptors.claude);
+  descriptor.cli.binary = 'fake-pi';
+  descriptor.effort = structuredClone(PI_EFFORT);
+  return { descriptors: { pi: descriptor }, runs: () => fs.readFileSync(log, 'utf8').trim().split('\n').map((l: any) => JSON.parse(l)).filter((l: any) => l.argv.includes('--edit-in-cwd')) };
+}
+
+async function piRun(t: any, sessionEnv: any) {
+  const scenario: any = { run: [{ write: { path: 'src/retry.js', content: '// retried\n' } }, { emit: { type: 'usage', tokens: 30 } }, { emit: SUCCESS }] };
+  const p = await project(t, { plan: 'budget', mode: 'auto', scenario, identity: { DOFLOW_ATTEMPT: undefined } });
+  Object.assign(p.env, sessionEnv);
+  const worker = fakePi(p);
+  assert.equal((await readiness.probe({ descriptors: worker.descriptors, env: p.env, cwd: p.root })).disposition, 'probed');
+  const r = await loop.run(p.options({ maxSeconds: 60, descriptors: worker.descriptors }));
+  assert.equal(r.outcome, 'completed', JSON.stringify(r.last.blocked || r.last.actions));
+  const [d] = Object.values(p.read().dispatches) as any[];
+  assert.deepEqual([d.mode, d.harness, d.disposition], ['subagent', 'pi', 'completed']);
+  const runs = worker.runs();
+  assert.equal(runs.length, 1, 'one edit run');
+  return { d, run: runs[0], p };
+}
+
+test('178 (f): a driver session that marks Claude at `high` launches the Pi worker with --thinking high, records the plan, and the worker sees neither variable', POSIX, async (t) => {
+  const { d, run } = await piRun(t, { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high' });
+  const at = run.argv.indexOf('--thinking');
+  assert.deepEqual(run.argv.slice(at, at + 2), ['--thinking', 'high']);
+  assert.equal(run.argv.includes('--model'), false);
+  assert.deepEqual(d.model.effortPlan, { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' });
+  assert.deepEqual(run.env, { CLAUDE_CODE_CHILD_SESSION: null, CLAUDE_EFFORT: null, CLAUDE_CODE_EFFORT_LEVEL: null });
+});
+
+test('178 (g): a driver with no session marker passes no --thinking, records why, and the worker still sees no session variable', POSIX, async (t) => {
+  const { d, run, p } = await piRun(t, { CLAUDE_EFFORT: 'high' });
+  assert.equal(run.argv.some((item: string) => item.startsWith('--thinking')), false);
+  assert.deepEqual(d.model.effortPlan, { pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null } });
+  assert.deepEqual(run.env, { CLAUDE_CODE_CHILD_SESSION: null, CLAUDE_EFFORT: null, CLAUDE_CODE_EFFORT_LEVEL: null });
+  const stored = readRuns(p.runStore)[d.workerRunId];
+  assert.equal(JSON.stringify(stored.recipe.argvShape).includes('--thinking'), false);
+});
+
 test('row 173 T5 (g): sequential and manual modes yield the envelope and write no handoff prompt', POSIX, async (t) => {
   for (const mode of ['sequential', 'manual']) {
     const p = await project(t, { plan: 'disjoint', mode, concurrency: 1 });

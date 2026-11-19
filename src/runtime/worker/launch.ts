@@ -15,10 +15,10 @@
 // `{lastMessageFile}` and `{model}` elements are replaced whole, never inside a longer string.
 // `argvShape` writes the prompt as `<prompt sha256:<hex> bytes:<n>>`, the output path as
 // `<last-message-file>` and the model as the original `{model}` placeholder.
-// 169 IC-002: the model part comes from `composeModelPart` (the model, plus a bound provider and effort as the
-// descriptor's `provider` and `effort` entries say). A transport flag the part adds is removed from `oneShot`,
-// `structuredOutput` and `mainSession` (`F v` and `F=v`), so it appears once; with no provider or effort bound nothing
-// is removed and the argv is what it was. The shape keeps `{model}`, `{provider}` and `{effort}`.
+// 169 IC-002, 178 IC-006: the model part comes from `composeModelPart` (the model, plus a bound provider and effort as the
+// descriptor's `provider` and `effort` entries say; or an effort alone, `model: null`). A provider flag the part adds is
+// removed from `oneShot`, `structuredOutput` and `mainSession` (`F v` and `F=v`), so it appears once; an effort flag removes
+// nothing (no recipe holds one, 178 D7). The shape keeps `{model}`, `{provider}` and `{effort}`.
 //
 // `launchWorker` runs IC-012 steps 1 to 5: the environment, the optional 078 grant, the launch
 // emission in process, the emission text before the brief, then `spawn` with no shell. It returns a
@@ -34,6 +34,10 @@
 // `-p --mode json --model M -- <prompt>`. `mainEnv` drops the five identity variables,
 // DOFLOW_WORKER_RUN and the primary declaration (it names the caller's session, not this one), sets
 // nothing worker-ish and adds DOFLOW_STARTED_RUN=<runId>. No context emission is prepended.
+//
+// 178 D9: `withIdentity` and `mainEnv` also drop the harness-session variables (the caller passes the registry's list) and,
+// when the launch passes an effort, the worker's own `effort.overrideEnv`, so a child never inherits the level it was
+// not given. This module reads no registry: the list and the override names arrive as `scrub`.
 
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
@@ -42,6 +46,7 @@ const { grantSummary } = require('../context/summary-store.ts');
 const { wideningProblem, wideningFlagsProblem } = require('../../registry/widening-flags.ts');
 const { secretProblem, secretFlagsProblem } = require('../../registry/secret-flags.ts');
 const { composeModelPart } = require('./model-choice.ts');
+import type { LaunchChoice } from './model-choice.ts';
 
 /** The parser table, required on first use as before (171 IC-003 resolves every parser id through it). */
 function parsers() { return require('./parsers.ts'); }
@@ -49,7 +54,8 @@ function parsers() { return require('./parsers.ts'); }
 type Env = Record<string, string | undefined>;
 /** 120 IC-011 / IC-012, 169 IC-002: the binding shape consumed by the recipe assembler; `provider` and `effort` are absent or null for a plain model. */
 type ModelBinding = { model: string | null; provider?: string | null; effort?: string | null; flag: 'supported' | 'unevidenced' | 'n/a' };
-type ModelChoice = { model: string; provider: string | null; effort: string | null };
+/** 178 D9: the names a child environment drops: `sessionVariables` always, `overrideEnv` only when `effort` (the level the launch passes) is set. */
+type Scrub = { sessionVariables?: readonly string[]; overrideEnv?: readonly string[]; effort?: string | null };
 
 /** IC-012: the names a launch may set, in the order the run record lists them. The first five are the
  * identity contract; `DOFLOW_WORKER_RUN` (110) carries the worker run id `w-<12 hex>` and nothing else,
@@ -90,12 +96,20 @@ class LaunchUsageError extends Error {
   }
 }
 
+/** 178 D9: a copy of `env` without the names `scrub` drops. */
+function scrubbed(env: Env, { sessionVariables = [], overrideEnv = [], effort = null }: Scrub = {}): Env {
+  const out: Env = { ...env };
+  for (const name of sessionVariables) delete out[name];
+  if (effort) for (const name of overrideEnv) delete out[name];
+  return out;
+}
+
 /** The five identity variables and the optional worker run id. The run id replaces (or removes) the
  * caller's value; the caller's environment is never mutated. */
-function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, runId?: string): Env {
+function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, runId?: string, scrub: Scrub = {}): Env {
   if (runId !== undefined && !RUN_ID.test(runId)) throw new LaunchUsageError('run-id-malformed', `launch: run id must match ${RUN_ID}: ${runId}`);
   const out: Env = {
-    ...env,
+    ...scrubbed(env, scrub),
     DOFLOW_RUN_ID: identity.run,
     DOFLOW_LINEAGE_ID: identity.lineage,
     DOFLOW_ATTEMPT: identity.attempt,
@@ -112,7 +126,7 @@ function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, 
 
 /** IC-012: the worker environment and identity from the claim's run key `<hash>/<run>/<lineage>`.
  * `runScoped` (082 IC-015, a child run) takes the run id as the run whatever the claim's run is. */
-function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false }: { env: Env; runKey: string; token: number | string; execWorktree: string; runId: string; runScoped?: boolean }): { env: Env; identity: WorkerIdentity } {
+function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false, scrub = {} }: { env: Env; runKey: string; token: number | string; execWorktree: string; runId: string; runScoped?: boolean; scrub?: Scrub }): { env: Env; identity: WorkerIdentity } {
   const segments = String(runKey).split('/');
   if (segments.length !== 3 || segments.some((s) => s === '')) throw new LaunchUsageError('run-key-malformed', `launchEnv: run key must be <hash>/<run>/<lineage>: ${runKey}`);
   const [, claimRun, lineage] = segments;
@@ -123,12 +137,16 @@ function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false 
   } else {
     identity = { run: claimRun, lineage, attempt: String(token), runSource: 'claim' };
   }
-  return { env: withIdentity(env, identity, execWorktree, runId), identity };
+  return { env: withIdentity(env, identity, execWorktree, runId, scrub), identity };
 }
 
-/** 120 IC-011: only a supported binding supplies a choice (169: the model with its optional provider and effort). */
-function boundChoice(binding?: ModelBinding | null): ModelChoice | null {
+/**
+ * 120 IC-011, 178 IC-006: only a supported binding supplies a choice (the model with its optional provider and effort, or, with
+ * `model: null`, an effort alone). A supported binding that names neither is a caller error.
+ */
+function launchChoiceOf(binding?: ModelBinding | null): LaunchChoice | null {
   if (binding?.flag !== 'supported') return null;
+  if (binding.model === null && typeof binding.effort === 'string' && binding.effort.length > 0) return { model: null, provider: null, effort: binding.effort };
   if (typeof binding.model !== 'string' || binding.model.length === 0) {
     throw new LaunchUsageError('model-invalid', 'assembleArgv: a supported model binding requires a non-empty model string');
   }
@@ -136,7 +154,7 @@ function boundChoice(binding?: ModelBinding | null): ModelChoice | null {
 }
 
 /**
- * 169 IC-002: `argv` without the fixed copy of each transport the model part now owns. A bare transport (`[F, "{value}"]`)
+ * 169 IC-002: `argv` without the fixed copy of each transport the model part now owns (the provider's). A bare transport (`[F, "{value}"]`)
  * drops every `F v` pair and `F=v` token; a keyed one (`[F, "<key>={value}"]`) drops only `F <key>=...` and `F=<key>=...`
  * for that same key, so a fixed `F other=v` pair survives.
  */
@@ -177,10 +195,10 @@ function refuseSecret(recipe: any, argv: string[]): void {
 
 /** IC-003 / 120 IC-011 / 169 IC-002: replace prompt, output path and the model part only as whole elements; `shape` keeps the placeholders. */
 function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null, shape = false): string[] {
-  const choice = boundChoice(binding);
+  const choice = launchChoiceOf(binding);
   let model: { argv: string[]; strip: { flag: string; key: string | null }[] } | null = null;
   if (choice !== null) {
-    if (recipe?.model?.status !== 'supported' || !Array.isArray(recipe.model.argv)) {
+    if (choice.model !== null && (recipe?.model?.status !== 'supported' || !Array.isArray(recipe.model.argv))) {
       throw new LaunchUsageError('recipe-incomplete', "assembleArgv: worker 'model' is not supported with an argv");
     }
     model = composeModelPart(recipe, choice, { shape });
@@ -257,7 +275,7 @@ function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edi
 
 /** 165 IC-006, 169 IC-002: `mainSession.argv` with the model part spliced in and the placeholders replaced whole.
  * `choice` null is the harness default (no model part). */
-function mainArgvOf(recipe: any, element: string, lastMessageFile: string | undefined, choice: ModelChoice | null, shape: boolean): string[] {
+function mainArgvOf(recipe: any, element: string, lastMessageFile: string | undefined, choice: LaunchChoice | null, shape: boolean): string[] {
   const entry = recipe?.mainSession;
   if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
     throw new LaunchUsageError('recipe-incomplete', "mainArgv: worker 'mainSession' is not supported with an argv");
@@ -268,7 +286,7 @@ function mainArgvOf(recipe: any, element: string, lastMessageFile: string | unde
   let modelPart: string[] = [];
   let tail: string[] = entry.argv;
   if (choice !== null) {
-    if (recipe.model?.status !== 'supported' || !Array.isArray(recipe.model.argv)) {
+    if (choice.model !== null && (recipe.model?.status !== 'supported' || !Array.isArray(recipe.model.argv))) {
       throw new LaunchUsageError('recipe-incomplete', "mainArgv: worker 'model' is not supported with an argv");
     }
     const composed = composeModelPart(recipe, choice, { shape });
@@ -288,20 +306,20 @@ function mainArgvOf(recipe: any, element: string, lastMessageFile: string | unde
   });
 }
 
-function mainArgv(recipe: any, element: string, lastMessageFile?: string, model: ModelChoice | null = null): string[] {
+function mainArgv(recipe: any, element: string, lastMessageFile?: string, model: LaunchChoice | null = null): string[] {
   return mainArgvOf(recipe, element, lastMessageFile, model, false);
 }
 
 /** 165 IC-003: the stored main-session argv, the prompt hashed, the output path and the model part as placeholders. */
-function mainArgvShape(recipe: any, prompt: string, model: ModelChoice | null = null): string[] {
+function mainArgvShape(recipe: any, prompt: string, model: LaunchChoice | null = null): string[] {
   const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
   return mainArgvOf(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, '<last-message-file>', model, true);
 }
 
-/** 165 D9: the caller's environment without any identity, worker or primary variable, plus DOFLOW_STARTED_RUN. */
-function mainEnv(env: Env, runId: string): Env {
+/** 165 D9, 178 D9: the caller's environment without any identity, worker, primary or `scrub` variable, plus DOFLOW_STARTED_RUN. */
+function mainEnv(env: Env, runId: string, scrub: Scrub = {}): Env {
   if (!RUN_ID.test(runId)) throw new LaunchUsageError('run-id-malformed', `mainEnv: run id must match ${RUN_ID}: ${runId}`);
-  const out: Env = { ...env };
+  const out: Env = scrubbed(env, scrub);
   for (const name of ENV_SET) delete out[name];
   delete out.DOFLOW_PRIMARY_HARNESS;
   delete out.DOFLOW_PRIMARY_MODEL;
@@ -313,7 +331,7 @@ function mainEnv(env: Env, runId: string): Env {
  * 170 §5.1: `controlChannel.argv` with the model part at the end. C4 keeps `{prompt}`, `-` and `--` out of a channel argv,
  * so `mainArgvOf` takes its `at === -1` branch (the model part appended) and runs both refuse checks on the final argv.
  */
-function channelArgvOf(recipe: any, choice: ModelChoice | null, shape: boolean): string[] {
+function channelArgvOf(recipe: any, choice: LaunchChoice | null, shape: boolean): string[] {
   const entry = recipe?.controlChannel;
   if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
     throw new LaunchUsageError('recipe-incomplete', "channelArgv: worker 'controlChannel' is not supported with an argv");
@@ -323,7 +341,7 @@ function channelArgvOf(recipe: any, choice: ModelChoice | null, shape: boolean):
 
 /** 165 IC-003, 170 §5.1: the launch fields a main-session record stores. Names only, never a value. A session started
  * through its control channel (`channel`) stores the channel argv and `promptVia: 'channel'`. */
-function mainLaunchRecord(recipe: any, prompt: string, model: ModelChoice | null, channel = false) {
+function mainLaunchRecord(recipe: any, prompt: string, model: LaunchChoice | null, channel = false) {
   return {
     recipe: {
       binary: recipe.cli.binary,
@@ -369,11 +387,11 @@ function refuseUnknownMainParser(recipe: any, which: 'main' | 'channel' = 'main'
 }
 
 /** 165 D1, D9: launches a started main session from its recipe in `execWorktree`. No context emission, no grant. */
-function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile }: {
-  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: ModelChoice | null; lastMessageFile?: string;
+function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile, sessionVariables = [] }: {
+  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: LaunchChoice | null; lastMessageFile?: string; sessionVariables?: readonly string[];
 }): Promise<any> {
   return Promise.resolve().then(() => {
-    const sessionEnv = mainEnv(env, runId);
+    const sessionEnv = mainEnv(env, runId, { sessionVariables, overrideEnv: recipe?.effort?.overrideEnv, effort: model?.effort ?? null });
     const argv = mainArgv(recipe, prompt, lastMessageFile, model);
     refuseUnknownMainParser(recipe);
     return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, promptInput(recipe, prompt, true), { env: sessionEnv, launched: null });
@@ -385,11 +403,11 @@ function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = n
  * 165 D9 environment, detached with `shell: false`, and stdin a pipe KEPT OPEN. The caller (the supervisor) is the pipe's
  * only writer: the prompt goes in as the first framed message, and when the caller dies the pipe closes (no orphan).
  */
-function launchChannelSession({ recipe, execWorktree, env, runId, model = null }: {
-  recipe: any; execWorktree: string; env: Env; runId: string; model?: ModelChoice | null;
+function launchChannelSession({ recipe, execWorktree, env, runId, model = null, sessionVariables = [] }: {
+  recipe: any; execWorktree: string; env: Env; runId: string; model?: LaunchChoice | null; sessionVariables?: readonly string[];
 }): Promise<any> {
   return Promise.resolve().then(() => {
-    const sessionEnv = mainEnv(env, runId);
+    const sessionEnv = mainEnv(env, runId, { sessionVariables, overrideEnv: recipe?.effort?.overrideEnv, effort: model?.effort ?? null });
     const argv = channelArgvOf(recipe, model, false);
     refuseUnknownMainParser(recipe, 'channel');
     return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, { stdin: null, keepOpen: true }, { env: sessionEnv, launched: null });
@@ -412,12 +430,14 @@ interface LaunchOptions {
   runId?: string;
   /** 120 IC-011: insert model.argv only for a supported binding. */
   binding?: ModelBinding | null;
+  /** 178 D9: the registry's harness-session variables; the child's environment drops them. */
+  sessionVariables?: readonly string[];
 }
 
 /** IC-012 steps 1 to 5. Resolves `{ child, env, launched: { reason, bytes } }` once the process has spawned. */
-function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId, binding }: LaunchOptions): Promise<any> {
+function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId, binding, sessionVariables = [] }: LaunchOptions): Promise<any> {
   return new Promise((resolve, reject) => {
-    const workerEnv = withIdentity(env, identity, execWorktree, runId);
+    const workerEnv = withIdentity(env, identity, execWorktree, runId, { sessionVariables, overrideEnv: recipe?.effort?.overrideEnv, effort: launchChoiceOf(binding)?.effort ?? null });
     if (grant) grantSummary({ ...grant, toRun: identity.run, toLineage: identity.lineage, env });
     const emitted = emitContext({ event: 'launch', cwd: execWorktree, env: workerEnv, ...(taskId ? { taskId } : {}) });
     const reason: string = emitted.decision.reason;
@@ -453,6 +473,6 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
 
 module.exports = {
   ENV_SET, PROMPT_LIMITS, RECIPE_ORDER, EDIT_RECIPE_ORDER, STARTED_RUN_VAR, LaunchUsageError, argvShape, assembleArgv,
-  launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession, launchChannelSession,
+  launchChoiceOf, scrubbed, withIdentity, launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchMainSession, launchChannelSession,
   promptInput, refuseUnknownMainParser,
 };

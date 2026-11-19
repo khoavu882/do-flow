@@ -18,9 +18,11 @@ const PROVIDER_PLACEHOLDER = '{provider}';
 const EFFORT_PLACEHOLDER = '{effort}';
 
 type ModelChoice = { model: string; provider: string | null; effort: string | null };
+/** 178 IC-006: what a launch passes. `model: null` is an effort with no model (`provider` null, `effort` set): the effort pair alone. */
+type LaunchChoice = { model: string | null; provider: string | null; effort: string | null };
 type Check = 'listed' | 'several-providers' | 'not-listed' | 'unchecked';
 type EffortCheck = null | 'listed' | 'not-offered' | 'unchecked';
-/** A transport the model part added: `flag` is the flag, `key` the `<key>` of a `[flag, "<key>={effort}"]` argv (null for a bare value), so only that pair is dropped from the fixed pieces. */
+/** A transport the model part added (the provider's): `flag` is the flag, `key` the `<key>` of a `[flag, "<key>={provider}"]` argv (null for a bare value), so only that pair is dropped from the fixed pieces. */
 type Strip = { flag: string; key: string | null };
 
 /** `LaunchUsageError` lives in launch.ts, which requires this module's callers; load it only on the throwing path (no require cycle). */
@@ -50,19 +52,38 @@ const keyOf = (argv: string[]): string | null => /^([^=]+)=\{[a-z]+\}$/.exec(arg
 const fill = (text: string, from: string, to: string): string => text.split(from).join(to);
 
 /**
- * IC-002: the argv for the model part of a launch and the flags it owns. `worker` is a descriptor `worker` block, `choice` a
- * ModelChoice. `strip` lists the flag transports (flag and key) the model part added, so the assembler can drop a fixed copy of the same
- * pair from the other pieces. Throws LaunchUsageError `model-part-unsupported` (a part is given and its entry is not `supported`, or
- * the model is not) or `model-part-invalid` (a value outside its pattern, an effort outside a closed levels list, or a
- * composed id over 220 characters). `shape: true` composes with the placeholders {model}, {provider}, {effort} instead of the
- * values (the stored `argvShape`) and checks only that each given part is supported.
+ * IC-002, 178 IC-006: the argv for the model part of a launch and the flags it owns. `worker` is a descriptor `worker` block,
+ * `choice` a LaunchChoice. `strip` lists the provider's flag transport (flag and key) when it added one, so the assembler can drop
+ * a fixed copy of the same pair from the other pieces; an effort never adds to it (no recipe holds an effort flag, 178 D7).
+ * With `model: null` the argv is the effort pair alone (`worker.model` is not used). Throws LaunchUsageError
+ * `model-part-unsupported` (a part is given and its entry is not `supported`, or the model is not) or `model-part-invalid` (a value
+ * outside its pattern, an effort outside a closed levels list, a composed id over 220 characters, or a model-less choice that
+ * holds a provider, no effort, or an `id-suffix` effort). `shape: true` composes with the placeholders {model}, {provider},
+ * {effort} instead of the values (the stored `argvShape`) and checks only that each given part is supported.
  */
-function composeModelPart(worker: any, choice: ModelChoice, { shape = false }: { shape?: boolean } = {}): { argv: string[]; strip: Strip[] } {
+function composeModelPart(worker: any, choice: LaunchChoice, { shape = false }: { shape?: boolean } = {}): { argv: string[]; strip: Strip[] } {
+  const unsupported = (part: string) => usageError('model-part-unsupported', `the harness does not take a ${part} (its ${part} capability is not supported)`);
+  const invalid = (part: string, why: string) => usageError('model-part-invalid', `the ${part} ${why}`);
+  const effortOf = (entry: any): string => {
+    const effort = shape ? EFFORT_PLACEHOLDER : (choice.effort as string);
+    if (!shape) {
+      if (!EFFORT_RE.test(effort)) throw invalid('effort', 'must start with a letter or digit and use only letters, digits, . _ - (at most 32 characters)');
+      if (Array.isArray(entry.levels) && !entry.levels.includes(effort)) throw invalid('effort', `must be one of: ${entry.levels.join(', ')}`);
+    }
+    return effort;
+  };
+
+  if (choice.model === null) {
+    if (choice.provider !== null || choice.effort === null) throw invalid('choice', 'with no model must be an effort alone');
+    const entry = worker?.effort;
+    if (entry?.status !== 'supported') throw unsupported('effort');
+    if (entry.via === 'id-suffix') throw invalid('effort', 'rides in the model id, so it needs a model');
+    return { argv: [entry.argv[0], fill(entry.argv[1], EFFORT_PLACEHOLDER, effortOf(entry))], strip: [] };
+  }
+
   if (worker?.model?.status !== 'supported' || !Array.isArray(worker.model.argv)) {
     throw usageError('model-part-unsupported', 'the harness does not take a model argument');
   }
-  const unsupported = (part: string) => usageError('model-part-unsupported', `the harness does not take a ${part} (its ${part} capability is not supported)`);
-  const invalid = (part: string, why: string) => usageError('model-part-invalid', `the ${part} ${why}`);
   const model = shape ? MODEL_PLACEHOLDER : choice.model;
   if (!shape && (typeof model !== 'string' || model === '')) throw invalid('model', 'must be a non-empty string');
   let id = model;
@@ -80,13 +101,9 @@ function composeModelPart(worker: any, choice: ModelChoice, { shape = false }: {
   if (choice.effort !== null) {
     const entry = worker.effort;
     if (entry?.status !== 'supported') throw unsupported('effort');
-    const effort = shape ? EFFORT_PLACEHOLDER : choice.effort;
-    if (!shape) {
-      if (!EFFORT_RE.test(effort)) throw invalid('effort', 'must start with a letter or digit and use only letters, digits, . _ - (at most 32 characters)');
-      if (Array.isArray(entry.levels) && !entry.levels.includes(effort)) throw invalid('effort', `must be one of: ${entry.levels.join(', ')}`);
-    }
+    const effort = effortOf(entry);
     if (entry.via === 'id-suffix') id = id + entry.separator + effort;
-    else { extra.push(entry.argv[0], fill(entry.argv[1], EFFORT_PLACEHOLDER, effort)); strip.push({ flag: entry.argv[0], key: keyOf(entry.argv) }); }
+    else extra.push(entry.argv[0], fill(entry.argv[1], EFFORT_PLACEHOLDER, effort));
   }
   if (!shape && id.length > COMPOSED_ID_MAX) throw invalid('model id', `is ${id.length} characters once composed; the limit is ${COMPOSED_ID_MAX}`);
   return { argv: [...worker.model.argv.map((item: string) => fill(item, MODEL_PLACEHOLDER, id)), ...extra], strip };
@@ -178,3 +195,5 @@ function enabledIn(allowed: string[], model: string, provider: string | null, wo
 }
 
 module.exports = { keyOf, choiceOf, composeModelPart, matchListed, modelCheck, providerCheck, effortCheck, enabledIn };
+
+export type { ModelChoice, LaunchChoice };

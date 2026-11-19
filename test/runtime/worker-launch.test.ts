@@ -13,7 +13,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
 const { IDENTITY_VARS, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
-const { ENV_SET, PROMPT_LIMITS, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainLaunchRecord, launchChannelSession } = require('../../src/runtime/worker/launch.ts');
+const { ENV_SET, PROMPT_LIMITS, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchChannelSession, withIdentity } = require('../../src/runtime/worker/launch.ts');
+const { composeModelPart } = require('../../src/runtime/worker/model-choice.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
@@ -275,13 +276,13 @@ function piMain() {
   return worker;
 }
 
-test('169: mainArgv puts the composed model part before the positional tail; a fixed copy of the effort flag is removed', () => {
+test('169: mainArgv puts the composed model part before the positional tail', () => {
   const worker = piMain();
-  worker.mainSession.argv = ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--', '{prompt}'];
+  worker.mainSession.argv = ['-p', '--mode', 'json', '--no-approve', '--', '{prompt}'];
   const argv = mainArgv(worker, 'hello', undefined, { model: 'm1', provider: 'openai', effort: 'high' });
   assert.deepEqual(argv, ['-p', '--mode', 'json', '--no-approve', '--model', 'openai/m1', '--thinking', 'high', '--', 'hello']);
-  assert.deepEqual(mainArgv(worker, 'hello', undefined, { model: 'm1', provider: null, effort: null }), ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--model', 'm1', '--', 'hello']);
-  assert.deepEqual(mainArgv(worker, 'hello'), ['-p', '--thinking', 'off', '--mode', 'json', '--no-approve', '--', 'hello']);
+  assert.deepEqual(mainArgv(worker, 'hello', undefined, { model: 'm1', provider: null, effort: null }), ['-p', '--mode', 'json', '--no-approve', '--model', 'm1', '--', 'hello']);
+  assert.deepEqual(mainArgv(worker, 'hello'), ['-p', '--mode', 'json', '--no-approve', '--', 'hello']);
 });
 
 test('169: the main-session shape and record keep the placeholders, never the bound values', () => {
@@ -296,12 +297,12 @@ test('169: the main-session shape and record keep the placeholders, never the bo
 
 // ---- 170 §5.1: the channel launch ------------------------------------------------------------------------------------------
 
-/** piMain() with a Pi-like control channel (design 4.3) whose argv holds a fixed copy of the effort flag. */
+/** piMain() with a Pi-like control channel (design 4.3). */
 function piChannel() {
   const worker = piMain();
   worker.controlChannel = {
     status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: '2026-11-17',
-    argv: ['--thinking', 'off', '--mode', 'rpc', '--no-approve'], framing: 'jsonl-lf', parser: 'pi-json-v1', commandPrefix: '/',
+    argv: ['--mode', 'rpc', '--no-approve'], framing: 'jsonl-lf', parser: 'pi-json-v1', commandPrefix: '/',
     messages: { followUp: { type: 'prompt', message: '{text}', id: '{id}' }, stop: { type: 'abort', id: '{id}' } },
     turn: { working: [{ path: ['type'], equals: 'agent_start' }], settled: [{ path: ['type'], equals: 'agent_end' }] },
     close: { stdinEof: 'exits', graceSeconds: 3 },
@@ -354,4 +355,79 @@ test('170: launchChannelSession spawns the channel argv plus the model part with
   const widened = { ...worker, controlChannel: { ...worker.controlChannel, argv: ['--mode', 'rpc', '--dangerously-skip-permissions'] } };
   await assert.rejects(launchChannelSession({ recipe: widened, execWorktree: dir, env, runId: RUN_ID }), { code: 'widening-flag' });
   await assert.rejects(launchChannelSession({ recipe: { ...worker, controlChannel: { ...worker.controlChannel, parser: 'no-such-parser' } }, execWorktree: dir, env, runId: RUN_ID }), { code: 'parser-unknown' });
+});
+
+// ---- 178 T5: an effort with or without a model, and the child environment ---------------------------------------------------
+
+const harnessWorker = (id: string) => structuredClone(loadRegistry({ repoRoot: path.resolve(__dirname, '../..') }).harnesses.find((h: any) => h.id === id).worker);
+const EFFORT_ONLY = { model: null, provider: null, effort: 'high', flag: 'supported' };
+
+test('178 (a): the shipped Pi block with no binding and no effort assembles a one-shot argv with no --thinking', () => {
+  const argv = assembleArgv(harnessWorker('pi'), 'p', false);
+  assert.equal(argv.some((item: string) => item.startsWith('--thinking')), false);
+  const w = harnessWorker('pi');
+  assert.deepEqual(argv, [...w.readOnly.argv, ...w.spawnDenial.argv, ...w.structuredOutput.argv, ...w.oneShot.argv.slice(0, -1), 'p']);
+});
+
+test('178 (b): an effort with no model composes the effort pair alone, on Pi and on Claude, and no --model', () => {
+  const pi = assembleArgv(harnessWorker('pi'), 'p', false, undefined, EFFORT_ONLY);
+  const w = harnessWorker('pi');
+  assert.deepEqual(pi, [...w.readOnly.argv, '--thinking', 'high', ...w.spawnDenial.argv, ...w.structuredOutput.argv, ...w.oneShot.argv.slice(0, -1), 'p']);
+  assert.equal(pi.includes('--model'), false);
+  assert.deepEqual(mainArgv(harnessWorker('claude'), 'p', undefined, { model: null, provider: null, effort: 'high' }), ['-p', '--output-format', 'text', '--effort', 'high']);
+  assert.deepEqual(composeModelPart(harnessWorker('pi'), { model: null, provider: null, effort: 'high' }), { argv: ['--thinking', 'high'], strip: [] });
+});
+
+test('178 (c): a model-less choice with an id-suffix effort, with a provider or with no effort is model-part-invalid', () => {
+  const suffixed = harnessWorker('pi');
+  suffixed.effort = { ...suffixed.effort, via: 'id-suffix', separator: '#', argv: undefined };
+  assert.throws(() => composeModelPart(suffixed, { model: null, provider: null, effort: 'high' }), { code: 'model-part-invalid' });
+  assert.throws(() => assembleArgv(suffixed, 'p', false, undefined, EFFORT_ONLY), { code: 'model-part-invalid' });
+  assert.throws(() => composeModelPart(harnessWorker('pi'), { model: null, provider: 'openai', effort: 'high' }), { code: 'model-part-invalid' });
+  assert.throws(() => composeModelPart(harnessWorker('pi'), { model: null, provider: null, effort: null }), { code: 'model-part-invalid' });
+  assert.throws(() => assembleArgv(harnessWorker('pi'), 'p', false, undefined, { model: null, provider: null, effort: null, flag: 'supported' }), { code: 'model-invalid' });
+});
+
+test('178 (d): withIdentity and mainEnv drop the session variables always and the worker\'s override variables only when an effort is passed', () => {
+  const caller = { PATH: '/bin', CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high', CLAUDE_CODE_EFFORT_LEVEL: 'low', KEEP: 'yes' };
+  const frozen = { ...caller };
+  const identity = { run: 'r1', lineage: 'l1', attempt: '1', runSource: 'claim' };
+  const scrub = { sessionVariables: ['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT'], overrideEnv: ['CLAUDE_CODE_EFFORT_LEVEL'] };
+  for (const [label, make] of [
+    ['withIdentity', (extra: any) => withIdentity(caller, identity, '/wt', undefined, { ...scrub, ...extra })],
+    ['launchEnv', (extra: any) => launchEnv({ env: caller, runKey: 'abcdef0123456789/r1/l1', token: 1, execWorktree: '/wt', runId: RUN_ID, scrub: { ...scrub, ...extra } }).env],
+    ['mainEnv', (extra: any) => mainEnv(caller, RUN_ID, { ...scrub, ...extra })],
+  ] as const) {
+    const plain: any = make({});
+    assert.deepEqual([plain.CLAUDE_CODE_CHILD_SESSION, plain.CLAUDE_EFFORT, plain.CLAUDE_CODE_EFFORT_LEVEL, plain.KEEP], [undefined, undefined, 'low', 'yes'], `${label}: no effort passed`);
+    const forced: any = make({ effort: 'high' });
+    assert.deepEqual([forced.CLAUDE_CODE_CHILD_SESSION, forced.CLAUDE_EFFORT, forced.CLAUDE_CODE_EFFORT_LEVEL, forced.KEEP], [undefined, undefined, undefined, 'yes'], `${label}: an effort passed`);
+    assert.deepEqual(caller, frozen, `${label} never mutates the caller's environment`);
+  }
+});
+
+test('178 (e): the stored argv shape holds {effort}, never the level, for an effort with no model', () => {
+  const shape = argvShape(harnessWorker('pi'), 'p', false, EFFORT_ONLY);
+  const at = shape.indexOf('--thinking');
+  assert.deepEqual(shape.slice(at, at + 2), ['--thinking', '{effort}']);
+  assert.equal(JSON.stringify(shape).includes('high'), false);
+  const record = launchRecord(harnessWorker('pi'), { run: 'r', lineage: 'l', attempt: '1', runSource: 'claim' }, 'p', false, EFFORT_ONLY);
+  assert.deepEqual(record.recipe.argvShape, shape);
+});
+
+test('178: launchWorker passes the effort-only argv and drops the worker override variable from the child', POSIX_ONLY, async (t) => {
+  const w = world(t, { run: [{ emit: { type: 'result', status: 'success', summary: 'ok' } }] });
+  const recipe = recipeOf('claude');
+  recipe.effort = { status: 'supported', via: 'flag', argv: ['--effort', '{effort}'], levels: ['low', 'high'], overrideEnv: ['OVERRIDE_LEVEL'] };
+  const env = { ...w.env, OVERRIDE_LEVEL: 'low' };
+  const { identity } = launchEnv({ env, runKey: 'abcdef0123456789/local/main', token: 1, execWorktree: w.worktree, runId: RUN_ID });
+  const result = await launchWorker({ recipe, prompt: 'p', identity, execWorktree: w.worktree, env, runId: RUN_ID, binding: EFFORT_ONLY });
+  assert.equal(result.env.OVERRIDE_LEVEL, undefined, 'the override variable is not in the child environment');
+  assert.equal(env.OVERRIDE_LEVEL, 'low');
+  await exited(result.child);
+  const [line] = readLog(w.log).filter((entry: any) => entry.argv.includes('run'));
+  assert.deepEqual(line.argv.slice(0, 3), ['--read-only', '--effort', 'high']);
+  const kept = await launchWorker({ recipe, prompt: 'p', identity, execWorktree: w.worktree, env, runId: RUN_ID });
+  assert.equal(kept.env.OVERRIDE_LEVEL, 'low', 'with no effort passed the override variable stays');
+  await exited(kept.child);
 });

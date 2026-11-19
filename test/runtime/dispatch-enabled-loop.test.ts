@@ -272,6 +272,9 @@ async function project(t: any, { fallback = fb({ mode: 'auto', ladder: ['claude'
   };
 }
 
+/** 178: a launched record also names the effort plan; these drivers run outside any harness session. */
+const noSession = (harness: string | null = null) => ({ effortPlan: { pass: null, source: 'none', reason: 'session-unknown', session: { harness, level: null, origin: null, reason: 'no-session-harness' } } });
+
 const dispatches = (p: any) => Object.values(p.read().dispatches).sort((a, b) => a.token - b.token);
 
 test('IC-013 loop: an unbound worker records the owner tier and harness default', POSIX, async (t) => {
@@ -282,7 +285,7 @@ test('IC-013 loop: an unbound worker records the owner tier and harness default'
   await p.step();
   const [d] = dispatches(p);
   assert.equal(d.mode, 'subagent');
-  assert.deepEqual(d.model, { tier, requested: null, source: 'harness-default', served: null });
+  assert.deepEqual(d.model, { tier, requested: null, source: 'harness-default', served: null, ...noSession() });
   assert.equal(Object.hasOwn(d, 'primary'), false);
 });
 
@@ -297,12 +300,12 @@ test('orchestrator slot loop: owner delivery-lead records the orchestrator model
   const viaFrontier = await project(t, { plan, modelFlag: true });
   write(viaFrontier, { claude: { frontier: 'front-1' } });
   await viaFrontier.step();
-  assert.deepEqual(dispatches(viaFrontier)[0].model, { tier: 'frontier', requested: 'front-1', source: 'frontier-binding', served: null });
+  assert.deepEqual(dispatches(viaFrontier)[0].model, { tier: 'frontier', requested: 'front-1', source: 'frontier-binding', served: null, ...noSession() });
   // A bound orchestrator wins over the frontier binding.
   const viaBinding = await project(t, { plan, modelFlag: true });
   write(viaBinding, { claude: { frontier: 'front-1', orchestrator: 'orch-1' } });
   await viaBinding.step();
-  assert.deepEqual(dispatches(viaBinding)[0].model, { tier: 'frontier', requested: 'orch-1', source: 'binding', served: null });
+  assert.deepEqual(dispatches(viaBinding)[0].model, { tier: 'frontier', requested: 'orch-1', source: 'binding', served: null, ...noSession() });
 });
 
 test('orchestrator slot loop: selection, launch and record agree on the main-session model; no flag evidenced means none is recorded', POSIX, async (t) => {
@@ -315,7 +318,7 @@ test('orchestrator slot loop: selection, launch and record agree on the main-ses
   const [d] = dispatches(p);
   // The gate saw the main session (not the frontier binding the missing flag would refuse), so claude was chosen.
   assert.equal(d.harness, 'claude');
-  assert.deepEqual(d.model, { tier: 'frontier', requested: null, source: 'harness-default', served: null });
+  assert.deepEqual(d.model, { tier: 'frontier', requested: null, source: 'harness-default', served: null, ...noSession('claude') });
   const argv = fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').filter(Boolean).map((line: any) => JSON.parse(line).argv).flat();
   assert.equal(argv.includes('sess-1') || argv.includes('front-1'), false, 'the launch passed no model');
 });

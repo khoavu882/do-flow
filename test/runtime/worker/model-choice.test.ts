@@ -36,7 +36,7 @@ test('choiceOf reads a string, an object with absent parts as null, and refuses 
 });
 
 test('composeModelPart: Pi shape puts the provider in the id and the effort in its own flag', () => {
-  assert.deepEqual(composeModelPart(piWorker(), choice('gpt-y', 'openai', 'low')), { argv: ['--model', 'openai/gpt-y', '--thinking', 'low'], strip: [{ flag: '--thinking', key: null }] });
+  assert.deepEqual(composeModelPart(piWorker(), choice('gpt-y', 'openai', 'low')), { argv: ['--model', 'openai/gpt-y', '--thinking', 'low'], strip: [] });
   assert.deepEqual(composeModelPart(piWorker(), choice('gpt-y', 'openai')), { argv: ['--model', 'openai/gpt-y'], strip: [] });
   assert.deepEqual(composeModelPart(piWorker(), choice('gpt-y')), { argv: ['--model', 'gpt-y'], strip: [] });
 });
@@ -48,7 +48,7 @@ test('composeModelPart: OpenCode shape joins provider and effort to the id', () 
 
 test('composeModelPart: flag transports add their pair after the model, a key= form replaces the placeholder after the key', () => {
   assert.deepEqual(composeModelPart(providerFlagWorker(), choice('m', 'acme', 'high')), {
-    argv: ['--model', 'm', '--provider', 'acme', '-c', 'reasoning=high'], strip: [{ flag: '--provider', key: null }, { flag: '-c', key: 'reasoning' }],
+    argv: ['--model', 'm', '--provider', 'acme', '-c', 'reasoning=high'], strip: [{ flag: '--provider', key: null }],
   });
 });
 
@@ -77,9 +77,9 @@ test('composeModelPart refuses a bad value or an over-long id with model-part-in
 });
 
 test('composeModelPart shape:true composes with placeholders and checks only that the parts are supported', () => {
-  assert.deepEqual(composeModelPart(piWorker(), choice('x', 'y', 'z'), { shape: true }), { argv: ['--model', '{provider}/{model}', '--thinking', '{effort}'], strip: [{ flag: '--thinking', key: null }] });
+  assert.deepEqual(composeModelPart(piWorker(), choice('x', 'y', 'z'), { shape: true }), { argv: ['--model', '{provider}/{model}', '--thinking', '{effort}'], strip: [] });
   assert.deepEqual(composeModelPart(openCodeWorker(), choice('x', 'y', 'z'), { shape: true }), { argv: ['--model', '{provider}/{model}#{effort}'], strip: [] });
-  assert.deepEqual(composeModelPart(providerFlagWorker(), choice('x', 'y', 'z'), { shape: true }), { argv: ['--model', '{model}', '--provider', '{provider}', '-c', 'reasoning={effort}'], strip: [{ flag: '--provider', key: null }, { flag: '-c', key: 'reasoning' }] });
+  assert.deepEqual(composeModelPart(providerFlagWorker(), choice('x', 'y', 'z'), { shape: true }), { argv: ['--model', '{model}', '--provider', '{provider}', '-c', 'reasoning={effort}'], strip: [{ flag: '--provider', key: null }] });
   assert.deepEqual(composeModelPart(piWorker(), choice('x'), { shape: true }), { argv: ['--model', '{model}'], strip: [] });
   assert.equal(reasonOf(() => composeModelPart(piWorker({ effort: { status: 'unknown', reason: 'r' } }), choice('x', null, 'z'), { shape: true })), 'model-part-unsupported');
 });
