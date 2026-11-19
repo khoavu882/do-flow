@@ -277,6 +277,53 @@ test('141 IC-007: the claimSupport object is ids, words and counts only, and onl
   assert.equal('claimSupport' in JSON.parse(fs.readFileSync(wrongKind.file, 'utf8').trim().split('\n').pop()), false);
 });
 
+test('the pick line keeps ids and counts and drops a planted passage field', (t) => {
+  const { roots } = fixture(t);
+  const yesno = {
+    kind: 'instructs-reader', question: { name: 'instructs-reader', type: 'yesno', no: 'No', yes: 'Yes' }, staticAnswer: 'no',
+    answer: { name: 'instructs-reader', type: 'yesno', pick: 'yes', strength: { word: 'clear', between: null }, probabilities: { no: 0.1, yes: 0.9 }, confidence: null },
+  };
+  const good = { entry: 'hand-back', site: 'dispatch', ref: 'hand-back T3', brief: 'd-0a1b2c3d4e5f', passageBytes: 120, totalBytes: 4000, truncated: true };
+  const lastLine = (file: string) => JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n').pop() as string);
+  const write = (extra: any, kind: string = 'instructs-reader') => appendPick(pickInput(roots, { ...yesno, kind, extra: { instructsReader: extra } }));
+
+  const kept = write({ ...good, passage: 'leakedpassage', reply: 'leakedreply', text: 'leakedtext' });
+  const raw = fs.readFileSync(kept.file, 'utf8');
+  assert.equal(raw.includes('leaked'), false, 'no passage or reply text reaches the line');
+  assert.deepEqual(lastLine(kept.file).instructsReader, good, 'exactly the design keys, in order');
+  assert.deepEqual(Object.keys(lastLine(kept.file).instructsReader), ['entry', 'site', 'ref', 'brief', 'passageBytes', 'totalBytes', 'truncated']);
+  fs.rmSync(kept.file);
+
+  const shapes: Array<[string, any]> = [
+    ['entry', { ...good, entry: 'session' }], ['site', { ...good, site: 'elsewhere' }], ['brief', { ...good, brief: 'a/b' }],
+    ['brief too long', { ...good, brief: 'x'.repeat(129) }], ['passageBytes', { ...good, passageBytes: -1 }], ['totalBytes', { ...good, totalBytes: 1.5 }],
+    ['truncated', { ...good, truncated: 'yes' }], ['not an object', 'a passage'], ['an array', [good]], ['null', null],
+  ];
+  for (const [name, shape] of shapes) {
+    const written = write(shape);
+    const line = lastLine(written.file);
+    assert.equal('instructsReader' in line, false, `${name}: any other shape drops the object, the plain pick stays`);
+    assert.equal(line.pick, 'yes');
+    fs.rmSync(written.file);
+  }
+
+  // `ref` is masked and checked; a brief may be a dispatch id, a file name or null; every entry and site word is kept.
+  for (const [ref, expected] of [['input.doc:id=web result', 'input.doc:id=web result'], ['api_key=sk-abcdefghijklmnopqrstuvwxyz123456', '(withheld)'], ['line\nbreak', '(withheld)'], ['x'.repeat(129), '(withheld)'], ['', '(withheld)'], [7, '(withheld)']] as any[]) {
+    const written = write({ ...good, ref });
+    assert.equal(lastLine(written.file).instructsReader.ref, expected);
+    fs.rmSync(written.file);
+  }
+  for (const brief of [null, 'brief.md', 'd-0a1b2c3d4e5f']) {
+    for (const [entry, site] of [['retrieved', 'prompt-frame'], ['tool', 'prompt-frame'], ['hand-back', 'dispatch']]) {
+      const written = write({ ...good, brief, entry, site });
+      assert.deepEqual(lastLine(written.file).instructsReader, { ...good, brief, entry, site });
+      fs.rmSync(written.file);
+    }
+  }
+  const wrongKind = write(good, 'tier');
+  assert.equal('instructsReader' in lastLine(wrongKind.file), false, 'only an instructs-reader pick takes the object');
+});
+
 // ── 151 IC-002: readWindow reports each partition and store it read ───────────────────────────────
 
 function picksDir(root: string): string {

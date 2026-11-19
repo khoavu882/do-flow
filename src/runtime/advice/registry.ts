@@ -198,6 +198,15 @@ function validateClaimSupportParams(params: any, limits: any, base: string, erro
   }
 }
 
+// `params` of the instructs-reader kind (177 IC-001): the one passage cap, 256 to 2048 bytes. The state it builds is one
+// frame document of at most 2048 bytes plus its tags, far under limits.maxStateBytes, so no state rule is needed.
+function validateInstructsReaderParams(params: any, base: string, errors: string[]): void {
+  for (const field of Object.keys(params)) if (field !== 'passageBytes') addError(errors, `${base}.params.${field}`, 'is not a known key');
+  if (!Number.isInteger(params.passageBytes) || params.passageBytes < 256 || params.passageBytes > 2048) {
+    addError(errors, `${base}.params.passageBytes`, 'must be an integer from 256 to 2048');
+  }
+}
+
 function validateCallBuiltFields(kind: any, registry: any, base: string, errors: string[]): void {
   const callBuilt = kind.criteriaFrom === CALL_BUILT;
   if (Object.hasOwn(kind, 'maxMode') && !MODES.includes(kind.maxMode)) addError(errors, `${base}.maxMode`, `must be one of ${MODES.join(', ')}`);
@@ -218,6 +227,8 @@ function validateCallBuiltFields(kind: any, registry: any, base: string, errors:
       validateRerankParams(params, registry.limits, base, errors);
     } else if (kind.id === 'claim-support') {
       validateClaimSupportParams(params, registry.limits, base, errors);
+    } else if (kind.id === 'instructs-reader') {
+      validateInstructsReaderParams(params, base, errors);
     } else {
       for (const [field, value] of Object.entries(params)) {
         if (field !== 'arm' && !isPositiveInteger(value)) addError(errors, `${base}.params.${field}`, 'must be a positive integer');

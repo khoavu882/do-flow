@@ -247,6 +247,8 @@ const RUNTIME_ASKED: any = {
   'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
   // 141 D.3: the detached shadow hook of `claim --action link` asks it; the recorded relation is the static answer, so no outcome line.
   'claim-support': { caller: 'claim', file: 'src/runtime/claims.ts', outcome: null },
+  // 177: the detached shadow hook `screenDocuments` asks it per screened document; the rule screen is the static answer, so no outcome line.
+  'instructs-reader': { caller: 'brief', file: 'src/runtime/advice/instructs-reader.ts', outcome: null },
 };
 const ASKS_ADVICE = /\b(?:client\.ask|interceptDecisionPoint)\(/;
 

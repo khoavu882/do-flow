@@ -22,7 +22,7 @@ const { takeSlot, adoptSlot, writeHandoff, releaseSlot, fullRegistry, SLOT_STORE
 const RUNNER = path.join(__dirname, `shadow-runner${path.extname(__filename)}`);
 
 /** The advice registry's kinds (core/registry/advice.json). */
-type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'claim-support';
+type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'claim-support' | 'instructs-reader';
 type AdviceMode = 'off' | 'shadow' | 'show' | 'act';
 type Env = Record<string, string | undefined>;
 type StoreRoots = Record<string, string | null>;
@@ -290,6 +290,12 @@ const DESCRIBERS: Record<string, (call: AdvisorCall, context: DecisionPointConte
     const yes = call.answer?.probabilities && (call.answer.probabilities as Record<string, unknown>).yes;
     if (call.answer?.type !== 'yesno' || typeof yes !== 'number' || !Number.isFinite(yes)) return null;
     return { extra: { claimSupport: context.lineExtra?.claimSupport } };
+  },
+  // 177: the same readable-answer rule; the passage never crosses, only ids, counts and flags (record.ts cleanInstructsReader).
+  'instructs-reader': (call, context) => {
+    const yes = call.answer?.probabilities && (call.answer.probabilities as Record<string, unknown>).yes;
+    if (call.answer?.type !== 'yesno' || typeof yes !== 'number' || !Number.isFinite(yes)) return null;
+    return { extra: { instructsReader: context.lineExtra?.instructsReader } };
   },
 };
 

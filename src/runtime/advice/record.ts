@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { resolveStorePath } = require('../storage/roots.ts');
+const { maskLine } = require('../mask.ts');
 
 const RETAINED_DAYS = 90;
 const PARTITION_NAME = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
@@ -40,9 +41,9 @@ function appendLine({ roots, at, line, fsImpl = fs, store }: any): { file: strin
   }
 }
 
-// The extra payload of a pick (141 IC-007, DEC-028): only the key `claimSupport`, rebuilt field by field from an
-// allowlist, so a caller cannot put a claim or passage text on a line. A value that is not the expected shape drops the
-// whole object, never a part of it.
+// The extra payload of a pick (141 IC-007, DEC-028): only the keys `claimSupport` and `instructsReader` (177), each
+// rebuilt field by field from an allowlist, so a caller cannot put a claim or passage text on a line. A value that is
+// not the expected shape drops the whole object, never a part of it.
 const ID_CHARS = 128;
 
 function isPlainObject(value: any): boolean {
@@ -71,6 +72,33 @@ function cleanClaimSupport(value: any): any | null {
   };
 }
 
+const ENTRY_KINDS = ['hand-back', 'retrieved', 'tool'];
+const SCREEN_SITES = ['dispatch', 'prompt-frame'];
+const REF_SHAPE = /^[A-Za-z0-9 ._/#:=-]{1,128}$/;
+const DISPATCH_ID = /^d-[0-9a-f]{12}$/;
+const FILE_NAME = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * The `instructsReader` object of 177 IC-009: which kind of document, where it was screened, a masked reference, the brief
+ * it belonged to and byte counts; never the passage or the model's reply. Rebuilt key by key, so an unknown key (a planted
+ * `passage`) is not copied; a value of the wrong shape drops the whole object. A reference that is not a short plain
+ * label after masking is `(withheld)`.
+ */
+function cleanInstructsReader(value: any): any | null {
+  if (!isPlainObject(value)) return null;
+  if (!ENTRY_KINDS.includes(value.entry) || !SCREEN_SITES.includes(value.site)) return null;
+  const brief = value.brief === null || value.brief === undefined ? null
+    : typeof value.brief === 'string' && (DISPATCH_ID.test(value.brief) || FILE_NAME.test(value.brief)) ? value.brief : undefined;
+  const passageBytes = countOrNull(value.passageBytes);
+  const totalBytes = countOrNull(value.totalBytes);
+  if (brief === undefined || passageBytes === null || totalBytes === null || typeof value.truncated !== 'boolean') return null;
+  const masked = typeof value.ref === 'string' ? maskLine(value.ref).text : '';
+  return {
+    entry: value.entry, site: value.site, ref: REF_SHAPE.test(masked) ? masked : '(withheld)',
+    brief, passageBytes, totalBytes, truncated: value.truncated,
+  };
+}
+
 const PICK_ID = /^adv-[0-9]{13}-[0-9a-f]{6}$/;
 
 function newPickId(epoch: number = Date.now()): string {
@@ -92,6 +120,7 @@ function appendPick({
     if (!at) return null;
     const pickId = typeof givenPickId === 'string' && PICK_ID.test(givenPickId) ? givenPickId : newPickId(Date.parse(at));
     const claimSupport = kind === 'claim-support' ? cleanClaimSupport(extra?.claimSupport) : null;
+    const instructsReader = kind === 'instructs-reader' ? cleanInstructsReader(extra?.instructsReader) : null;
     const options = question.type === 'choice' ? Object.keys(question.options || {})
       : question.type === 'score' ? [...(question.criteria || [])] : ['no', 'yes'];
     const instructions = kind === 'adhoc' && typeof question.instructions === 'string'
@@ -123,6 +152,7 @@ function appendPick({
     if (mode !== undefined) line.mode = mode;
     if (elevated !== undefined) line.elevated = elevated === true;
     if (claimSupport) line.claimSupport = claimSupport;
+    if (instructsReader) line.instructsReader = instructsReader;
     if (answer.type === 'score') {
       line.criteria = [...(question.criteria || [])];
       line.pickIndex = answer.pickIndex;
