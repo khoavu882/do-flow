@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "row": "900",
+  "slug": "slug-alpha",
+  "rounds": 2,
+  "seats": [
+    {
+      "id": "seat-1",
+      "findings": [
+        {
+          "id": "a-1",
+          "severity": "should-fix",
+          "locator": "src/cache.ts:10",
+          "summary": "cache entries never expire once the ttl has passed"
+        },
+        {
+          "id": "a-2",
+          "severity": "should-fix",
+          "locator": "src/queue.ts:40",
+          "summary": "worker retries a failed job without any backoff delay"
+        },
+        {
+          "id": "a-6",
+          "severity": "should-fix",
+          "locator": "lib/render.ts:7",
+          "summary": "template output escapes nothing"
+        }
+      ]
+    },
+    {
+      "id": "seat-2",
+      "findings": [
+        {
+          "id": "a-3",
+          "severity": "should-fix",
+          "locator": "src/cache.ts:12",
+          "summary": "stale cache entries survive past ttl expiry"
+        },
+        {
+          "id": "a-4",
+          "severity": "should-fix",
+          "locator": "docs/guide.md:5",
+          "summary": "installation steps list an outdated node version"
+        },
+        {
+          "id": "a-5",
+          "severity": "should-fix",
+          "locator": "src/queue.ts:44",
+          "summary": "retrying failed jobs immediately floods the worker"
+        },
+        {
+          "id": "a-7",
+          "severity": "should-fix",
+          "locator": "lib/render.ts:9",
+          "summary": "template output does not escape html"
+        }
+      ]
+    },
+    {
+      "id": "seat-3",
+      "findings": [
+        {
+          "id": "a-8",
+          "severity": "should-fix",
+          "locator": "src/auth.ts:3",
+          "summary": "login token lifetime is unbounded"
+        },
+        {
+          "id": "a-9",
+          "severity": "should-fix",
+          "locator": "docs/ops.md:2",
+          "summary": "runbook lacks a rotation schedule"
+        }
+      ]
+    }
+  ],
+  "converged": [
+    {
+      "id": "c-1",
+      "from": [
+        "a-1",
+        "a-3"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/cache.ts:10"
+    },
+    {
+      "id": "c-2",
+      "from": [
+        "a-2"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/queue.ts:40"
+    },
+    {
+      "id": "c-3",
+      "from": [
+        "a-5"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/queue.ts:44"
+    },
+    {
+      "id": "c-4",
+      "from": [
+        "a-4"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "docs/guide.md:5"
+    },
+    {
+      "id": "c-5",
+      "from": [
+        "a-8",
+        "a-9"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/auth.ts:3"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "row": "900",
+  "slug": "slug-beta",
+  "rounds": 2,
+  "seats": [
+    {
+      "id": "seat-1",
+      "findings": [
+        {
+          "id": "b-1",
+          "severity": "should-fix",
+          "locator": "src/api.ts:20",
+          "summary": "handler returns an error on an empty body"
+        },
+        {
+          "id": "b-3",
+          "severity": "should-fix",
+          "locator": "src/db.ts:8",
+          "summary": "connection pool never closes on shutdown"
+        },
+        {
+          "id": "b-4",
+          "severity": "should-fix",
+          "locator": "src/log.ts:3",
+          "summary": "log lines omit the request id"
+        }
+      ]
+    },
+    {
+      "id": "seat-2",
+      "findings": [
+        {
+          "id": "b-2",
+          "severity": "should-fix",
+          "locator": "src/api.ts:22",
+          "summary": "empty request body causes a server error"
+        },
+        {
+          "id": "b-5",
+          "severity": "should-fix",
+          "locator": "src/log.ts:30",
+          "summary": "request id missing from audit entries"
+        }
+      ]
+    }
+  ],
+  "converged": [
+    {
+      "id": "c-1",
+      "from": [
+        "b-1",
+        "b-2"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/api.ts:20"
+    },
+    {
+      "id": "c-2",
+      "from": [
+        "b-3"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/db.ts:8"
+    },
+    {
+      "id": "c-3",
+      "from": [
+        "b-4",
+        "b-5"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/log.ts:3"
+    }
+  ]
+}

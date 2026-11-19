@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "row": "900",
+  "slug": "slug-schema-two",
+  "rounds": 2,
+  "seats": [
+    {
+      "id": "seat-1",
+      "findings": [
+        {
+          "id": "s-1",
+          "severity": "should-fix",
+          "locator": "src/x.ts:1",
+          "summary": "some finding text here"
+        }
+      ]
+    }
+  ],
+  "converged": [
+    {
+      "id": "c-1",
+      "from": [
+        "s-1"
+      ],
+      "severity": "should-fix",
+      "status": "open",
+      "locator": "src/x.ts:1"
+    }
+  ]
+}
