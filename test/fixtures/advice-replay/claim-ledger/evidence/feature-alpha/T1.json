@@ -1,0 +1,88 @@
+{
+  "taskId": "T1",
+  "updatedAt": "2026-11-01T10:00:00.000Z",
+  "evidenceCount": 3,
+  "evidence": [
+    {
+      "id": "ev_alpha_1",
+      "taskId": "T1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "general-task-execution",
+        "capability": "coverage-reverify"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "logout() calls cache.clear() before the redirect SENTINEL-PASSAGE-175",
+      "freshness": {
+        "gitCommit": "4296d8dde889db3a8de03ee4ecf97499b96f376d",
+        "fileHash": null,
+        "observedAt": "2026-11-01T10:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "observation": null,
+      "supports": [
+        "claim_alpha_1",
+        "claim_alpha_5"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_alpha_2",
+      "taskId": "T1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "general-task-execution",
+        "capability": "coverage-reverify"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "retries is set to five in the client options",
+      "freshness": {
+        "gitCommit": "4296d8dde889db3a8de03ee4ecf97499b96f376d",
+        "fileHash": null,
+        "observedAt": "2026-11-01T10:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "observation": null,
+      "supports": [],
+      "contradicts": [
+        "claim_alpha_2"
+      ],
+      "status": "active",
+      "supersededBy": null
+    },
+    {
+      "id": "ev_alpha_empty",
+      "taskId": "T1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "general-task-execution",
+        "capability": "coverage-reverify"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "   ",
+      "freshness": {
+        "gitCommit": "4296d8dde889db3a8de03ee4ecf97499b96f376d",
+        "fileHash": null,
+        "observedAt": "2026-11-01T10:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "observation": null,
+      "supports": [
+        "claim_alpha_4"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    }
+  ],
+  "version": 1,
+  "revision": 1
+}

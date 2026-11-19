@@ -6,12 +6,12 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { startFakeServer, spawnFakeServer, closedEndpoint } = require('../helper/fake-decision-server.ts');
+const { startFakeServer, spawnFakeServer, closedEndpoint, digestOf, tagsListing } = require('../helper/fake-decision-server.ts');
 const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { readWindow } = require('../../src/runtime/advice/record.ts');
-const { createAdviceClient } = require('../../src/runtime/advice/client.ts');
+const { createAdviceClient, resetModelDigestMemo } = require('../../src/runtime/advice/client.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const BASE_ADVICE = loadAdviceRegistry({ repoRoot: REPO }).registry;
@@ -527,4 +527,113 @@ test('141 B.11: a 16-question request stays within limits.maxBodyBytes', async (
   const bytes = Buffer.byteLength(JSON.stringify(server.requests[0].body), 'utf8');
   assert.ok(bytes <= BASE_ADVICE.limits.maxBodyBytes, `${bytes} bytes`);
   assert.equal(Object.keys(server.requests[0].body.questions).length, 16);
+});
+
+// ── 175 IC-007: the model digest ─────────────────────────────────────────────────────────────────
+
+const tagRequests = (server: any) => server.requests.filter((request: any) => request.pathname === '/api/tags');
+
+test('175 IC-007 (b): modelDigest makes one listing call per (endpoint, model) per process, and nothing but the listing', async (t) => {
+  resetModelDigestMemo();
+  const server = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing({ models: ['clef-flash:latest', 'nimble:8b'] }) } } });
+  onClose(t, server);
+  const { createClient }: any = fixture(t, { lookup: loopbackLookup });
+  const client = createClient();
+  const first = await client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs: 1000 });
+  assert.deepEqual(first, { digest: `sha256:${digestOf('clef-flash:latest')}`, reason: null });
+  assert.deepEqual(await client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs: 1000 }), first);
+  assert.deepEqual(await createClient().modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs: 1000 }), first, 'the memo is per process, not per client');
+  assert.equal(tagRequests(server).length, 1);
+  const other = await client.modelDigest({ endpoint: server.origin, model: 'nimble:8b', provider: 'ollama', timeoutMs: 1000 });
+  assert.equal(other.digest, `sha256:${digestOf('nimble:8b')}`);
+  assert.equal(tagRequests(server).length, 2, 'another model is another key');
+  assert.deepEqual(server.requests.filter((request: any) => request.pathname !== '/api/tags'), [], 'no version, show or decision call');
+  resetModelDigestMemo();
+  await client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs: 1000 });
+  assert.equal(tagRequests(server).length, 3, 'the reset empties the memo');
+});
+
+test('175 IC-007: a digest is normalised to sha256:<hex>, and one that is not hex is no digest', async (t) => {
+  resetModelDigestMemo();
+  const server = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: { models: [
+    { name: 'bare:1', digest: 'ABCDEF0123' },
+    { name: 'prefixed:1', digest: 'sha256:abcdef0123' },
+    { name: 'odd:1', digest: 'not hex!' },
+  ] } } } });
+  onClose(t, server);
+  const { createClient }: any = fixture(t, { lookup: loopbackLookup });
+  const client = createClient();
+  const ask = (model: string) => client.modelDigest({ endpoint: server.origin, model, provider: 'ollama', timeoutMs: 1000 });
+  assert.deepEqual(await ask('bare:1'), { digest: 'sha256:abcdef0123', reason: null });
+  assert.deepEqual(await ask('prefixed:1'), { digest: 'sha256:abcdef0123', reason: null });
+  assert.deepEqual(await ask('odd:1'), { digest: null, reason: 'no-digest' });
+});
+
+test('175 IC-007 (c): a listing without the model, a listing without digests, a 500, a slow listing and an abort each give { digest: null, reason }', async (t) => {
+  resetModelDigestMemo();
+  const without = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing({ models: ['other:latest'] }) } } });
+  const noDigests = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing({ omitDigest: true }) } } });
+  const broken = await startFakeServer({ routes: { 'GET /api/tags': { status: 500, body: { error: 'boom' } } } });
+  const slow = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing(), delayMs: 4000 } } });
+  for (const server of [without, noDigests, broken, slow]) onClose(t, server);
+  const { createClient }: any = fixture(t, { lookup: loopbackLookup, adviceOverrides: { probeTimeoutMs: 1500 } });
+  const client = createClient();
+  const ask = (server: any, extra: any = {}) => client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs: 5000, ...extra });
+  assert.deepEqual(await ask(without), { digest: null, reason: 'model-not-listed' });
+  assert.deepEqual(await ask(noDigests), { digest: null, reason: 'no-digest' });
+  assert.deepEqual(await ask(broken), { digest: null, reason: 'server-error' });
+  const started = Date.now();
+  assert.deepEqual(await ask(slow), { digest: null, reason: 'timeout' });
+  assert.ok(Date.now() - started < 3500, 'a caller timeout above probeTimeoutMs is capped at probeTimeoutMs (1500), not the 4000 ms listing delay');
+  const shorter = Date.now();
+  assert.deepEqual(await ask(slow, { timeoutMs: 40 }), { digest: null, reason: 'timeout' });
+  assert.ok(Date.now() - shorter < 1000, 'a caller timeout below the cap is kept (40 ms, not the 1500 ms cap)');
+  const controller = new AbortController();
+  controller.abort();
+  assert.deepEqual(await ask(without, { signal: controller.signal }), { digest: null, reason: 'timeout' });
+  assert.deepEqual(await client.modelDigest({ endpoint: await closedEndpoint(), model: 'clef-flash', provider: 'ollama', timeoutMs: 500 }), { digest: null, reason: 'unreachable' });
+  assert.deepEqual(await client.modelDigest({ endpoint: without.origin, model: 'clef-flash', provider: 'no-such-provider', timeoutMs: 500 }), { digest: null, reason: 'config-invalid' });
+  const remote: any = fixture(t, { lookup: (_host: any, _options: any, callback: any) => callback(null, [{ address: '198.51.100.1', family: 4 }]) });
+  assert.deepEqual(await remote.createClient().modelDigest({ endpoint: 'http://model.example:11434', model: 'clef-flash', provider: 'ollama', timeoutMs: 500 }), { digest: null, reason: 'non-loopback' });
+});
+
+test('175 IC-007: an in-flight read is not shared, so a short timeout that expires does not fail a concurrent longer one', async (t) => {
+  resetModelDigestMemo();
+  const server = await startFakeServer({ routes: { 'GET /api/tags': { status: 200, body: tagsListing(), delayMs: 300 } } });
+  onClose(t, server);
+  const { createClient }: any = fixture(t, { lookup: loopbackLookup, adviceOverrides: { probeTimeoutMs: 5000 } });
+  const client = createClient();
+  const ask = (timeoutMs: number) => client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs });
+  const [short, long] = await Promise.all([ask(40), ask(5000)]);
+  assert.deepEqual(short, { digest: null, reason: 'timeout' });
+  assert.equal(long.digest, `sha256:${digestOf('clef-flash:latest')}`);
+});
+
+test('175 IC-007: a miss is not remembered, so a model pulled later is found by the next call', async (t) => {
+  resetModelDigestMemo();
+  let listing: any = tagsListing({ models: ['other:latest'] });
+  const server = await startFakeServer({ routes: { 'GET /api/tags': () => ({ status: 200, body: listing }) } });
+  onClose(t, server);
+  const { createClient }: any = fixture(t, { lookup: loopbackLookup });
+  const client = createClient();
+  const ask = () => client.modelDigest({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', timeoutMs: 1000 });
+  assert.equal((await ask()).reason, 'model-not-listed');
+  listing = tagsListing();
+  assert.equal((await ask()).digest, `sha256:${digestOf('clef-flash:latest')}`);
+  assert.equal(tagRequests(server).length, 2);
+});
+
+test('175 IC-007 (d): inspect output is unchanged apart from the digest on each listed model', async (t) => {
+  const server = await startFakeServer({ routes: {
+    'GET /api/version': { status: 200, body: { version: '0.40.2' } },
+    'GET /api/tags': { status: 200, body: tagsListing() },
+  } });
+  onClose(t, server);
+  const { createClient }: any = fixture(t, { endpoint: server.origin, lookup: loopbackLookup });
+  const result = await createClient().inspect({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama' });
+  assert.deepEqual(result, {
+    endpoint: { state: 'reached', version: '0.40.2', versionOk: true, message: null },
+    models: [{ name: 'clef-flash:latest', capabilities: ['decision'], digest: digestOf('clef-flash:latest') }],
+    model: { installed: true, decisionCapable: true },
+  });
 });

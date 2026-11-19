@@ -27,23 +27,11 @@
       "splitTo": 0.65
     }
   },
-  "gate": {
+  "bars": {
     "version": 1,
-    "illustrative": true,
-    "minCases": 30,
-    "validShareMin": 0.99,
-    "quality": {
-      "lowerBoundAbove": 0,
-      "confidence": 0.95,
-      "resamples": 10000,
-      "seed": 20261106
-    },
-    "latency": {
-      "p95CapMs": {
-        "default": 5000,
-        "rerank": 3000
-      }
-    }
+    "statistics": { "confidence": 0.95, "resamples": 10000, "seed": 20261119 },
+    "show": { "minCases": 30, "minMinority": 10, "kappaLowerAbove": 0, "notWorseThanRule": true, "p95WithinBudget": true },
+    "act": { "minCases": 100, "minMinority": 25, "kappaGainLowerAbove": 0, "maxWorseShare": 0.02 }
   },
   "providers": [
     {
@@ -114,7 +102,7 @@
     {
       "id": "rerank",
       "type": "choice",
-      "description": "Offline measurement only: nothing asks this kind at run time (askedBy is empty, no kind or model setting exists, retrieve makes no decision-model call); `bench advice-gate --kind rerank` scores it. Illustrative defaults, set from one run on one laptop (20 guidance queries, load-confounded): 16 candidates of 800 bytes; arm choice because it measured 2 to 3 times faster than ladder (cold p95 4.5 to 11.6 s against 12.8 to 21.7 s), 120 of 120 replies valid; gate.latency.p95CapMs.rerank stays 3000 and is expected to fail on that laptop.",
+      "description": "Offline measurement only: nothing asks this kind at run time (askedBy is empty, no kind or model setting exists, retrieve makes no decision-model call); `bench advice-gate --kind rerank` scores it. Illustrative defaults, set from one run on one laptop (20 guidance queries, load-confounded): 16 candidates of 800 bytes; arm choice because it measured 2 to 3 times faster than ladder (cold p95 4.5 to 11.6 s against 12.8 to 21.7 s), 120 of 120 replies valid.",
       "instructions": "Select the candidate that best answers the query.",
       "criteriaFrom": "call",
       "staticFrom": "the first-stage top candidate (label A)",
@@ -154,6 +142,7 @@
       "staticFrom": "the recorded relation (supports means yes, contradicts means no)",
       "askedBy": ["claim"],
       "maxMode": "shadow",
+      "replay": { "source": "claim-ledger" },
       "budgetMs": 1500,
       "params": {
         "claimBytes": 1024,

@@ -74,45 +74,6 @@ expectInvalid('missing adapter file', 'providers[0].adapter', (r: any) => { r.pr
 expectInvalid('unknown model provider', 'providers[0].modelProvider', (r: any) => { r.providers[0].modelProvider = 'missing-provider'; });
 expectInvalid('tier criteria keys', 'kinds.tier.criteria', (r: any) => { r.kinds[0].criteria = { ...r.kinds[0].criteria, extra: 'not a tier' }; });
 
-test('141 IC-001: the shipped gate block carries the proposed illustrative defaults', () => {
-  const result = loadAdviceRegistry({ repoRoot: REPO });
-  assert.equal(result.ok, true, result.detail);
-  assert.deepEqual(result.registry.gate, {
-    version: 1, illustrative: true, minCases: 30, validShareMin: 0.99,
-    quality: { lowerBoundAbove: 0, confidence: 0.95, resamples: 10000, seed: 20261106 },
-    latency: { p95CapMs: { default: 5000, rerank: 3000 } },
-  });
-});
-
-test('141 IC-001: a registry with no gate block still loads, and exposes no gate (every verdict reads as stale)', (t) => {
-  const result = loadAdviceRegistry(writeFixture(t, (r: any) => { delete r.gate; }));
-  assert.equal(result.ok, true, result.detail);
-  assert.equal(Object.hasOwn(result.registry, 'gate'), false);
-});
-
-expectInvalid('gate that is not an object', 'gate', (r: any) => { r.gate = []; });
-expectInvalid('gate version', 'gate.version', (r: any) => { r.gate.version = 0; });
-expectInvalid('gate illustrative flag', 'gate.illustrative', (r: any) => { r.gate.illustrative = false; });
-expectInvalid('gate minCases zero', 'gate.minCases', (r: any) => { r.gate.minCases = 0; });
-expectInvalid('gate minCases fraction', 'gate.minCases', (r: any) => { r.gate.minCases = 30.5; });
-expectInvalid('gate validShareMin zero', 'gate.validShareMin', (r: any) => { r.gate.validShareMin = 0; });
-expectInvalid('gate validShareMin above one', 'gate.validShareMin', (r: any) => { r.gate.validShareMin = 1.01; });
-expectInvalid('gate validShareMin string', 'gate.validShareMin', (r: any) => { r.gate.validShareMin = '0.99'; });
-expectInvalid('gate quality missing', 'gate.quality', (r: any) => { delete r.gate.quality; });
-expectInvalid('gate lowerBoundAbove', 'gate.quality.lowerBoundAbove', (r: any) => { r.gate.quality.lowerBoundAbove = null; });
-expectInvalid('gate confidence zero', 'gate.quality.confidence', (r: any) => { r.gate.quality.confidence = 0; });
-expectInvalid('gate confidence above one', 'gate.quality.confidence', (r: any) => { r.gate.quality.confidence = 95; });
-expectInvalid('gate resamples below 1000', 'gate.quality.resamples', (r: any) => { r.gate.quality.resamples = 999; });
-expectInvalid('gate seed', 'gate.quality.seed', (r: any) => { r.gate.quality.seed = 1.5; });
-expectInvalid('gate latency missing', 'gate.latency', (r: any) => { delete r.gate.latency; });
-expectInvalid('gate p95 default missing', 'gate.latency.p95CapMs', (r: any) => { delete r.gate.latency.p95CapMs.default; });
-expectInvalid('gate p95 cap not positive', 'gate.latency.p95CapMs', (r: any) => { r.gate.latency.p95CapMs.rerank = 0; });
-
-test('141 IC-004: the shipped verdict file is empty in the IC-004 shape', () => {
-  const file = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/advice-verdicts.json'), 'utf8'));
-  assert.deepEqual(file, { schemaVersion: 1, corpora: {}, verdicts: [] });
-});
-
 test('IC-003: missing and unparseable files return the same failure shape without throwing', (t) => {
   const dir = tempDir(t, 'doflow-advice-registry-');
   const missing = loadAdviceRegistry({ repoRoot: REPO, file: path.join(dir, 'missing.json') });
@@ -190,7 +151,6 @@ test('141 IC-001: the shipped rerank kind (offline measurement only) carries the
   assert.ok(kind.scoreLadder.instructions.includes('<label>'));
   assert.deepEqual(kind.thresholds, { illustrative: true, confidenceBelow: [0.5, 0.7, 0.9], expectedBelow: [1, 2] });
   assert.match(kind.description, /Offline measurement only/);
-  assert.equal(result.registry.gate.latency.p95CapMs.rerank, 3000, 'the latency bar is not loosened to fit the measurement');
 });
 
 expectInvalid('rerank maxMode', 'kinds[5].maxMode', (r: any) => { rerankOf(r).maxMode = 'always'; });
@@ -264,8 +224,6 @@ test('row 174: askedBy names the real callers - mcp-need is asked by the do skil
   const askedBy = Object.fromEntries(result.registry.kinds.map((kind: any) => [kind.id, kind.askedBy]));
   assert.deepEqual(askedBy['mcp-need'], ['do']);
   assert.deepEqual(askedBy.rerank, []);
-  assert.deepEqual(Object.keys(result.registry.gate.quality).sort(), ['confidence', 'lowerBoundAbove', 'resamples', 'seed']);
-  assert.deepEqual(Object.keys(result.registry.gate.latency), ['p95CapMs']);
 });
 
 // ── row 174 O-3: every kind carries its own call budget, and the detached shadow calls share a user-level slot limit ──
@@ -315,4 +273,70 @@ test('row 174 L-2: the declared-key check reads the settings registry it is give
   assert.equal(withKey.ok, false);
   assert.match(withKey.errors.join('; '), /removedSettings\[0\] names 'advice\.kinds\.rerank', which core\/registry\/settings\.json still declares/);
   assert.equal(validateAdviceRegistry(registry, { repoRoot: REPO, settings: { keys: {} } }).ok, true);
+});
+
+// ── row 175 IC-001: the bars block, kinds[].bars, kinds[].replay and maxMode show ──
+
+const BARS = {
+  version: 1,
+  statistics: { confidence: 0.95, resamples: 10000, seed: 20261119 },
+  show: { minCases: 30, minMinority: 10, kappaLowerAbove: 0, notWorseThanRule: true, p95WithinBudget: true },
+  act: { minCases: 100, minMinority: 25, kappaGainLowerAbove: 0, maxWorseShare: 0.02 },
+};
+const fullBars = () => JSON.parse(JSON.stringify(BARS));
+const claimIndex = validRegistry().kinds.findIndex((kind: any) => kind.id === 'claim-support');
+const rerankIndex = validRegistry().kinds.findIndex((kind: any) => kind.id === 'rerank');
+
+test('row 175 IC-001 (a): the shipped bars validate and equal the design values; claim-support replays from claim-ledger', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  assert.deepEqual(result.registry.bars, BARS);
+  assert.deepEqual(claimOf(result.registry).replay, { source: 'claim-ledger' });
+  assert.equal(Object.hasOwn(rerankOf(result.registry), 'replay'), false);
+});
+
+expectInvalid('bars missing', 'bars', (r: any) => { delete r.bars; });
+expectInvalid('bars not an object', 'bars', (r: any) => { r.bars = []; });
+expectInvalid('bars.version zero', 'bars.version', (r: any) => { r.bars.version = 0; });
+expectInvalid('bars.statistics.confidence of 1', 'bars.statistics.confidence', (r: any) => { r.bars.statistics.confidence = 1; });
+expectInvalid('bars.statistics.resamples below 1000', 'bars.statistics.resamples', (r: any) => { r.bars.statistics.resamples = 999; });
+expectInvalid('bars.statistics.seed fraction', 'bars.statistics.seed', (r: any) => { r.bars.statistics.seed = 1.5; });
+expectInvalid('bars.show.minCases zero', 'bars.show.minCases', (r: any) => { r.bars.show.minCases = 0; });
+expectInvalid('bars.act.minCases below show.minCases', 'bars.act.minCases', (r: any) => { r.bars.act.minCases = 29; });
+expectInvalid('bars.show.minMinority over half of minCases', 'bars.show.minMinority', (r: any) => { r.bars.show.minMinority = 16; });
+expectInvalid('bars.act.minMinority over half of minCases', 'bars.act.minMinority', (r: any) => { r.bars.act.minMinority = 51; });
+expectInvalid('bars.act.minMinority below show.minMinority', 'bars.act.minMinority', (r: any) => { r.bars.act.minMinority = 9; });
+expectInvalid('bars.show.kappaLowerAbove of 1', 'bars.show.kappaLowerAbove', (r: any) => { r.bars.show.kappaLowerAbove = 1; });
+expectInvalid('bars.show.notWorseThanRule not a boolean', 'bars.show.notWorseThanRule', (r: any) => { r.bars.show.notWorseThanRule = 'yes'; });
+expectInvalid('bars.show.p95WithinBudget not a boolean', 'bars.show.p95WithinBudget', (r: any) => { r.bars.show.p95WithinBudget = 1; });
+expectInvalid('bars.act.kappaGainLowerAbove of 2', 'bars.act.kappaGainLowerAbove', (r: any) => { r.bars.act.kappaGainLowerAbove = 2; });
+expectInvalid('bars.act.maxWorseShare above 1', 'bars.act.maxWorseShare', (r: any) => { r.bars.act.maxWorseShare = 1.01; });
+expectInvalid('an unknown key in bars', 'bars.extra', (r: any) => { r.bars.extra = 1; });
+expectInvalid('an unknown key in bars.show', 'bars.show.extra', (r: any) => { r.bars.show.extra = 1; });
+expectInvalid('an unknown key in bars.statistics', 'bars.statistics.extra', (r: any) => { r.bars.statistics.extra = 1; });
+expectInvalid('a missing key in bars.act', 'bars.act.maxWorseShare', (r: any) => { delete r.bars.act.maxWorseShare; });
+expectInvalid('a partial per-kind bars block', `kinds[${claimIndex}].bars.act`, (r: any) => { claimOf(r).bars = { version: 1, statistics: BARS.statistics, show: BARS.show }; });
+expectInvalid('a per-kind bars block that breaks a rule', `kinds[${claimIndex}].bars.act.minCases`, (r: any) => { claimOf(r).bars = fullBars(); claimOf(r).bars.act.minCases = 1; });
+expectInvalid('a per-kind bars block that is not an object', `kinds[${claimIndex}].bars`, (r: any) => { claimOf(r).bars = 'strict'; });
+expectInvalid('an unknown replay source id', `kinds[${claimIndex}].replay.source`, (r: any) => { claimOf(r).replay.source = 'no-such-source'; });
+expectInvalid('an inherited property name as a replay source id', `kinds[${claimIndex}].replay.source`, (r: any) => { claimOf(r).replay.source = 'toString'; });
+expectInvalid('a replay block without a source', `kinds[${claimIndex}].replay.source`, (r: any) => { claimOf(r).replay = {}; });
+expectInvalid('an unknown key in a replay block', `kinds[${claimIndex}].replay.extra`, (r: any) => { claimOf(r).replay.extra = 1; });
+expectInvalid('a replay source on a kind nothing asks', `kinds[${rerankIndex}].replay`, (r: any) => { rerankOf(r).replay = { source: 'claim-ledger' }; });
+
+test('row 175 IC-001: a full per-kind bars block and a null one both load', (t) => {
+  const full = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).bars = fullBars(); }));
+  assert.equal(full.ok, true, full.detail);
+  const none = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).bars = null; }));
+  assert.equal(none.ok, true, none.detail);
+});
+
+test('row 175 IC-001 (c): maxMode accepts show and still refuses an unknown mode', (t) => {
+  const show = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).maxMode = 'show'; }));
+  assert.equal(show.ok, true, show.detail);
+  const act = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).maxMode = 'act'; }));
+  assert.equal(act.ok, true, act.detail);
+  const bad = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).maxMode = 'maybe'; }));
+  assert.equal(bad.ok, false);
+  assert.match(bad.detail, /maxMode must be one of off, shadow, show, act/);
 });

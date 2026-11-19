@@ -8,7 +8,7 @@ const { loadStorageRegistry } = require('../storage/registry.ts');
 const { configHome } = require('../config-home.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
-type AdviceKindMode = 'off' | 'shadow' | 'act';
+type AdviceKindMode = 'off' | 'shadow' | 'show' | 'act';
 
 interface KindShadowConfig {
   kind: string;
@@ -166,8 +166,8 @@ function resolveShadowConfig(
       const modeVal = getSettingValue(content, `advice.kinds.${kind}`);
       if (modeVal === undefined) continue;
       modeDecidedBy = `${layer}:${filePath}`;
-      if (modeVal === 'act' || modeVal === 'shadow' || modeVal === 'off') resolvedMode = modeVal;
-      else diagnostics.push(`${layer} settings ${filePath} has invalid advice.kinds.${kind} ${JSON.stringify(modeVal)} (expected off, shadow or act); it is off`);
+      if (modeVal === 'act' || modeVal === 'show' || modeVal === 'shadow' || modeVal === 'off') resolvedMode = modeVal;
+      else diagnostics.push(`${layer} settings ${filePath} has invalid advice.kinds.${kind} ${JSON.stringify(modeVal)} (expected off, shadow, show or act); it is off`);
       break;
     }
   }

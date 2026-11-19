@@ -25,9 +25,9 @@ test('the advice registry asks these six kinds at runtime; rerank stays only for
 // ── config validate ───────────────────────────────────────────────────────────────────────────────
 
 for (const kind of KINDS) {
-  test(`config validate accepts off, shadow and act for advice.kinds.${kind} and rejects offf`, (t) => {
+  test(`config validate accepts off, shadow, show and act for advice.kinds.${kind} and rejects offf and maybe`, (t) => {
     const f = createSettingsEnv(t);
-    for (const mode of ['off', 'shadow', 'act']) {
+    for (const mode of ['off', 'shadow', 'show', 'act']) {
       const result = f.run(['config', 'validate', `advice.kinds.${kind}`, JSON.stringify(mode), '--json']);
       assert.equal(result.status, 0, `${mode}: ${result.stdout}${result.stderr}`);
       assert.equal(result.json.ok, true);
@@ -39,7 +39,10 @@ for (const kind of KINDS) {
     const bad = f.run(['config', 'validate', `advice.kinds.${kind}`, '"offf"', '--json']);
     assert.equal(bad.status, 1, `${bad.stdout}${bad.stderr}`);
     assert.equal(bad.json.errors[0].code, 'enum');
-    assert.deepEqual(bad.json.errors[0].allowed, ['off', 'shadow', 'act']);
+    assert.deepEqual(bad.json.errors[0].allowed, ['off', 'shadow', 'show', 'act']);
+    const maybe = f.run(['config', 'validate', `advice.kinds.${kind}`, '"maybe"', '--json']);
+    assert.equal(maybe.status, 1, `${maybe.stdout}${maybe.stderr}`);
+    assert.equal(maybe.json.errors[0].code, 'enum');
     const model = f.run(['config', 'validate', `advice.models.${kind}`, '"qwen2.5-coder:1.5b"', '--json']);
     assert.equal(model.status, 0, `${model.stdout}${model.stderr}`);
     const emptyModel = f.run(['config', 'validate', `advice.models.${kind}`, '""', '--json']);
@@ -93,7 +96,7 @@ test('control: config still notes an advice.kinds key for an undeclared kind as 
 
 // ── the validated view agrees with the runtime reader ─────────────────────────────────────────────
 
-const MODE_VALUES = [undefined, 'off', 'shadow', 'act', 'offf', 7];
+const MODE_VALUES = [undefined, 'off', 'shadow', 'show', 'act', 'offf', 7];
 const MODEL_VALUES = [undefined, 'm-a', '', 5];
 const LAYERS = ['local', 'project', 'user'] as const;
 

@@ -395,7 +395,7 @@ function fireShadowClaimSupport({ taskId, claimId, evidenceId, relation, claimSt
     const environment = env || process.env;
     const { resolveShadowConfig } = require('./advice/shadow-config.ts');
     const shadowConfig = svc.shadowConfig || resolveShadowConfig('claim-support', { projectRoot, env: environment, fsImpl: svc.fsImpl, roots: svc.roots });
-    if (!shadowConfig || (shadowConfig.mode !== 'shadow' && shadowConfig.mode !== 'act')) return;
+    if (!shadowConfig || !['shadow', 'show', 'act'].includes(shadowConfig.mode)) return;
     const adviceRegistry = svc.adviceRegistry || (() => {
       const loaded = require('./advice/registry.ts').loadAdviceRegistry({ repoRoot: REPO_ROOT });
       return loaded.ok ? loaded.registry : null;

@@ -2,9 +2,9 @@
 
 const { resolveShadowConfig } = require('./shadow-config.ts');
 const { applyElevationInvariant } = require('./elevation.ts');
-const { evaluateBenchBar } = require('./bench-gate.ts');
 const { appendPick, appendMiss, newPickId } = require('./record.ts');
 const { createAdviceClient } = require('./client.ts');
+const { resolveSetting } = require('./config.ts');
 const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots, resolveStorePath } = require('../storage/roots.ts');
@@ -23,9 +23,11 @@ const RUNNER = path.join(__dirname, `shadow-runner${path.extname(__filename)}`);
 
 /** The advice registry's kinds (core/registry/advice.json). */
 type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'claim-support';
-type AdviceMode = 'off' | 'shadow' | 'act';
+type AdviceMode = 'off' | 'shadow' | 'show' | 'act';
 type Env = Record<string, string | undefined>;
 type StoreRoots = Record<string, string | null>;
+/** One decision's abort controller (node's global AbortController). */
+type Controller = InstanceType<typeof AbortController>;
 
 interface QuestionSet {
   state: string;
@@ -58,24 +60,47 @@ interface AskOptions {
   model?: string;
   /** Aborted when the dispatcher's budget ends (client.ts ask). */
   signal?: { readonly aborted: boolean };
+  /** What is left of the decision's budget on the waited path; it bounds the client call in place of the kind's budgetMs. */
+  timeoutMs?: number;
 }
 
 interface AdviceClient {
   ask(options: AskOptions): Promise<AdviceResult>;
+  /** The model build's digest from the provider listing (client.ts); a client without it reads no digest. */
+  modelDigest?(options: Record<string, unknown>): Promise<{ digest: string | null; reason: string | null }>;
 }
 
 interface KindShadowConfig {
   kind: string;
   mode: AdviceMode;
   model: string | null;
+  /** Which settings layer set the mode; a null `mode` is a kind no layer sets (shadow-config.ts). */
+  decidedBy?: { mode: string | null; model?: string | null };
 }
 
-interface BenchBarResult {
-  passed: boolean;
-  reason?: string;
+/** The standing of the kind's local result (replay/trust.ts evaluateTrust), with its one-line reason. */
+interface TrustAnswer {
+  standing: string;
+  reason: string;
+  [field: string]: unknown;
 }
 
-type BenchGate = (kind: AdviceKind, model: string) => BenchBarResult | Promise<BenchBarResult>;
+/** What the trust evaluator is asked: evaluateTrust's options (replay/trust.ts). */
+interface TrustRequest {
+  kind: AdviceKind;
+  model: string;
+  provider?: string;
+  endpoint?: string;
+  question: unknown;
+  registry: unknown;
+  roots: StoreRoots | null;
+  client: AdviceClient;
+  projectRoot: string;
+  timeoutMs: number;
+  signal: Controller['signal'];
+}
+
+type Trust = (request: TrustRequest) => TrustAnswer | Promise<TrustAnswer>;
 
 interface DispatcherServices {
   /** The client of an act call. A shadow call never uses it: it runs in the detached child, which builds its own. */
@@ -83,7 +108,8 @@ interface DispatcherServices {
   /** The resolved per-kind config; resolved from the settings layers when absent. */
   shadowConfig?: KindShadowConfig;
   fsImpl?: any;
-  benchGate?: BenchGate;
+  /** The trust evaluator of a show or act decision; replay/trust.ts evaluateTrust when absent. */
+  trust?: Trust;
   roots?: StoreRoots;
   /** Starts the detached shadow child; node:child_process spawn when absent. */
   spawn?: typeof spawn;
@@ -111,6 +137,11 @@ interface DecisionPointContext {
    * allowlisted fields.
    */
   lineExtra?: Record<string, unknown>;
+  /**
+   * `show` when the caller displays the model's answer (175 D11). Without it a kind set to `show` runs as shadow, and one
+   * set to `act` acts only at standing act: no awaited call is made for an answer nobody displays.
+   */
+  surface?: 'show';
 }
 
 interface DecisionPointResolution {
@@ -161,7 +192,7 @@ function budgetMs(context: DecisionPointContext): number {
   return positive(own) ? own : 0;
 }
 
-const MODE_RANK: Record<string, number> = { off: 0, shadow: 1, act: 2 };
+const MODE_RANK: Record<string, number> = { off: 0, shadow: 1, show: 2, act: 3 };
 
 /** The kind's registry entry: from the context's registry when it lists kinds, else the shipped one; null when unknown. */
 function registryKind(context: DecisionPointContext): RegistryKind | null {
@@ -185,16 +216,19 @@ function staticAnswerOf(context: Pick<DecisionPointContext, 'staticAnswer' | 'st
 /**
  * Asks the advisor with `model` (the one effective model; the client's own setting when null), bounded by `budget`.
  * When the budget ends the call's signal is aborted, so the client drops its request, socket and timer. The client is
- * asked not to record: the caller records the call itself (recordCall). An act call runs it in the command's process;
- * a shadow call runs it in the detached child (shadow-runner.ts), so it never holds the command open.
+ * asked not to record: the caller records the call itself (recordCall). A show or act call runs it in the command's
+ * process, after the trust call: `shared` is that decision's one abort controller and `budget` what is left of its
+ * budgetMs, which the client is also given as its own bound. A shadow call runs it in the detached child
+ * (shadow-runner.ts), so it never holds the command open.
  */
-async function askAdvisor(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number): Promise<AdvisorCall> {
+async function askAdvisor(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number, shared?: Controller): Promise<AdvisorCall> {
   const startedAt = Date.now();
   const call = (status: AdvisorCall['status'], reason: string | null, res?: AdviceResult | null): AdvisorCall => ({
     status, pick: null, answer: null, answers: [], reason, provider: res?.provider ?? null, model: res?.model ?? model, durationMs: Date.now() - startedAt,
   });
+  if (shared && (budget <= 0 || shared.signal.aborted)) return call('miss', 'timeout');
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const controller = new AbortController();
+  const controller = shared || new AbortController();
   try {
     const client: AdviceClient = services.adviceClient || createAdviceClient({
       adviceRegistry: context.adviceRegistry,
@@ -214,6 +248,7 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
       signal: controller.signal,
     };
     if (model) options.model = model;
+    if (shared) options.timeoutMs = Math.max(1, Math.ceil(budget));
     const timeout = new Promise<'timeout'>((resolve) => {
       timer = setTimeout(() => { controller.abort(); resolve('timeout'); }, budget);
       timer.unref?.();
@@ -259,7 +294,7 @@ const DESCRIBERS: Record<string, (call: AdvisorCall, context: DecisionPointConte
 };
 
 /** Records one advisor call through record.ts: a pick line when there is a pick, a miss line with its reason otherwise. */
-function recordCall(context: DecisionPointContext, services: DispatcherServices, mode: 'shadow' | 'act', asked: AdvisorCall, pickId: string, elevated: boolean): void {
+function recordCall(context: DecisionPointContext, services: DispatcherServices, mode: 'shadow' | 'show' | 'act', asked: AdvisorCall, pickId: string, elevated: boolean): void {
   if (context.record === false || asked.status === 'off') return;
   const roots = storeRoots(context, services);
   if (!roots) return;
@@ -314,9 +349,12 @@ interface ShadowPayload {
   slot: { file: string; token: string; startedAt: number };
 }
 
-/** The registry whose shadowSlots and limits bound the call: the context's when it is a full one, else the shipped one. */
-function slotRegistry(context: DecisionPointContext): { shadowSlots?: number; limits?: { maxStateBytes?: number } } | null {
-  if (fullRegistry(context.adviceRegistry)) return context.adviceRegistry as { shadowSlots?: number; limits?: { maxStateBytes?: number } };
+/**
+ * The full advice registry (shadowSlots, limits, providers, kinds and bars): the context's when it is a full one, else the
+ * shipped one.
+ */
+function fullAdviceRegistry(context: DecisionPointContext): Record<string, any> | null {
+  if (fullRegistry(context.adviceRegistry)) return context.adviceRegistry as Record<string, any>;
   try {
     const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
     return loaded.ok ? loaded.registry : null;
@@ -331,7 +369,7 @@ function slotRegistry(context: DecisionPointContext): { shadowSlots?: number; li
  */
 function admit(context: DecisionPointContext, roots: StoreRoots, budget: number): { file: string; token: string; startedAt: number } | null {
   try {
-    const limit = slotRegistry(context)?.shadowSlots;
+    const limit = fullAdviceRegistry(context)?.shadowSlots;
     const dir = resolveStorePath({ store: SLOT_STORE, roots });
     return dir && Number.isInteger(limit) && (limit as number) > 0 ? takeSlot(dir, limit, budget) : null;
   } catch {
@@ -350,7 +388,7 @@ function shippedRegistry(registry: unknown): boolean {
 
 /** Whether the call's state is over the kind's input cap (limits.maxStateBytes, the cap client.ts and cli.ts apply). */
 function overLimit(context: DecisionPointContext): boolean {
-  const cap = slotRegistry(context)?.limits?.maxStateBytes;
+  const cap = fullAdviceRegistry(context)?.limits?.maxStateBytes;
   if (!positive(cap)) return false;
   const bytes = (text: unknown) => (typeof text === 'string' ? Buffer.byteLength(text, 'utf8') : 0);
   return Math.max(bytes(context.state), bytes(context.questionSet?.state)) > cap;
@@ -412,6 +450,48 @@ function spawnShadow(context: DecisionPointContext, services: DispatcherServices
   }
 }
 
+/**
+ * The standing of the kind's local result for `model` (175 IC-009): the trust evaluator (replay/trust.ts evaluateTrust, or
+ * the injected one) inside the decision's budget. It gets the whole budget as `timeoutMs` and the decision's one abort
+ * signal, which the ask then shares; the client caps its listing at probeTimeoutMs. The budget ending aborts that signal
+ * and answers unknown. The evaluator is loaded here, so a shadow decision never loads it. Never throws.
+ */
+async function judgeTrust(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number, controller: Controller): Promise<TrustAnswer> {
+  if (!model) return { standing: 'unknown', reason: `no model is named for kind '${context.kind}'` };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<TrustAnswer>((resolve) => {
+    timer = setTimeout(() => { controller.abort(); resolve({ standing: 'unknown', reason: 'model digest unknown: timeout' }); }, budget);
+    timer.unref?.();
+  });
+  try {
+    const registry = fullAdviceRegistry(context);
+    const roots = storeRoots(context, services);
+    const setting = resolveSetting({ adviceRegistry: registry, roots, env: context.env, fsImpl: services.fsImpl });
+    const client: AdviceClient = typeof services.adviceClient?.modelDigest === 'function'
+      ? services.adviceClient : createAdviceClient({ adviceRegistry: registry, roots, fsImpl: services.fsImpl });
+    const evaluate: Trust = services.trust || require('./replay/trust.ts').evaluateTrust;
+    const request: TrustRequest = {
+      kind: context.kind, model, provider: setting?.provider ?? undefined, endpoint: setting?.endpoint ?? undefined,
+      question: context.questionSet?.questions?.[0] ?? null, registry, roots, client,
+      projectRoot: context.projectRoot || process.cwd(), timeoutMs: budget, signal: controller.signal,
+    };
+    const answer = await Promise.race([Promise.resolve().then(() => evaluate(request)), timeout]);
+    return answer && typeof answer.standing === 'string' ? answer : { standing: 'unknown', reason: 'the trust evaluator gave no standing' };
+  } catch (error: any) {
+    return { standing: 'unknown', reason: `local result could not be judged: ${error?.message || 'unknown error'}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * One decision (175 IC-009). The configured mode is capped by the rollout profile, an unset kind runs in shadow, and a
+ * registry `maxMode` holds the kind (MODE_RANK off < shadow < show < act). Shadow returns the static pick at once and the
+ * detached child records the model's pick. Show and act wait for the trust evaluator, judged again on every decision:
+ * act acts (the elevation invariant, raise only) only at standing act; a caller with a show surface is shown the answer
+ * at standing show or act, with the static pick kept as the decision; every other case runs as shadow with the warning
+ * `LOCAL_RESULT_UNMET: <standing>: <reason>`. `show` without a show surface is shadow, with no trust call.
+ */
 async function interceptDecisionPoint(context: DecisionPointContext, services: DispatcherServices = {}): Promise<DecisionPointResolution> {
   const config: KindShadowConfig = services.shadowConfig || resolveShadowConfig(context.kind, {
     projectRoot: context.projectRoot,
@@ -420,16 +500,18 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
     roots: services.roots,
   });
 
-  // A chosen rollout profile caps the configured mode (mode.ts; `staged` caps act to shadow, D2).
+  // A chosen rollout profile caps the configured mode (mode.ts; `shadow` and `staged` cap show and act to shadow).
   let mode: AdviceMode = capMode(profileAdvisorCap({ projectRoot: context.projectRoot, env: context.env, fsImpl: services.fsImpl }), config.mode);
+  // A kind no settings layer sets runs in shadow whatever its local result holds (row 174 O-1).
+  if (config.decidedBy && config.decidedBy.mode === null && MODE_RANK[mode] > MODE_RANK.shadow) mode = 'shadow';
   const staticPick = context.staticPick;
   const unchanged = { kind: context.kind, effectiveDecision: staticPick, staticPick, advisorPick: null, elevated: false, agreed: null };
 
   // Off: no model call, no record.
-  if (mode !== 'act' && mode !== 'shadow') return { ...unchanged, mode: 'off', pickId: null };
+  if (mode === 'off') return { ...unchanged, mode: 'off', pickId: null };
 
-  // A kind with a registry `maxMode` is held at it, whatever is configured (141 IC-010): act is lowered to shadow with a
-  // warning, so such a kind never reaches the bench-bar branch or the elevation invariant.
+  // A kind with a registry `maxMode` is held at it, whatever is configured (141 IC-010): a higher mode is lowered to the
+  // limit with a warning, so a kind held at shadow never reaches the trust evaluator, and one held at show never acts.
   const maxMode = registryKind(context)?.maxMode;
   const heldWarning = typeof maxMode === 'string' && Object.hasOwn(MODE_RANK, maxMode) && MODE_RANK[mode] > MODE_RANK[maxMode]
     ? `ACT_NOT_SUPPORTED: kind '${context.kind}' is limited to ${maxMode}` : undefined;
@@ -438,7 +520,7 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
     if (mode === 'off') return { ...unchanged, mode: 'off', pickId: null, warning: heldWarning };
   }
 
-  // The one effective model: the bar is checked for it, the client is asked with it, and the record names it.
+  // The one effective model: its local result is judged, the client is asked with it, and the record names it.
   const model = config.model;
   const budget = budgetMs(context);
   const pickId = newPickId();
@@ -454,32 +536,38 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
     return { ...unchanged, mode: 'shadow', pickId, ...(warning ? { warning } : {}) };
   };
   if (mode === 'shadow') return shadow(heldWarning);
+  // Show needs a caller that displays the answer (D11): without one no awaited call is made for it.
+  if (mode === 'show' && context.surface !== 'show') return shadow(heldWarning);
 
-  // Act: only past the bench bar for the model that will be asked; otherwise it degrades to shadow.
-  let bar: BenchBarResult = { passed: false, reason: `no model is named for kind '${context.kind}'` };
-  if (model) {
-    try {
-      bar = await (services.benchGate || evaluateBenchBar)(context.kind, model);
-    } catch (error: any) {
-      bar = { passed: false, reason: `bench gate failed: ${error?.message || 'unknown error'}` };
-    }
+  // Show and act: the trust call and the ask share one budgetMs deadline and one abort signal (NFR-003).
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const trust = await judgeTrust(context, services, model, budget, controller);
+  const shownStanding = trust.standing === 'show' || trust.standing === 'act';
+  const passed: 'show' | 'act' | null = mode === 'act' && trust.standing === 'act' ? 'act'
+    : context.surface === 'show' && shownStanding ? 'show' : null;
+  if (!passed) {
+    const unmet = `LOCAL_RESULT_UNMET: ${trust.standing}: ${trust.reason}`;
+    return shadow(heldWarning ? `${heldWarning}; ${unmet}` : unmet);
   }
-  if (bar?.passed !== true) return shadow(`BENCH_BAR_UNMET: ${bar?.reason || 'Accuracy failed static baseline'}`);
 
-  const asked = await askAdvisor(context, services, model, budget);
-  const { effectiveDecision, elevated } = applyElevationInvariant(context.kind, staticPick, asked.pick);
-  recordCall(context, services, 'act', asked, pickId, elevated);
+  const asked = await askAdvisor(context, services, model, budget - (Date.now() - startedAt), controller);
+  // A shown answer never changes the decision; only act raises it, through the elevation invariant.
+  const { effectiveDecision, elevated } = passed === 'act'
+    ? applyElevationInvariant(context.kind, staticPick, asked.pick) : { effectiveDecision: staticPick, elevated: false };
+  recordCall(context, services, passed, asked, pickId, elevated);
 
   return {
     kind: context.kind,
     effectiveDecision,
-    mode: 'act',
+    mode: passed,
     staticPick,
     advisorPick: asked.pick,
     advisorAnswer: asked.answer,
     pickId,
     elevated,
     agreed: asked.pick !== null ? asked.pick === staticPick : null,
+    ...(heldWarning ? { warning: heldWarning } : {}),
   };
 }
 

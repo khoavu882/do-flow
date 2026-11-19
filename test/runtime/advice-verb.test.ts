@@ -313,9 +313,9 @@ test('configure at user level with no config home exits 2 naming HOME or XDG_CON
 
 for (const failure of [
   { name: 'endpoint refusal', endpoint: 'http://192.0.2.1:11434', args: [], expected: 'only loopback addresses are allowed' },
-  { name: 'unreachable endpoint', endpoint: 'closed', routes: null, args: [], expected: 'Ollama did not answer at {endpoint}; start it yourself and re-run. Nothing was written.' },
-  { name: 'old version', endpoint: 'server', routes: { 'GET /api/version': { status: 200, body: { version: '0.30.0' } } }, args: [], expected: 'Ollama 0.30.0' },
-  { name: 'model missing', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'other:latest', capabilities: ['decision'] }] } } }, model: 'missing-model', args: [], expected: "model missing-model is not installed; run 'ollama pull missing-model' yourself. Nothing was written." },
+  { name: 'unreachable endpoint', endpoint: 'closed', routes: null, args: [], expected: 'advise: provider ollama did not answer at {endpoint}; start it yourself and re-run. Nothing was written.' },
+  { name: 'old version', endpoint: 'server', routes: { 'GET /api/version': { status: 200, body: { version: '0.30.0' } } }, args: [], expected: 'advise: provider ollama version 0.30.0 at {endpoint} is older than 0.35.1. Nothing was written.' },
+  { name: 'model missing', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'other:latest', capabilities: ['decision'] }] } } }, model: 'missing-model', args: [], expected: "model missing-model is not installed at provider ollama; install it with that provider's own tool and re-run. Nothing was written." },
   { name: 'model not decision capable', endpoint: 'server', routes: { 'GET /api/tags': { status: 200, body: { models: [{ name: 'clef-flash:latest', capabilities: ['completion'] }] } } }, args: [], expected: 'decision-capable here: none. Nothing was written.' },
 ]) {
   test(`IC-021 configure checks ${failure.name} before writing`, async (t) => {
@@ -330,6 +330,17 @@ for (const failure of [
     assert.equal(fs.readFileSync(f.userSettingsFile, 'utf8'), f.baseline, 'failed configuration must not write');
   });
 }
+
+test('O-7 the version probe names the provider by its id from data when the version endpoint fails', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer({ 'GET /api/version': { status: 500, body: { error: 'down' } } });
+  const { loadAdviceRegistry } = require('../../src/runtime/advice/registry.ts');
+  const { createAdviceClient } = require('../../src/runtime/advice/client.ts');
+  const adviceRegistry = loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry;
+  const client = createAdviceClient({ adviceRegistry, roots: {} });
+  const inspected = await client.inspect({ endpoint: server.origin, model: 'clef-flash', provider: 'ollama', file: 'test' });
+  assert.equal(inspected.endpoint.message, 'provider ollama version endpoint returned HTTP 500');
+});
 
 test('IC-021 usage rejects ambiguous forms, project endpoint and project outside a root', (t) => {
   const f: any = fixture(t, { setting: userSetting('http://127.0.0.1:9') });

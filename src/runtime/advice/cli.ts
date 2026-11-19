@@ -15,12 +15,13 @@ const { interceptDecisionPoint } = require('./shadow-dispatcher.ts');
 const { resolveShadowConfig } = require('./shadow-config.ts');
 const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
-const { findPick, appendOutcome } = require('./record.ts');
+const { findPick, appendOutcome, wasShown, FOLLOWED } = require('./record.ts');
 const { removedKeyDiagnostics } = require('./retired.ts');
 const { strengthWords } = require('./strength.ts');
 const { buildReport, renderText } = require('./report.ts');
 const { inWorkerSession } = require('../context/identity.ts');
 const { projectLayerSource } = require('../settings/project-layers.ts');
+const { handleReplay } = require('./replay/run.ts');
 
 function loadSources(repoRoot: any) {
   const read = (name: any) => JSON.parse(fs.readFileSync(path.join(repoRoot, 'core/registry', name), 'utf8'));
@@ -131,13 +132,13 @@ function endpointSource(userSetting: any, endpoint: any) {
 function inspectFailure(inspected: any, { endpoint, model, provider }: any) {
   if (inspected.endpoint.state === 'refused') return inspected.endpoint.message;
   if (inspected.endpoint.state !== 'reached') {
-    return `advise: Ollama did not answer at ${endpoint}; start it yourself and re-run. Nothing was written.`;
+    return `advise: provider ${provider.id} did not answer at ${endpoint}; start it yourself and re-run. Nothing was written.`;
   }
   if (!inspected.endpoint.versionOk) {
-    return `advise: Ollama ${inspected.endpoint.version || 'unknown'} at ${endpoint} is older than ${provider.minVersion}. Nothing was written.`;
+    return `advise: provider ${provider.id} version ${inspected.endpoint.version || 'unknown'} at ${endpoint} is older than ${provider.minVersion}. Nothing was written.`;
   }
   if (!inspected.model.installed) {
-    return `advise: model ${model} is not installed; run 'ollama pull ${model}' yourself. Nothing was written.`;
+    return `advise: model ${model} is not installed at provider ${provider.id}; install it with that provider's own tool and re-run. Nothing was written.`;
   }
   if (!inspected.model.decisionCapable) {
     const capable = inspected.models
@@ -275,9 +276,10 @@ function noCallResult(status: string, reason: string | null, detail: string | nu
 
 /**
  * One ask, through the one dispatcher path (row 174). A named kind runs in the mode `advice.kinds.<kind>` and the
- * rollout profile's cap give it: off asks nothing, shadow hands the call to the detached child and shows nothing, act
- * shows the model's answer once the kind passes the bench bar (below it the call is a shadow one, with its warning).
- * An ad hoc question set has no kind setting: the profile cap alone decides between off, shadow and the direct ask.
+ * rollout profile's cap give it: off asks nothing, shadow hands the call to the detached child and shows nothing; show
+ * and act print the model's answer once the kind's local result stands at show or act (175 IC-009: the ask is a show
+ * surface; below the standing the call is a shadow one, with its LOCAL_RESULT_UNMET warning). An ad hoc question set has
+ * no kind setting: the profile cap alone decides between off, shadow and the direct ask.
  */
 async function askThroughDispatcher({ options, runtime, parsed, questionSet, kind, questionError }: any) {
   const { adviceRegistry, roots, sources } = runtime;
@@ -303,17 +305,21 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
   const shadowConfig = parsed.hasKind
     ? resolveShadowConfig(kind, { projectRoot, env, roots, global: options.global })
     : { kind, mode: capMode(cap, 'act') === 'shadow' ? 'shadow' : 'off', model: null };
-  // The client's own reply, kept so an act answer prints as it always did; the dispatcher asks through this wrapper.
+  // The client's own reply, kept so a shown or act answer prints as it always did; the dispatcher asks through this
+  // wrapper, and reads the model build's digest through the same client.
   let reply: any = null;
-  const adviceClient = { ask: async (askOptions: any) => { reply = await client.ask(askOptions); return reply; } };
+  const adviceClient = {
+    ask: async (askOptions: any) => { reply = await client.ask(askOptions); return reply; },
+    modelDigest: (digestOptions: any) => client.modelDigest(digestOptions),
+  };
   const intercepted = await interceptDecisionPoint({
     kind, caller: 'advise', state: questionSet.state, staticPick: options.staticAnswer ?? '', staticAnswer: options.staticAnswer,
-    questionSet, adviceRegistry, taskId: options.taskId ?? null, projectRoot, env,
+    questionSet, adviceRegistry, taskId: options.taskId ?? null, projectRoot, env, surface: 'show',
   }, { adviceClient, roots, shadowConfig });
   if (intercepted.mode === 'off') return noCallResult('off', null, null, setting);
   if (intercepted.mode === 'shadow') return noCallResult('shadow', intercepted.warning || null, null, setting);
-  // Act: the client's own reply, with the pick id the dispatcher recorded; a question the materialiser could not build
-  // keeps its own diagnostic.
+  // Show and act: the client's own reply, with the pick id the dispatcher recorded; a question the materialiser could
+  // not build keeps its own diagnostic.
   if (!reply) return { ...noCallResult('off', 'timeout', null, setting), status: 'unavailable' };
   if (questionError && reply.reason === 'config-invalid') reply = { ...reply, detail: questionError };
   if (reply.status !== 'answered') return reply;
@@ -321,25 +327,35 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
   return { ...reply, answers: reply.answers.map((answer: any, index: number) => (index === 0 ? { ...answer, pickId: intercepted.pickId } : answer)) };
 }
 
+/**
+ * `--action outcome` (175 IC-010): `--actual` (an option of the pick) and `--followed` (FOLLOWED), at least one. The
+ * followed label is only for a pick the person was shown (record.ts `wasShown`).
+ */
 function handleOutcome(options: any, runtime: any) {
   const { json } = options;
   if (typeof options.pickId !== 'string' || !options.pickId) return usageError('advise', '--pick-id is required', json);
-  if (typeof options.actual !== 'string' || !options.actual) return usageError('advise', '--actual is required', json);
+  const given = (value: any) => typeof value === 'string' && value !== '';
+  const actual = given(options.actual) ? options.actual : undefined;
+  const followed = given(options.followed) ? options.followed : undefined;
+  if (actual === undefined && followed === undefined) return usageError('advise', '--actual or --followed is required', json);
+  if (followed !== undefined && !FOLLOWED.includes(followed)) return usageError('advise', `--followed must be one of: ${FOLLOWED.join(', ')}`, json);
   const found = findPick({ pickId: options.pickId, roots: runtime.roots });
   if (!found) {
     if (json) console.log(JSON.stringify({ ok: false, error: 'not-found', message: `no pick ${options.pickId} in the retained record` }, null, 2));
     else console.error(`advise: no pick ${options.pickId} in the retained record`);
     return finishRuntime(1);
   }
-  if (!found.pick.options?.includes(options.actual)) {
-    return usageError('advise', `--actual must be one of: ${found.pick.options.join(', ')}`, json);
+  if (actual !== undefined && !found.pick.options?.includes(actual)) {
+    return usageError('advise', `--actual must be one of: ${(found.pick.options || []).join(', ')}`, json);
   }
-  const written = appendOutcome({
-    pickId: options.pickId, actual: options.actual, source: 'caller', roots: runtime.roots, store: found.store,
-  });
+  if (followed !== undefined && !wasShown(found.pick)) {
+    return usageError('advise', `--followed: this pick was never shown (mode ${found.pick.mode ?? 'unrecorded'}); record what was done with --actual`, json);
+  }
+  const written = appendOutcome({ pickId: options.pickId, actual, followed, source: 'caller', roots: runtime.roots, store: found.store });
   if (!written) return writeFailure(`could not record outcome for ${options.pickId}`, json);
-  if (json) console.log(jsonBody({ pickId: options.pickId, actual: options.actual, recorded: true, file: written.file }, options));
-  else console.log(`Recorded outcome ${options.actual} for ${options.pickId}.`);
+  const labels = { ...(actual !== undefined ? { actual } : {}), ...(followed !== undefined ? { followed } : {}) };
+  if (json) console.log(jsonBody({ pickId: options.pickId, ...labels, recorded: true, file: written.file }, options));
+  else console.log(`Recorded outcome for ${options.pickId}: ${[actual !== undefined ? `actual ${actual}` : null, followed ?? null].filter(Boolean).join(', ')}.`);
   return finishRuntime(0);
 }
 
@@ -352,14 +368,17 @@ function handleReport(options: any, runtime: any) {
   if (options.kind !== undefined && options.kind !== null && !ids.includes(options.kind) && options.kind !== 'adhoc') {
     return usageError('advise', `unknown --kind '${options.kind}'; known kinds: ${ids.join(', ')}`, json);
   }
-  const report = buildReport({ roots, kinds: ids, kind: options.kind ?? null, global: options.global === true });
+  const report = buildReport({
+    roots, kinds: ids, kind: options.kind ?? null, global: options.global === true,
+    registry: adviceRegistry, sources: runtime.sources, projectRoot: options.projectRoot || null,
+  });
   console.log(json ? jsonBody(report, options) : renderText(report));
   return finishRuntime(0);
 }
 
 async function handleAdviseCommand(options: any = {}) {
   const action = options.actionGiven ? options.action : 'ask';
-  if (!['ask', 'outcome', 'configure', 'report'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
+  if (!['ask', 'outcome', 'configure', 'report', 'replay'].includes(action)) return usageError('advise', `unknown action '${action}'`, options.json);
   if (action === 'configure' && inWorkerSession(options.env || process.env)) {
     const message = "configure changes the user's decision-model settings and is not run from a worker session; a person runs it from their own terminal";
     if (options.json) console.log(JSON.stringify({ ok: false, error: 'worker-session', message }, null, 2));
@@ -376,6 +395,7 @@ async function handleAdviseCommand(options: any = {}) {
     if (action === 'configure') return await handleConfigure(shaped, runtime);
     if (action === 'outcome') return handleOutcome(shaped, runtime);
     if (action === 'report') return handleReport(shaped, runtime);
+    if (action === 'replay') return await handleReplay(shaped, runtime, { inspectFailure });
     return await handleAsk(shaped, runtime);
   } catch (error: any) {
     return writeFailure(error?.message || 'advice command failed', options.json);

@@ -1740,6 +1740,45 @@
         "file": "console/src/action-log.ts",
         "pattern": "ACTION_LOG_BYTES = {value}"
       }
+    },
+    {
+      "id": "advice-bars-user",
+      "root": "config-home",
+      "path": "advice-bars.json",
+      "entry": "file",
+      "match": "^advice-bars\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "a file the person edits: DoFlow only reads it and never writes, prunes or removes it"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [],
+      "source": {
+        "file": "src/runtime/advice/replay/bars.ts",
+        "pattern": "OVERRIDE_FILE = 'advice-bars.json'"
+      }
+    },
+    {
+      "id": "advice-results-user",
+      "root": "user-state",
+      "path": "advice/results.json",
+      "entry": "file",
+      "match": "^results\\.json$",
+      "rule": "existing",
+      "bound": {
+        "value": 256,
+        "text": "one JSON file of local replay results, one entry per (project key, kind, model digest), at most 256 entries, the oldest runAt dropped first; written whole through a temp file and a rename while results.json.lock is held; it holds digests, counts and figures, never a standing, a case id or case text"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/advice/replay/results.ts"
+      ],
+      "source": {
+        "file": "src/runtime/advice/replay/results.ts",
+        "pattern": "MAX_RESULTS = {value}"
+      }
     }
   ],
   "externalWriters": [

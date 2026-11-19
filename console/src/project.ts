@@ -117,8 +117,14 @@ const VIA: readonly string[] = Object.freeze(['fail-safe', 'cross-key', 'no-conf
 const FILE_CODES: readonly string[] = Object.freeze(['unparseable', 'schema', 'too-large', 'not-file', 'unreadable']);
 /** the `scope` values of core/registry/settings.json keys */
 const SCOPES: readonly string[] = Object.freeze(['global-only', 'narrow-only', 'project-overridable']);
-/** src/runtime/advice/report.ts:50 to :54, the modes tally */
-const ADVICE_MODES: readonly string[] = Object.freeze(['shadow', 'act', 'unrecorded']);
+/** src/runtime/advice/report.ts:57 to :61, the modes tally */
+const ADVICE_MODES: readonly string[] = Object.freeze(['shadow', 'show', 'act', 'unrecorded']);
+/** 175: src/runtime/advice/replay/trust.ts:22 `Standing`, a local result's standing re-judged now */
+const LOCAL_STANDINGS: readonly string[] = Object.freeze(['act', 'show', 'below-show', 'below-minimum', 'measure-only', 'unknown', 'stale', 'none']);
+/** 175: src/runtime/advice/replay/trust.ts:23 `StaleDigest`, a digest that moved since the replay */
+const STALE_DIGESTS: readonly string[] = Object.freeze(['question', 'builder', 'bars']);
+/** 175: src/runtime/advice/report.ts:335 `CASE_SET_TEXT` keys, whether a result's case set is still this project's */
+const CASE_SET_STATES: readonly string[] = Object.freeze(['same', 'changed', 'other-project', 'not-checked']);
 // 151 IC-009 to IC-011: the closed sets of the follow-up, health and worker reads.
 /** src/runtime/lifecycle/followup.ts:33 `STATES` */
 const FOLLOWUP_STATES: readonly string[] = Object.freeze(['open', 'taken', 'done', 'dismissed']);
@@ -1124,9 +1130,58 @@ const percentiles = (p90Optional: boolean) => (value: unknown) => {
   return p90Optional && !Object.hasOwn(p, 'p90') ? { n, p50, p95 } : { n, p50, p90: orNull(rate)(p.p90), p95 };
 };
 
-/** IC-008 `advise-report` (input `buildReport`, src/runtime/advice/report.ts:210 to :259). `scope`, `illustrative` and `recorded.digests` are never read. */
-function adviseReport(value: unknown, context?: Context) {
-  const anchors = anchorsIn(context);
+/** 175: a model digest as the result store holds it (src/runtime/advice/replay/results.ts:23 `DIGEST`). */
+const MODEL_DIGEST = /^sha256:[0-9a-f]{1,128}$/;
+const modelDigest: Check<string> = (value) => (typeof value === 'string' && MODEL_DIGEST.test(value) ? value : fail());
+/** 175 IC-010: what the person did with the picks they were shown (report.ts `kindFigures` `followed`). */
+const followedCounts = (value: unknown) => {
+  const f = record(value);
+  return { n: count(f.n), followed: count(f.followed), partly: count(f.partly), overruled: count(f.overruled) };
+};
+/**
+ * 175 IC-010: "agreement with what you did" (report.ts `agreementFigures`): the counts and only the figures the page shows.
+ * The score's other figures, its reasons and its latency are never read; a kappa may be negative, a ratio or a kappa null.
+ */
+const agreementWithYou = (value: unknown) => {
+  const a = record(value);
+  const c = record(a.counted);
+  return {
+    n: count(a.n),
+    counted: { partly: count(c.partly), overruledWithoutActual: count(c.overruledWithoutActual), noStaticAnswer: count(c.noStaticAnswer) },
+    figures: orNull((v) => {
+      const m = record(v);
+      const accuracy = record(m.accuracy);
+      const kappa = record(m.kappa);
+      return {
+        n: count(m.n),
+        accuracy: { model: orNull(num)(accuracy.model), rule: orNull(num)(accuracy.rule) },
+        kappa: { model: orNull(num)(kappa.model), rule: orNull(num)(kappa.rule), lower: orNull(num)(kappa.lower) },
+        worse: count(m.worse),
+        better: count(m.better),
+      };
+    })(a.figures),
+  };
+};
+/** 175 IC-010: a stored replay result re-judged now (report.ts `localResults`). Its `reason` is free text and never read. */
+const localResult = (item: unknown) => {
+  const r = record(item);
+  return {
+    kind: adviceKind(r.kind),
+    provider: id(r.provider),
+    model: label(r.model),
+    modelDigest: modelDigest(r.modelDigest),
+    runAt: iso(r.runAt),
+    replayed: count(r.replayed),
+    eligible: count(r.eligible),
+    standing: oneOf(LOCAL_STANDINGS)(r.standing),
+    failedChecks: each(id)(r.failedChecks),
+    stale: each(oneOf(STALE_DIGESTS))(r.stale),
+    caseSet: oneOf(CASE_SET_STATES)(r.caseSet),
+  };
+};
+
+/** IC-008 `advise-report` (input `buildReport`, src/runtime/advice/report.ts:240 to :286). `scope`, `illustrative`, `recorded.digests` and a local result's `reason` are never read. */
+function adviseReport(value: unknown) {
   const body = record(value);
   const kindRow = ([kind, item]: [string, unknown]) => {
     const k = record(item);
@@ -1139,10 +1194,12 @@ function adviseReport(value: unknown, context?: Context) {
       elevated: orNull(count)(k.elevated),
       modes: orNull((v) => {
         const m = record(v);
-        return { shadow: count(m.shadow), act: count(m.act), unrecorded: count(m.unrecorded) };
+        return { shadow: count(m.shadow), show: count(m.show), act: count(m.act), unrecorded: count(m.unrecorded) };
       })(k.modes),
       durationMs: orNull(percentiles(false))(k.durationMs),
       missDurationMs: orNull(percentiles(false))(k.missDurationMs),
+      followed: orNull(followedCounts)(k.followed),
+      agreement: orNull(agreementWithYou)(k.agreement),
     };
   };
   const relation = (item: unknown) => {
@@ -1160,17 +1217,6 @@ function adviseReport(value: unknown, context?: Context) {
       durationMs: percentiles(true)(c.durationMs),
     };
   };
-  const verdict = (item: unknown) => {
-    const v = record(item);
-    return {
-      kind: adviceKind(v.kind),
-      model: label(v.model),
-      arm: orNull(id)(v.arm),
-      result: orNull(id)(v.result),
-      stale: bool(v.stale),
-      reason: orNull(boundedText(256, anchors))(v.reason),
-    };
-  };
   return {
     v: 1,
     schema: one(body.schema),
@@ -1179,7 +1225,7 @@ function adviseReport(value: unknown, context?: Context) {
     kinds: Object.entries(record(body.kinds)).map(kindRow),
     // The core prints this block only when its kind is shown.
     claimSupport: optional(claimSupport)(body.claimSupport),
-    verdicts: each(verdict)(body.verdicts),
+    localResults: each(localResult)(body.localResults),
   };
 }
 
@@ -1943,5 +1989,5 @@ function project(shapeId: string, value: unknown, context?: Context): Projected 
   }
 }
 
-module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CLOSED_SETS, CORE_NAME, FEATURE_BUCKETS, FILE_CODES, FOLLOWUP_STATES, LAYERS, MATRIX_GROUPS, MATRIX_STATUSES, OTHER_HARNESS,
+module.exports = { ADVICE_MODES, CANDIDATE_STATUSES, CASE_SET_STATES, LOCAL_STANDINGS, STALE_DIGESTS, CLOSED_SETS, CORE_NAME, FEATURE_BUCKETS, FILE_CODES, FOLLOWUP_STATES, LAYERS, MATRIX_GROUPS, MATRIX_STATUSES, OTHER_HARNESS,
   PROJECTOR_IDS, RELEASE_MODES, SCOPES, SOURCE_KINDS, VIA, WITHHELD, project, projectSessionsHistory };

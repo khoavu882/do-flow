@@ -117,15 +117,36 @@ test('IC-006: version, tags and show requests/parsers match Ollama read routes',
   assert.equal(adapter.parseVersion(500, body({ version: '0.40.2' })), null);
   assert.deepEqual(adapter.listRequest(), { method: 'GET', path: '/api/tags' });
   assert.deepEqual(adapter.parseList(200, body({ models: [
-    { name: 'clef-flash:latest', capabilities: ['completion', 'decision'] },
+    { name: 'clef-flash:latest', capabilities: ['completion', 'decision'], digest: 'a1b2' },
     { name: 'nimble:latest' },
   ] })), [
-    { name: 'clef-flash:latest', capabilities: ['completion', 'decision'] },
-    { name: 'nimble:latest', capabilities: null },
+    { name: 'clef-flash:latest', capabilities: ['completion', 'decision'], digest: 'a1b2' },
+    { name: 'nimble:latest', capabilities: null, digest: null },
   ]);
   assert.deepEqual(adapter.showRequest('nimble:latest'), { method: 'POST', path: '/api/show', body: { model: 'nimble:latest' } });
   assert.deepEqual(adapter.parseShow(200, body({ capabilities: ['decision'] })), { capabilities: ['decision'] });
   assert.equal(adapter.parseShow(500, body({ capabilities: ['decision'] })), null);
+});
+
+test('175 IC-007 (a): parseList returns the digest, and null when it is absent, empty or not a string', () => {
+  const listed = adapter.parseList(200, body({ models: [
+    { name: 'a:1', digest: 'abc123' },
+    { name: 'b:1' },
+    { name: 'c:1', digest: '' },
+    { name: 'd:1', digest: '   ' },
+    { name: 'e:1', digest: 7 },
+    { name: 'f:1', digest: null },
+    { name: 'g:1', digest: { value: 'abc' } },
+  ] }));
+  assert.deepEqual(listed.map((entry: any) => [entry.name, entry.digest]), [
+    ['a:1', 'abc123'], ['b:1', null], ['c:1', null], ['d:1', null], ['e:1', null], ['f:1', null], ['g:1', null],
+  ]);
+  assert.deepEqual(adapter.parseList(500, body({ models: [{ name: 'a:1', digest: 'abc123' }] })), []);
+});
+
+test('175 IC-007: the adapter header documents the null rule for a provider that cannot name the model build', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../../src/runtime/advice/providers/ollama-systemone.ts'), 'utf8');
+  assert.match(source.split('\n').slice(0, 20).join('\n'), /cannot name the model build[^\n]*null/i);
 });
 
 test('IC-006: an untagged configured model matches its listed :latest tag only', () => {

@@ -1,7 +1,8 @@
-// The Advice view's derivations (feature 151, plan task C.2; IC-018, FR-015, FR-017, FR-026): the gate sentences over
-// the `advise-report` verdict rows and the picks-per-day rows over the `advice-picks` days (console/src/project.ts,
-// IC-008). No DOM and no fetch, so console/test/derive-manage.test.ts runs them as plain functions. A day the core could
-// not read fully is never counted as 0: its count is null, which the view shows as unknown.
+// The Advice view's derivations (feature 151, plan task C.2; IC-018, FR-015, FR-026; row 175 IC-010): the local-result
+// sentences, the followed counts and the agreement figures over the `advise-report` projection, and the picks-per-day
+// rows over the `advice-picks` days (console/src/project.ts, IC-008). No DOM and no fetch, so
+// console/test/derive-manage.test.ts runs them as plain functions. A day the core could not read fully is never counted
+// as 0: its count is null, which the view shows as unknown.
 
 const isObject = (/** @type {any} */ value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -22,39 +23,76 @@ function kindIds(kinds) {
 /** @param {number} n @param {string} one @param {string} many */
 const plural = (n, one, many) => (n === 1 ? one : many);
 
-/**
- * The sentence of one verdict row: a pass that is not stale names its model; a stale row reads the core's reason; any
- * other row says no passing verdict ships, with the result the core recorded.
- * @param {string} kind
- * @param {any} row
- */
-function verdictText(kind, row) {
-  const model = typeof row.model === 'string' ? row.model : 'unknown';
-  if (row.stale === true) return typeof row.reason === 'string' && row.reason !== '' ? row.reason : `The bench verdict for ${kind} with ${model} is stale.`;
-  if (row.result === 'pass') return `A passing verdict ships for ${kind} with ${model}.`;
-  return `No passing bench verdict ships for ${kind}: ${model} reads ${typeof row.result === 'string' ? row.result : 'unknown'}.`;
+/** @type {Record<string, string>} what a standing `judge` gives means, in the page's words */
+const STANDING_TEXT = {
+  act: 'passes the show and act bars',
+  show: 'passes the show bar, not the act bar',
+  'below-show': 'below the show bar',
+  'below-minimum': 'too few cases to judge',
+  'measure-only': "measures only: its cases are labelled with the rule's answer, so it never passes",
+  unknown: 'cannot be judged now; doflow advise --action report says why',
+};
+/** @type {Record<string, string>} */
+const CASE_SET_TEXT = {
+  same: 'Case set unchanged.',
+  changed: 'The case set changed since: replay again.',
+  'other-project': 'Measured in another project.',
+  'not-checked': 'Case set not checked here.',
+};
+
+/** `a`, `a and b`, `a, b and c`. @param {string[]} words */
+const joined = (words) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}` : words.join(''));
+
+/** The standing of one result, re-judged now: a stale one names the digests that moved. @param {any} row */
+function standingText(row) {
+  const stale = Array.isArray(row.stale) ? row.stale : [];
+  if (row.standing === 'stale') return stale.length ? `stale: the ${joined(stale)} changed since the replay; replay again` : 'stale: replay again';
+  const failed = Array.isArray(row.failedChecks) && row.failedChecks.length ? ` (failed: ${row.failedChecks.join(', ')})` : '';
+  return `${STANDING_TEXT[row.standing] ?? `standing ${row.standing}`}${failed}`;
 }
 
 /**
- * The gate sentences (FR-017): per kind of `kinds` (then any other kind a row names), one sentence per verdict row, or
- * "No bench verdict ships for <kind>." when no row names it. With no verdict row at all, the one sentence "No bench
- * verdict ships for any kind." with kind null.
- * @param {any} kinds the kind ids, or the `advise-report` `kinds[]` rows
- * @param {any} verdicts the `advise-report` `verdicts[]` rows
+ * The local-result sentences (175 IC-010): one per stored result, in the body's order, naming the kind, the model, its
+ * provider and build, when and on how many cases it was replayed, its standing re-judged now and its case-set state. With
+ * no result, the one sentence "No local result is stored for the kinds shown." with kind null.
+ * @param {any} results the `advise-report` `localResults[]`
  * @returns {Array<{ kind: string | null, text: string }>}
  */
-function gateSentences(kinds, verdicts) {
-  const rows = (Array.isArray(verdicts) ? verdicts : []).filter((row) => isObject(row) && kindOf(row) !== null);
-  if (rows.length === 0) return [{ kind: null, text: 'No bench verdict ships for any kind.' }];
-  const ids = kindIds([...(Array.isArray(kinds) ? kinds : []), ...rows]);
-  /** @type {Array<{ kind: string | null, text: string }>} */
-  const sentences = [];
-  for (const kind of ids) {
-    const mine = rows.filter((row) => row.kind === kind);
-    if (mine.length === 0) sentences.push({ kind, text: `No bench verdict ships for ${kind}.` });
-    for (const row of mine) sentences.push({ kind, text: verdictText(kind, row) });
-  }
-  return sentences;
+function localResultSentences(results) {
+  const rows = (Array.isArray(results) ? results : []).filter((row) => isObject(row) && kindOf(row) !== null);
+  if (rows.length === 0) return [{ kind: null, text: 'No local result is stored for the kinds shown.' }];
+  return rows.map((row) => {
+    const digest = String(row.modelDigest);
+    const build = digest.length > 15 ? `${digest.slice(0, 15)}…` : digest;
+    const head = `${row.kind} with ${row.model} (${row.provider}, ${build}), replayed ${String(row.runAt).slice(0, 10)} on ${row.replayed} of ${row.eligible} cases`;
+    return { kind: row.kind, text: `${head}: ${standingText(row)}. ${CASE_SET_TEXT[row.caseSet] ?? `Case set ${row.caseSet}.`}` };
+  });
+}
+
+/** What the person did with the picks they were shown; null (no shown pick) reads as n=0. @param {any} followed */
+function followedText(followed) {
+  if (!isObject(followed)) return 'no shown pick (n=0)';
+  return `followed ${followed.followed}, partly ${followed.partly}, overruled ${followed.overruled}, n=${followed.n} shown picks`;
+}
+
+/** @param {any} x */
+const two = (x) => (typeof x === 'number' && Number.isFinite(x) ? x.toFixed(2) : 'unknown');
+
+/**
+ * "Agreement with what you did" (175 IC-010): the figures over the picks whose label is known, with their n, and the
+ * labelled picks only counted. A figure, never a standing. null reads as n=0.
+ * @param {any} agreement
+ */
+function agreementText(agreement) {
+  if (!isObject(agreement)) return 'no data (n=0)';
+  const m = agreement.figures;
+  const text = isObject(m)
+    ? `accuracy model ${two(m.accuracy.model)}, rule ${two(m.accuracy.rule)}; kappa model ${two(m.kappa.model)} (lower ${two(m.kappa.lower)}), rule ${two(m.kappa.rule)}; worse ${m.worse}, better ${m.better}; n=${agreement.n}`
+    : `no data (n=${agreement.n})`;
+  const c = agreement.counted;
+  return isObject(c) && c.partly + c.overruledWithoutActual + c.noStaticAnswer > 0
+    ? `${text}; counted, not scored: partly ${c.partly}, overruled with no answer named ${c.overruledWithoutActual}, no rule answer ${c.noStaticAnswer}`
+    : text;
 }
 
 /**
@@ -99,4 +137,4 @@ function dayRows(days, kinds) {
   return { kinds: perKind, table };
 }
 
-export { gateSentences, dayRows };
+export { localResultSentences, followedText, agreementText, dayRows };

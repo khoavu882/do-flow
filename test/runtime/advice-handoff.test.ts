@@ -83,6 +83,25 @@ test('IC-012: matched answered tier advice writes one outcome and repeated hando
   assert.deepEqual(outcomes(p.dir).map((line: any) => line.pickId), [PICK]);
 });
 
+test('IC-012: a followed-only outcome line does not stop the brief record from writing its actual', (t) => {
+  const p = project(t);
+  start(p);
+  seedPick(p.dir);
+  const directory = path.join(p.dir, '.doflow', 'state', 'advice', 'picks');
+  fs.appendFileSync(path.join(directory, `${PICK_AT.slice(0, 10)}.jsonl`), `${JSON.stringify({
+    schema: 1, type: 'outcome', pickId: PICK, at: PICK_AT, source: 'caller', followed: 'followed',
+  })}\n`);
+  writeBrief(p);
+  const result = handoff(p);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.deepEqual(outcomes(p.dir).map(({ actual, followed, source }: any) => ({ actual, followed, source })), [
+    { actual: undefined, followed: 'followed', source: 'caller' },
+    { actual: 'standard', followed: undefined, source: 'brief-record' },
+  ]);
+  handoff(p);
+  assert.equal(outcomes(p.dir).length, 2);
+});
+
 test('IC-012: missing, unavailable, mismatched, non-tier, or invalid advice writes no outcome', (t) => {
   const cases: any = [
     { label: 'missing advice', options: { advice: null }, seed: false },

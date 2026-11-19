@@ -19,8 +19,6 @@ const ADVICE_FILE = path.join(WEB_ROOT, 'derive', 'advice.js');
 
 // `keys` is an object keyed by setting name, in registry order.
 const REGISTRY_KEYS: string[] = Object.keys(JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'settings.json'), 'utf8')).keys);
-const ADVICE_KINDS: string[] = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice.json'), 'utf8')).kinds.map((k: any) => k.id);
-const SHIPPED_VERDICTS: any[] = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice-verdicts.json'), 'utf8')).verdicts;
 
 const scratch: string[] = [];
 let settings: any;
@@ -105,50 +103,54 @@ test('groupKeys: a group with no key is left out; the order of the groups stays 
   assert.deepEqual(settings.groupKeys(null), []);
 });
 
-// ---- gate sentences (IC-018 section 1, FR-017) ------------------------------------------------------------
+// ---- local results, followed counts and agreement (175 IC-010, over the advise-report projection) ----------
 
-const row = (kind: string, model: string, extra: any = {}) => ({ kind, model, arm: null, result: 'pass', stale: false, reason: null, ...extra });
-
-test('gateSentences: over the shipped core/registry/advice-verdicts.json', () => {
-  const sentences = advice.gateSentences(ADVICE_KINDS, SHIPPED_VERDICTS);
-  if (SHIPPED_VERDICTS.length === 0) {
-    assert.deepEqual(sentences, [{ kind: null, text: 'No bench verdict ships for any kind.' }]);
-  } else {
-    const shippedKinds = new Set(SHIPPED_VERDICTS.map((v: any) => v.kind));
-    for (const kind of ADVICE_KINDS) {
-      const mine = sentences.filter((s: any) => s.kind === kind);
-      assert.equal(mine.length >= 1, true, kind);
-      if (!shippedKinds.has(kind)) assert.deepEqual(mine.map((s: any) => s.text), [`No bench verdict ships for ${kind}.`]);
-    }
-  }
+const result = (extra: any = {}) => ({
+  kind: 'tier', provider: 'local-runtime', model: 'model-a:8b', modelDigest: `sha256:${'0123456789abcdef'.repeat(4)}`, runAt: '2026-11-18T09:30:00.000Z',
+  replayed: 40, eligible: 52, standing: 'act', failedChecks: [], stale: [], caseSet: 'same', ...extra,
 });
+const HEAD = 'tier with model-a:8b (local-runtime, sha256:01234567…), replayed 2026-11-18 on 40 of 52 cases';
 
-test('gateSentences: planted pass and stale rows, and a kind with no row', () => {
-  const verdicts = [
-    row('tier', 'qwen3-8b'),
-    row('task-class', 'qwen3-8b', { stale: true, reason: 'verdict stale: the bench corpus changed' }),
-    row('rerank', 'bge-m3', { result: 'pass', stale: true, reason: 'verdict stale: criteria digest differs' }),
-  ];
-  const sentences = advice.gateSentences(['tier', 'task-class', 'verify-risk', 'rerank'], verdicts);
+test('localResultSentences: one sentence per stored result, the standing re-judged now with its failed checks, and the case-set state', () => {
+  const sentences = advice.localResultSentences([
+    result(),
+    result({ standing: 'show', failedChecks: ['min-cases', 'kappa-gain-lower'], caseSet: 'changed' }),
+    result({ standing: 'below-show', failedChecks: ['kappa-lower'], caseSet: 'other-project' }),
+    result({ standing: 'below-minimum', failedChecks: ['min-cases'], caseSet: 'not-checked' }),
+    result({ standing: 'measure-only' }),
+    result({ standing: 'unknown' }),
+  ]);
   assert.deepEqual(sentences, [
-    { kind: 'tier', text: 'A passing verdict ships for tier with qwen3-8b.' },
-    { kind: 'task-class', text: 'verdict stale: the bench corpus changed' },
-    { kind: 'verify-risk', text: 'No bench verdict ships for verify-risk.' },
-    { kind: 'rerank', text: 'verdict stale: criteria digest differs' },
+    { kind: 'tier', text: `${HEAD}: passes the show and act bars. Case set unchanged.` },
+    { kind: 'tier', text: `${HEAD}: passes the show bar, not the act bar (failed: min-cases, kappa-gain-lower). The case set changed since: replay again.` },
+    { kind: 'tier', text: `${HEAD}: below the show bar (failed: kappa-lower). Measured in another project.` },
+    { kind: 'tier', text: `${HEAD}: too few cases to judge (failed: min-cases). Case set not checked here.` },
+    { kind: 'tier', text: `${HEAD}: measures only: its cases are labelled with the rule's answer, so it never passes. Case set unchanged.` },
+    { kind: 'tier', text: `${HEAD}: cannot be judged now; doflow advise --action report says why. Case set unchanged.` },
   ]);
 });
 
-test('gateSentences: a row that is not a pass is no passing verdict; kinds come as ids or report rows; a verdict kind not listed still reads', () => {
-  const sentences = advice.gateSentences([{ kind: 'tier' }, 'mcp-need'], [row('tier', 'm1', { result: 'fail' }), row('adhoc', 'm2')]);
-  assert.deepEqual(sentences, [
-    { kind: 'tier', text: 'No passing bench verdict ships for tier: m1 reads fail.' },
-    { kind: 'mcp-need', text: 'No bench verdict ships for mcp-need.' },
-    { kind: 'adhoc', text: 'A passing verdict ships for adhoc with m2.' },
-  ]);
-  assert.deepEqual(advice.gateSentences(['tier'], [row('tier', 'm1', { result: null })]), [{ kind: 'tier', text: 'No passing bench verdict ships for tier: m1 reads unknown.' }]);
-  assert.deepEqual(advice.gateSentences(['tier'], [row('tier', 'm1', { stale: true, reason: null })]), [{ kind: 'tier', text: 'The bench verdict for tier with m1 is stale.' }]);
-  assert.deepEqual(advice.gateSentences([], []), [{ kind: null, text: 'No bench verdict ships for any kind.' }]);
-  assert.deepEqual(advice.gateSentences(['tier'], null), [{ kind: null, text: 'No bench verdict ships for any kind.' }]);
+test('localResultSentences: a stale result names the digests that moved; a short digest is kept whole; no result reads as one sentence', () => {
+  const one = (extra: any) => advice.localResultSentences([result(extra)])[0].text;
+  assert.equal(one({ standing: 'stale', stale: ['question'] }), `${HEAD}: stale: the question changed since the replay; replay again. Case set unchanged.`);
+  assert.equal(one({ standing: 'stale', stale: ['question', 'bars'] }), `${HEAD}: stale: the question and bars changed since the replay; replay again. Case set unchanged.`);
+  assert.equal(one({ standing: 'stale', stale: ['question', 'builder', 'bars'] }), `${HEAD}: stale: the question, builder and bars changed since the replay; replay again. Case set unchanged.`);
+  assert.equal(one({ standing: 'stale', stale: [] }), `${HEAD}: stale: replay again. Case set unchanged.`);
+  assert.equal(one({ kind: 'rerank', modelDigest: 'sha256:abc' }), 'rerank with model-a:8b (local-runtime, sha256:abc), replayed 2026-11-18 on 40 of 52 cases: passes the show and act bars. Case set unchanged.');
+  assert.deepEqual(advice.localResultSentences([]), [{ kind: null, text: 'No local result is stored for the kinds shown.' }]);
+  assert.deepEqual(advice.localResultSentences(null), [{ kind: null, text: 'No local result is stored for the kinds shown.' }]);
+});
+
+test('followedText and agreementText: counts and figures with their n; null is n=0, never a bare 0', () => {
+  assert.equal(advice.followedText({ n: 4, followed: 2, partly: 1, overruled: 0 }), 'followed 2, partly 1, overruled 0, n=4 shown picks');
+  assert.equal(advice.followedText(null), 'no shown pick (n=0)');
+  const figures = { n: 3, accuracy: { model: 0.6667, rule: 1 }, kappa: { model: -0.25, rule: 1, lower: null }, worse: 1, better: 0 };
+  const none = { partly: 0, overruledWithoutActual: 0, noStaticAnswer: 0 };
+  assert.equal(advice.agreementText({ n: 3, counted: none, figures }), 'accuracy model 0.67, rule 1.00; kappa model -0.25 (lower unknown), rule 1.00; worse 1, better 0; n=3');
+  assert.equal(advice.agreementText({ n: 3, counted: { partly: 1, overruledWithoutActual: 0, noStaticAnswer: 2 }, figures }),
+    'accuracy model 0.67, rule 1.00; kappa model -0.25 (lower unknown), rule 1.00; worse 1, better 0; n=3; counted, not scored: partly 1, overruled with no answer named 0, no rule answer 2');
+  assert.equal(advice.agreementText({ n: 0, counted: { partly: 1, overruledWithoutActual: 0, noStaticAnswer: 0 }, figures: null }), 'no data (n=0); counted, not scored: partly 1, overruled with no answer named 0, no rule answer 0');
+  assert.equal(advice.agreementText(null), 'no data (n=0)');
 });
 
 // ---- picks per day (IC-018 section 4, FR-015, FR-026) -----------------------------------------------------

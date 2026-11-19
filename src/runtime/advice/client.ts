@@ -155,6 +155,20 @@ function matchesNamedKind(namedKind: any, questionSet: any): boolean {
         && CALL_LABELS.includes(question.name.slice(-1)))));
 }
 
+// A model digest is memoised per process by (endpoint, model): a hit is read once and shared; a miss, and a read still in flight, are not kept.
+const DIGEST_MEMO = new Map<string, { digest: string | null; reason: string | null }>();
+
+/** Empties the model digest memo (tests; a long-lived process that wants a fresh read). */
+function resetModelDigestMemo(): void {
+  DIGEST_MEMO.clear();
+}
+
+/** `sha256:<lowercase hex>` for a bare or already prefixed hex digest, else null. */
+function normaliseDigest(digest: any): string | null {
+  const match = typeof digest === 'string' && digest.trim().match(/^(?:sha256:)?([0-9a-f]+)$/i);
+  return match ? `sha256:${match[1].toLowerCase()}` : null;
+}
+
 function createAdviceClient({
   adviceRegistry,
   roots,
@@ -167,8 +181,10 @@ function createAdviceClient({
   /**
    * `model`, when given, replaces the setting's model for this call: it is the model asked, recorded and reported.
    * `signal`, when given, ends the call early: an in-flight request is destroyed and the call is unavailable with 'timeout'.
+   * `timeoutMs`, when given, bounds the call in place of the kind's budgetMs: a replay (175 IC-005) waits up to the
+   * registry's timeoutMs so a slow answer is measured as over budget instead of being cut off at the budget.
    */
-  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model, signal }: any = {}) {
+  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model, signal, timeoutMs }: any = {}) {
     const startedAt = Date.now();
     let setting: any = null;
     const effectiveKind = typeof kind === 'string' && kind ? kind : 'adhoc';
@@ -203,6 +219,7 @@ function createAdviceClient({
         }
         if (Number.isInteger(namedKind.budgetMs) && namedKind.budgetMs > 0) budgetMs = namedKind.budgetMs;
       }
+      if (Number.isInteger(timeoutMs) && timeoutMs > 0) budgetMs = timeoutMs;
       const questionValidation = validateQuestionSet(questionSet, { adviceRegistry });
       if (!questionValidation.ok) return unavailable('config-invalid', questionValidation.detail);
       if (staticAnswer !== undefined && staticAnswer !== null) {
@@ -339,7 +356,7 @@ function createAdviceClient({
         state: 'reached',
         version,
         versionOk,
-        message: version ? null : `Ollama version endpoint returned HTTP ${versionResponse.status}`,
+        message: version ? null : `provider ${provider.id} version endpoint returned HTTP ${versionResponse.status}`,
       };
 
       let models = [];
@@ -380,7 +397,51 @@ function createAdviceClient({
     }
   }
 
-  return { ask, inspect };
+  /**
+   * The build digest of `model` at `endpoint`, `sha256:<hex>`, from the provider's model listing only (175 IC-007): no version,
+   * show or decision call. `timeoutMs` is capped at the registry's probeTimeoutMs; `signal` ends the call early. The answer is
+   * `{ digest, reason }`: `reason` is null with a digest, else why there is none (model-not-listed, no-digest, server-error,
+   * timeout, unreachable, an endpoint refusal such as non-loopback, config-invalid). A digest is memoised per process.
+   */
+  function modelDigest({ endpoint, model, provider: providerId, timeoutMs, signal }: any = {}): Promise<{ digest: string | null; reason: string | null }> {
+    const key = JSON.stringify([endpoint, model]);
+    const known = DIGEST_MEMO.get(key);
+    if (known) return Promise.resolve(known);
+    // Only a resolved hit is shared: an in-flight read carries its caller's timeout and signal, which another caller must not inherit.
+    const read = readModelDigest({ endpoint, model, providerId, timeoutMs, signal });
+    read.then((result) => { if (result.digest !== null) DIGEST_MEMO.set(key, result); });
+    return read;
+  }
+
+  async function readModelDigest({ endpoint, model, providerId, timeoutMs, signal }: any) {
+    const miss = (reason: string) => ({ digest: null, reason });
+    try {
+      const effectiveProviderId = providerId ?? resolveSetting({ adviceRegistry, roots, fsImpl }).provider;
+      const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === effectiveProviderId);
+      const adapter = provider && ADAPTERS[provider.adapter];
+      if (!provider || !adapter) return miss('config-invalid');
+      const capMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.min(timeoutMs, adviceRegistry.probeTimeoutMs) : adviceRegistry.probeTimeoutMs;
+      const startedAt = Date.now();
+      const endpointCheck = await checkEndpoint(endpoint, { lookup, file: 'provider default', timeoutMs: capMs, signal });
+      if (!endpointCheck.ok) return miss(endpointCheck.reason || 'non-loopback');
+      let response;
+      try {
+        response = await requestAction({
+          endpoint, action: adapter.listRequest(), pinnedLookup: endpointCheck.pinnedLookup,
+          timeoutMs: Math.max(1, capMs - durationSince(startedAt)), signal, httpModule, httpsModule,
+        });
+      } catch (error: any) { return miss(networkReason(error)); }
+      if (response.status !== 200) return miss('server-error');
+      const listed = adapter.parseList(response.status, response.bodyText).find((entry: any) => adapter.modelMatches(model, entry.name));
+      if (!listed) return miss('model-not-listed');
+      const digest = normaliseDigest(listed.digest);
+      return digest ? { digest, reason: null } : miss('no-digest');
+    } catch (error: any) {
+      return miss('unreachable');
+    }
+  }
+
+  return { ask, inspect, modelDigest };
 }
 
-module.exports = { createAdviceClient, versionAtLeast };
+module.exports = { createAdviceClient, versionAtLeast, resetModelDigestMemo };

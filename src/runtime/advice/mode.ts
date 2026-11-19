@@ -5,7 +5,7 @@
 const { resolveRolloutProfile } = require('../profiles/resolve.ts');
 
 type AdvisorCap = 'off' | 'shadow' | 'staged' | 'act';
-type AdviceMode = 'off' | 'shadow' | 'act';
+type AdviceMode = 'off' | 'shadow' | 'show' | 'act';
 
 /**
  * The rollout profile's advisor capability, or null when no profile was chosen. It caps advice only when a
@@ -19,11 +19,14 @@ function profileAdvisorCap({ projectRoot, env, fsImpl }: { projectRoot?: string;
   return profile.capabilities.advisor;
 }
 
-/** The mode a set kind runs in under a cap. `staged` means shadow until a contract defines it (D2); anything unknown is off. */
+/**
+ * The mode a set kind runs in under a cap. `shadow` and `staged` (shadow until a contract defines it, D2) lower `show` and
+ * `act` to shadow (175 FR-014); anything unknown is off.
+ */
 function capMode(cap: unknown, configuredMode: unknown): AdviceMode {
-  if (configuredMode !== 'off' && configuredMode !== 'shadow' && configuredMode !== 'act') return 'off';
+  if (configuredMode !== 'off' && configuredMode !== 'shadow' && configuredMode !== 'show' && configuredMode !== 'act') return 'off';
   if (cap === null || cap === 'act') return configuredMode;
-  if (cap === 'shadow' || cap === 'staged') return configuredMode === 'act' ? 'shadow' : configuredMode;
+  if (cap === 'shadow' || cap === 'staged') return configuredMode === 'off' ? 'off' : 'shadow';
   return 'off';
 }
 

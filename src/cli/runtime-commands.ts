@@ -88,9 +88,11 @@ const { handleAttendanceCommand } = require('../runtime/roadmap/attendance.ts');
 // `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
 // `slot` is not here: `run`, `list` and `release` write the slot files and run upkeep; only `slot --action peek` is read-only and skips it (093 IC-018 b, see `runsUpkeep`).
 // `worker` is not here: its runs write the run store and run upkeep; only `worker --action conform` writes nothing outside its OS-temp scratch and skips it (171 IC-005, see `runsUpkeep`).
+// `advise` is not here: its actions write records and run upkeep; only `advise --action replay` skips it, because it writes nothing in the project and, with --write, one user-level result entry (175 IC-005).
 const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'rules', 'primary', 'package', 'models', 'fleet', 'transcript', 'events', 'worker-log', 'worker-result', 'worker-runs', 'advice-picks', 'worker-matrix', 'sessions-history', 'worktree', 'attendance']);
 const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek')
-  && !(o.cmd === 'worker' && o.actionGiven && o.action === 'conform'))
+  && !(o.cmd === 'worker' && o.actionGiven && o.action === 'conform')
+  && !(o.cmd === 'advise' && o.actionGiven && o.action === 'replay'))
   || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
@@ -454,7 +456,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
       projectRoot: retrieveProjectRoot(o) });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'prompt-frame': return handlePromptFrameCommand({ action: o.actionGiven ? o.action : undefined, specFile: o.specFile, parts: o.parts, budgetLines: o.budgetLines, maxBytes: o.maxBytes, out: o.out, json: o.json, cwd: process.cwd() });
-    case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, followed: o.followed, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, write: o.write, limit: o.limit, projectRoot: evidenceRoot(o) });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, excludeFamilies: o.excludeFamily, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, harness: o.harness, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
     case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot, projectRoot: evidenceRoot(o) });

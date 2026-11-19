@@ -1267,7 +1267,7 @@ test('handshake range check agrees with the core semver helper', () => {
 
 // ---- 151 B.3: the config-list, config-schema, advise-report and advice-picks projectors (IC-007, IC-008, IC-006) ----
 
-const { LAYERS, CANDIDATE_STATUSES, VIA, FILE_CODES, SCOPES, ADVICE_MODES } = require('../src/project.ts');
+const { LAYERS, CANDIDATE_STATUSES, VIA, FILE_CODES, SCOPES, ADVICE_MODES, LOCAL_STANDINGS, STALE_DIGESTS, CASE_SET_STATES } = require('../src/project.ts');
 const { anchorsOf, placeText, TOO_LONG } = require('../src/place.ts');
 
 const P_SECRET = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
@@ -1380,24 +1380,37 @@ function configSchemaBody(): any {
 const pctl = (n: number, p50: number | null, p90: number | null, p95: number | null) => ({ n, p50, p90, p95 });
 /** `advise --action report --json` as src/runtime/advice/report.ts:210 builds it. */
 function adviseReportBody(): any {
-  const empty = { n: { picks: 0, misses: 0 }, missesByReason: {}, agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null };
+  const empty = { n: { picks: 0, misses: 0 }, missesByReason: {}, agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null, followed: null, agreement: null };
   return {
     schema: 1, scope: `this project only ${MARKER}`,
     window: { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 },
     unreadable: 2,
     kinds: {
       tier: { n: { picks: 8, misses: 4 }, missesByReason: { timeout: 1, [P_EMAIL]: 1, 'bad reason': 1, [P_SECRET]: 1 }, agreeStatic: { n: 8, agree: 7 }, agreeOutcome: { n: 2, agree: 1 },
-        elevated: 0, modes: { shadow: 6, act: 1, unrecorded: 1 }, durationMs: pctl(8, 3239, 4764, 4764), missDurationMs: pctl(0, null, null, null) },
-      'task-class': empty,
+        elevated: 0, modes: { shadow: 5, show: 1, act: 1, unrecorded: 1 }, durationMs: pctl(8, 3239, 4764, 4764), missDurationMs: pctl(0, null, null, null),
+        followed: { n: 2, followed: 1, partly: 0, overruled: 1 },
+        agreement: {
+          n: 2, counted: { partly: 0, overruledWithoutActual: 0, noStaticAnswer: 1 },
+          figures: {
+            n: 2, valid: 2, validShare: 1, noAnswer: { count: 0, share: 0, byReason: { timeout: 0 } }, accuracy: { model: 0.5, rule: 1 },
+            kappa: { model: -0.25, rule: 1, lower: null, gain: -1.25, gainLower: null }, worse: 1, better: 0, worseShare: 0.5, minority: 1,
+            latencyMs: { first: 3239, p50: 3239, p95: 4764, max: 4764 },
+          },
+        } },
+      'task-class': { ...empty, followed: { n: 1, followed: 0, partly: 1, overruled: 0 }, agreement: { n: 0, counted: { partly: 1, overruledWithoutActual: 0, noStaticAnswer: 0 }, figures: null } },
       adhoc: { ...empty, missesByReason: { 'provider-error': 2 } },
     },
     claimSupport: {
       n: { picks: 2, misses: 1 }, withoutPayload: 1, missesByReason: { [`${MARKER} x`]: 1 },
       byRelation: { supports: { n: 1, modelYes: 1, agree: 1 }, contradicts: { n: 0, modelYes: 0, agree: 0 } }, durationMs: { n: 2, p50: 10, p95: 20 },
     },
-    verdicts: [
-      { kind: 'tier', model: 'qwen3:8b', arm: null, result: 'pass', stale: true, reason: PLANTED_BASE },
-      { kind: 'rerank', model: `${P_HOME}/model`, arm: 'ladder', result: null, stale: false, reason: null },
+    localResults: [
+      { kind: 'tier', provider: 'local-runtime', model: 'model-a:8b', modelDigest: `sha256:${'0123456789abcdef'.repeat(4)}`, runAt: '2026-11-18T09:30:00.000Z',
+        replayed: 40, eligible: 52, standing: 'show', reason: `${PLANTED_BASE} ${MARKER}`, failedChecks: ['min-cases', 'kappa-gain-lower'], stale: [], caseSet: 'same' },
+      { kind: 'rerank', provider: 'local-runtime', model: `${P_HOME}/model`, modelDigest: 'sha256:abc', runAt: '2026-11-17T08:00:00.000Z',
+        replayed: 12, eligible: 12, standing: 'stale', reason: 'the question and bars changed since the replay; replay again', failedChecks: [], stale: ['question', 'bars'], caseSet: 'changed' },
+      { kind: 'task-class', provider: 'local-runtime', model: P_SECRET, modelDigest: 'sha256:fe', runAt: '2026-11-16T07:00:00.000Z',
+        replayed: 0, eligible: 0, standing: 'unknown', reason: `the question cannot be built: ${MARKER}`, failedChecks: [], stale: [], caseSet: 'other-project' },
     ],
   };
 }
@@ -1428,7 +1441,7 @@ function advicePicksBody(): any {
   };
 }
 
-test('151: the six management closed sets match their core sources', () => {
+test('151, 175: the management closed sets match their core sources', () => {
   const read = (file: string) => fs.readFileSync(path.join(CORE_SRC, file), 'utf8');
   /** The quoted members of `type <name> = ...;`, in source order (`null` is not quoted). */
   const typeUnion = (text: string, name: string) => {
@@ -1447,7 +1460,14 @@ test('151: the six management closed sets match their core sources', () => {
   const modes = read('advice/report.ts').match(/const modes = \{([^}]*)\};/);
   assert.ok(modes);
   assert.deepEqual([...ADVICE_MODES], [...modes[1].matchAll(/([a-z]+): 0/g)].map((m) => m[1]));
-  for (const set of [LAYERS, CANDIDATE_STATUSES, VIA, FILE_CODES, SCOPES, ADVICE_MODES]) assert.ok(Object.isFrozen(set));
+  // 175: a local result's standing and moved digests (replay/trust.ts) and its case-set state (report.ts CASE_SET_TEXT).
+  const trust = read('advice/replay/trust.ts');
+  assert.deepEqual([...LOCAL_STANDINGS], typeUnion(trust, 'Standing'));
+  assert.deepEqual([...STALE_DIGESTS], typeUnion(trust, 'StaleDigest'));
+  const caseSets = read('advice/report.ts').match(/const CASE_SET_TEXT[^=]*= \{([^}]*)\};/);
+  assert.ok(caseSets);
+  assert.deepEqual([...CASE_SET_STATES], [...caseSets[1].matchAll(/^\s*'?([a-z-]+)'?:/gm)].map((m) => m[1]));
+  for (const set of [LAYERS, CANDIDATE_STATUSES, VIA, FILE_CODES, SCOPES, ADVICE_MODES, LOCAL_STANDINGS, STALE_DIGESTS, CASE_SET_STATES]) assert.ok(Object.isFrozen(set));
 });
 
 test('151 config-list: the IC-007 fields only; every text and path planted, none in the body; anchors absent', () => {
@@ -1603,9 +1623,8 @@ test('151: a text over its cap is withheld whole, with no prefix of it in the bo
     ['config-list', 'note text', 512, (r, t) => { r.notes[0].text = t; }, (b) => b.notes[0].text],
     ['config-schema', 'statement', 512, (r, t) => { r.invariants[0].statement = t; }, (b) => b.invariants[0].statement],
     ['config-schema', 'enforcedBy', 128, (r, t) => { r.invariants[0].enforcedBy = t; }, (b) => b.invariants[0].enforcedBy],
-    ['advise-report', 'verdict reason', 256, (r, t) => { r.verdicts[0].reason = t; }, (b) => b.verdicts[0].reason],
   ];
-  const bodies: Record<string, () => any> = { 'config-list': configListBody, 'config-schema': configSchemaBody, 'advise-report': adviseReportBody };
+  const bodies: Record<string, () => any> = { 'config-list': configListBody, 'config-schema': configSchemaBody };
   for (const [shape, field, cap, plant, read] of cases) {
     const at = bodies[shape]();
     plant(at, 'y'.repeat(cap));
@@ -1647,26 +1666,41 @@ test('151 advise-report: IC-008 fields; non-id reasons folded to (other); record
   assert.equal(result.ok, true, JSON.stringify(result));
   const body = result.body;
   assert.deepEqual(absent(body), []);
-  assert.deepEqual(Object.keys(body), ['v', 'schema', 'window', 'unreadable', 'kinds', 'claimSupport', 'verdicts']);
+  assert.deepEqual(Object.keys(body), ['v', 'schema', 'window', 'unreadable', 'kinds', 'claimSupport', 'localResults']);
   assert.deepEqual([body.v, body.schema, body.window, body.unreadable], [1, 1, { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 }, 2]);
   assert.deepEqual(body.kinds.map((k: any) => k.kind), ['tier', 'task-class', 'adhoc']);
   assert.deepEqual(body.kinds[0], {
     kind: 'tier', n: { picks: 8, misses: 4 }, missesByReason: [{ reason: 'timeout', n: 1 }, { reason: '(other)', n: 3 }],
-    agreeStatic: { n: 8, agree: 7 }, agreeOutcome: { n: 2, agree: 1 }, elevated: 0, modes: { shadow: 6, act: 1, unrecorded: 1 },
+    agreeStatic: { n: 8, agree: 7 }, agreeOutcome: { n: 2, agree: 1 }, elevated: 0, modes: { shadow: 5, show: 1, act: 1, unrecorded: 1 },
     durationMs: pctl(8, 3239, 4764, 4764), missDurationMs: pctl(0, null, null, null),
+    followed: { n: 2, followed: 1, partly: 0, overruled: 1 },
+    agreement: {
+      n: 2, counted: { partly: 0, overruledWithoutActual: 0, noStaticAnswer: 1 },
+      figures: { n: 2, accuracy: { model: 0.5, rule: 1 }, kappa: { model: -0.25, rule: 1, lower: null }, worse: 1, better: 0 },
+    },
   });
-  assert.deepEqual(body.kinds[1], { kind: 'task-class', n: { picks: 0, misses: 0 }, missesByReason: [], agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null });
+  assert.deepEqual(body.kinds[1], {
+    kind: 'task-class', n: { picks: 0, misses: 0 }, missesByReason: [], agreeStatic: null, agreeOutcome: null, elevated: null, modes: null, durationMs: null, missDurationMs: null,
+    followed: { n: 1, followed: 0, partly: 1, overruled: 0 }, agreement: { n: 0, counted: { partly: 1, overruledWithoutActual: 0, noStaticAnswer: 0 }, figures: null },
+  });
+  assert.equal(body.kinds[2].followed, null);
+  assert.equal(body.kinds[2].agreement, null);
   assert.deepEqual(body.kinds[2].missesByReason, [{ reason: 'provider-error', n: 2 }]);
   assert.deepEqual(body.claimSupport, {
     n: { picks: 2, misses: 1 }, withoutPayload: 1, missesByReason: [{ reason: '(other)', n: 1 }],
     byRelation: { supports: { n: 1, modelYes: 1, agree: 1 }, contradicts: { n: 0, modelYes: 0, agree: 0 } }, durationMs: { n: 2, p50: 10, p95: 20 },
   });
-  assert.deepEqual(body.verdicts, [
-    { kind: 'tier', model: 'qwen3:8b', arm: null, result: 'pass', stale: true, reason: PLACED_BASE },
-    { kind: 'rerank', model: WITHHELD, arm: 'ladder', result: null, stale: false, reason: null },
+  // A local result keeps ids, counts and fixed words; its reason is never read, and a model name that is a path or a secret is withheld.
+  assert.deepEqual(body.localResults, [
+    { kind: 'tier', provider: 'local-runtime', model: 'model-a:8b', modelDigest: `sha256:${'0123456789abcdef'.repeat(4)}`, runAt: '2026-11-18T09:30:00.000Z',
+      replayed: 40, eligible: 52, standing: 'show', failedChecks: ['min-cases', 'kappa-gain-lower'], stale: [], caseSet: 'same' },
+    { kind: 'rerank', provider: 'local-runtime', model: WITHHELD, modelDigest: 'sha256:abc', runAt: '2026-11-17T08:00:00.000Z',
+      replayed: 12, eligible: 12, standing: 'stale', failedChecks: [], stale: ['question', 'bars'], caseSet: 'changed' },
+    { kind: 'task-class', provider: 'local-runtime', model: WITHHELD, modelDigest: 'sha256:fe', runAt: '2026-11-16T07:00:00.000Z',
+      replayed: 0, eligible: 0, standing: 'unknown', failedChecks: [], stale: [], caseSet: 'other-project' },
   ]);
   const text = JSON.stringify(body);
-  for (const dropped of ['digests', 'abcdefabcdef', 'illustrative', 'scope']) assert.ok(!text.includes(dropped), dropped);
+  for (const dropped of ['digests', 'abcdefabcdef', 'illustrative', 'scope', 'cannot be built', 'replay again', 'validShare', 'noAnswer', 'latencyMs', 'gainLower']) assert.ok(!text.includes(dropped), dropped);
   // A report without the claim-support block (its kind not shown) reads it as null.
   const narrow = adviseReportBody();
   delete narrow.claimSupport;
@@ -1798,10 +1832,25 @@ const MUTATIONS_151: Record<string, [() => any, Array<[string, (raw: any) => voi
     ['elevated a string', (r) => { r.kinds.tier.elevated = '0'; }],
     ['claimSupport byRelation.contradicts missing', (r) => { delete r.claimSupport.byRelation.contradicts; }],
     ['claimSupport durationMs missing', (r) => { delete r.claimSupport.durationMs; }],
-    ['verdicts missing', (r) => { delete r.verdicts; }],
-    ['verdict stale missing', (r) => { delete r.verdicts[0].stale; }],
-    ['verdict kind not an advice kind', (r) => { r.verdicts[0].kind = 'Tier'; }],
-    ['verdict reason a number', (r) => { r.verdicts[0].reason = 3; }],
+    ['modes.show missing', (r) => { delete r.kinds.tier.modes.show; }],
+    ['followed missing', (r) => { delete r.kinds.tier.followed; }],
+    ['followed.partly a string', (r) => { r.kinds.tier.followed.partly = '0'; }],
+    ['agreement missing', (r) => { delete r.kinds.tier.agreement; }],
+    ['agreement counted missing', (r) => { delete r.kinds.tier.agreement.counted; }],
+    ['agreement figures missing', (r) => { delete r.kinds.tier.agreement.figures; }],
+    ['agreement accuracy a string', (r) => { r.kinds.tier.agreement.figures.accuracy.model = '0.5'; }],
+    ['agreement worse negative', (r) => { r.kinds.tier.agreement.figures.worse = -1; }],
+    ['localResults missing', (r) => { delete r.localResults; }],
+    ['local result kind not an advice kind', (r) => { r.localResults[0].kind = 'Tier'; }],
+    ['local result provider planted text', (r) => { r.localResults[0].provider = `${MARKER} ${P_SECRET}`; }],
+    ['local result model a number', (r) => { r.localResults[0].model = 8; }],
+    ['local result model digest not a digest', (r) => { r.localResults[0].modelDigest = MARKER; }],
+    ['local result runAt not a time', (r) => { r.localResults[0].runAt = '2026-11-18'; }],
+    ['local result replayed negative', (r) => { r.localResults[0].replayed = -1; }],
+    ['local result standing outside the set', (r) => { r.localResults[0].standing = 'pass'; }],
+    ['local result failed check planted text', (r) => { r.localResults[0].failedChecks = [`${MARKER} ${P_SECRET}`]; }],
+    ['local result stale digest outside the set', (r) => { r.localResults[1].stale = ['model']; }],
+    ['local result case set outside the set', (r) => { r.localResults[0].caseSet = MARKER; }],
   ]],
   'advice-picks': [advicePicksBody, [
     ['v is not 1', (r) => { r.v = 2; }],

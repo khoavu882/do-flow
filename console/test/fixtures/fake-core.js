@@ -422,9 +422,10 @@ function manageBody(shape, argv, exit1) {
         unreadable: 0,
         kinds: {
           tier: { n: { picks: 2, misses: 1 }, missesByReason: { timeout: 1 }, agreeStatic: { n: 2, agree: 1 }, agreeOutcome: null, elevated: 0,
-            modes: { shadow: 2, act: 0, unrecorded: 0 }, durationMs: { n: 2, p50: 10, p90: 12, p95: 12 }, missDurationMs: null },
+            modes: { shadow: 2, show: 0, act: 0, unrecorded: 0 }, durationMs: { n: 2, p50: 10, p90: 12, p95: 12 }, missDurationMs: null, followed: null, agreement: null },
         },
-        verdicts: [{ kind: 'tier', model: 'qwen3:8b', arm: null, result: 'pass', stale: false, reason: `checked against ${root}/bench` }],
+        localResults: [{ kind: 'tier', provider: 'local-runtime', model: 'model-a:8b', modelDigest: 'sha256:0a1b2c', runAt: '2026-11-08T05:00:00.000Z', replayed: 12, eligible: 12,
+          standing: 'show', reason: `measured in ${root}`, failedChecks: ['min-cases'], stale: [], caseSet: 'same' }],
       };
     case 'advice-picks': {
       const kind = flagValue(argv, '--kind');

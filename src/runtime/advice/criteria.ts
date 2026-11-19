@@ -2,7 +2,7 @@
 
 // Rerank criteria in force (141 IC-002), for the offline measurement of `bench advice-gate` (row 175). They come from the
 // `rerank` kind of core/registry/advice.json only: no setting overrides them, and the runtime does not ask the kind.
-// The digest is over the texts in force, so a registry edit changes it; it binds a bench verdict to them.
+// The digest is over the texts in force, so a registry edit changes it; `bench advice-gate` prints it with the figures so a run names the texts it scored.
 
 const crypto = require('node:crypto');
 

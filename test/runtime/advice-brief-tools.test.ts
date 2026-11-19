@@ -56,7 +56,7 @@ test('IC-011/012: feature-off and omitted tasks preserve the 062 markdown and re
 
 test('IC-011/012: an act answer follows Tier and retains the static tier and record fields', async (t) => {
   const f = fixture(t);
-  // act past the bench bar cannot be reached from a spawned verb (the shipped verdicts are empty): stand in for it.
+  // act with a met local result cannot be reached from a spawned verb (no local result is stored): stand in for it.
   stubDispatcher(t, { mode: 'act', staticPick: 'standard', advisorPick: 'frontier', effectiveDecision: 'frontier', agreed: false });
   const { baseline, actual } = await invokeCounted(f, { tier: 'standard' });
   const tierParagraph = 'Tier: `standard` (task line), per `references/MODEL_SELECTION.md`.';
@@ -233,7 +233,7 @@ test('084 H2: advice.kinds.tier shadow leaves the block unchanged and records a 
     [{ type: 'pick', mode: 'shadow', caller: 'brief-tools', static: 'frontier', pick: 'light', model: 'clef-flash' }]);
 });
 
-test('084 H2: advice.kinds.tier act without a passed bench bar falls back to shadow and says why', async (t) => {
+test('084 H2: advice.kinds.tier act without a local result (LOCAL_RESULT_UNMET) falls back to shadow and says why', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
   t.after(() => server.close());
@@ -243,7 +243,7 @@ test('084 H2: advice.kinds.tier act without a passed bench bar falls back to sha
   const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown);
   assert.equal(actual.record.advice.status, 'shadow');
-  assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(actual.record.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   assert.deepEqual((await settledPickRecords(f)).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
@@ -260,7 +260,7 @@ test('084 D3: advice.kinds.tier act with a passing bench file in the project sti
   assert.equal(actual.markdown, baseline.markdown, 'no pick is shown');
   assert.doesNotMatch(actual.markdown, /Decision model:/);
   assert.equal(actual.record.advice.status, 'shadow');
-  assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(actual.record.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   assert.deepEqual((await settledPickRecords(f)).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
@@ -345,10 +345,10 @@ function stubDispatcher(t: any, resolution: any) {
 
 test('084 C-10: a shadow result shows no tier pick even when it carries one', async (t) => {
   const f = fixture(t);
-  stubDispatcher(t, { mode: 'shadow', staticPick: 'standard', advisorPick: 'frontier', effectiveDecision: 'standard', warning: 'BENCH_BAR_UNMET: x' });
+  stubDispatcher(t, { mode: 'shadow', staticPick: 'standard', advisorPick: 'frontier', effectiveDecision: 'standard', warning: 'LOCAL_RESULT_UNMET: none: x' });
   const { baseline, actual } = await invokeCounted(f, { settings: { advice: { kinds: { tier: 'act' } } }, tier: 'standard' });
   assert.equal(actual.markdown, baseline.markdown);
-  assert.deepEqual(actual.record.advice, { kind: 'tier', status: 'shadow', reason: 'BENCH_BAR_UNMET: x' });
+  assert.deepEqual(actual.record.advice, { kind: 'tier', status: 'shadow', reason: 'LOCAL_RESULT_UNMET: none: x' });
 });
 
 test('084 C-10: an act result shows the effective decision, not the raw advisor pick', async (t) => {

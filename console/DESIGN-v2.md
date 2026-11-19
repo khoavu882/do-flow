@@ -144,9 +144,11 @@ the orchestration cells (`spawn`, `wait`, `status`, `cancel`, `resume`, `nest`),
 supported / unknown with the evidence file, plus a live list of worker runs. This turns the "can every
 harness be a worker or an orchestrator" question into a screen that stays true as evidence is added.
 
-**Advice.** Per decision kind (`advice.kinds.*`: `off`, `shadow`, `act`): picks per day, how often the
-model agreed with the rule, outcomes, and the verdict-gate state (`advice-verdicts.json` ships empty by
-design). Shadow picks show side by side with what actually ran. Unknown stays unknown, never 0.
+**Advice.** Per decision kind (`advice.kinds.*`: `off`, `shadow`, `show`, `act`): picks per day, how often
+the model agreed with the rule, outcomes, what you did with the picks you were shown and the agreement with
+what you did (a figure, never a standing), and the local results: each replay result stored on this machine,
+re-judged now, with why it is stale or its case set changed. Shadow picks show side by side with what
+actually ran. Unknown stays unknown, never 0.
 
 **Settings.** Table of keys from `core/registry/settings.json` with type, default, scope
 (`global-only`, `narrow-only`, `project-overridable`), the layer that wins (default, user, project,
@@ -367,8 +369,9 @@ README rule ("no write route except the session exchange") change in the same pu
 the reason a harness is not eligible, and the billing mode, next to the Workers matrix of section 5.3.
 
 **Shadow screen.** For each kind in `shadow`: what the model picked, what the rule did, whether they
-agreed, and the outcome when known. The screen states plainly that `act` is gated by a passing verdict and
-that none ships (S: `advice-verdicts.json` is empty).
+agreed, and the outcome when known. The screen states plainly that an answer is shown or acted on only for
+a kind set to `show` or `act` whose model has a passing local result, measured on this machine with
+`doflow advise --action replay --kind <kind> --write`; nothing ships one.
 
 ## 9. New read-only core verbs
 

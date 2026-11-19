@@ -124,6 +124,8 @@ test('IC-002: every shipped declaration has its approved id, root, path, rule, a
     ["console-device-store", "config-home", "console", "existing", {"value": 64, "text": "one JSON file of the Console's paired devices (at most 64), pending pairing codes (at most 16) and LAN Console entries, written whole through a temp file and a rename while lan.json.lock is held; a device idle for 30 days reads as expired and is dropped on the next write 30 days after that, a revoked one 30 days after its revocation, a Console entry 90 days after it started; a stale lock is moved aside before it is removed"}],
     ["console-tls", "config-home", "console/tls", "existing", {"value": 4, "text": "one private key (mode 0600) kept until it is missing or unreadable, and at most 4 certificate files, one per LAN address; a certificate is issued again when fewer than 30 days remain and the oldest file is deleted when a fifth is issued"}],
     ["console-action-log", "config-home", "console", "existing", {"value": 1048576, "text": "two NDJSON generations of the Console's action attempts, each at most 1 MiB: actions.ndjson is renamed over actions.1.ndjson when it reaches 1 MiB; a line is at most 2 KiB and holds no free text; actions.lock exists only during a rotation"}],
+    ['advice-bars-user', 'config-home', 'advice-bars.json', 'existing', { text: 'a file the person edits: DoFlow only reads it and never writes, prunes or removes it' }],
+    ['advice-results-user', 'user-state', 'advice/results.json', 'existing', { value: 256, text: 'one JSON file of local replay results, one entry per (project key, kind, model digest), at most 256 entries, the oldest runAt dropped first; written whole through a temp file and a rename while results.json.lock is held; it holds digests, counts and figures, never a standing, a case id or case text' }],
   ].map(([id, root, storePath, rule, bound]) => ({ id, root, path: storePath, rule, bound }));
   assert.deepEqual(actual, expected);
   const reuse = stores.find((s: any) => s.id === 'verification-reuse');
@@ -161,4 +163,13 @@ test('170 IC-003: channel-spool is declared and approved', () => {
   assert.deepEqual(store.writers, ['src/runtime/worker/channel-spool.ts']);
   assert.match('w-0123456789ab', new RegExp(store.match));
   assert.doesNotMatch('w-0123456789ab.prompt.txt', new RegExp(store.match));
+});
+
+test('175 O-3: advice-bars-user declares the person-owned bars file in the config home, with no writer and no moment', () => {
+  const store = loadStorageRegistry({ repoRoot: REPO }).stores.find((s: any) => s.id === 'advice-bars-user');
+  assert.ok(store, 'advice-bars-user is declared');
+  assert.deepEqual({ root: store.root, path: store.path, entry: store.entry, protect: store.protect, moments: store.moments, writers: store.writers },
+    { root: 'config-home', path: 'advice-bars.json', entry: 'file', protect: null, moments: [], writers: [] });
+  assert.match('advice-bars.json', new RegExp(store.match));
+  assert.doesNotMatch('advice-bars.json.tmp', new RegExp(store.match));
 });

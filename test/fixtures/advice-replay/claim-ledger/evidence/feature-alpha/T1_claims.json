@@ -1,0 +1,74 @@
+{
+  "taskId": "T1",
+  "updatedAt": "2026-11-01T10:00:00.000Z",
+  "claimsCount": 5,
+  "claims": [
+    {
+      "id": "claim_alpha_1",
+      "taskId": "T1",
+      "statement": "The session cache is cleared on logout SENTINEL-CLAIM-175",
+      "role": null,
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_alpha_1"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "updatedAt": "2026-11-01T10:00:00.000Z"
+    },
+    {
+      "id": "claim_alpha_2",
+      "taskId": "T1",
+      "statement": "The retry count is three",
+      "role": null,
+      "status": "rejected",
+      "supportingEvidence": [],
+      "contradictingEvidence": [
+        "ev_alpha_2"
+      ],
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "updatedAt": "2026-11-01T10:00:00.000Z"
+    },
+    {
+      "id": "claim_alpha_3",
+      "taskId": "T1",
+      "statement": "The export runs nightly",
+      "role": null,
+      "status": "hypothesis",
+      "supportingEvidence": [
+        "ev_alpha_missing"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "updatedAt": "2026-11-01T10:00:00.000Z"
+    },
+    {
+      "id": "claim_alpha_4",
+      "taskId": "T1",
+      "statement": "The queue drains in order",
+      "role": null,
+      "status": "hypothesis",
+      "supportingEvidence": [
+        "ev_alpha_empty"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "updatedAt": "2026-11-01T10:00:00.000Z"
+    },
+    {
+      "id": "claim_alpha_5",
+      "taskId": "T1",
+      "statement": "   ",
+      "role": null,
+      "status": "hypothesis",
+      "supportingEvidence": [
+        "ev_alpha_1"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "updatedAt": "2026-11-01T10:00:00.000Z"
+    }
+  ],
+  "version": 1,
+  "revision": 1
+}

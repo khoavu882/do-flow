@@ -1,8 +1,8 @@
 'use strict';
 
 // 141 B.7: nDCG@5 for both corpora, the two rerank arms over configuration A's candidate lists, and the
-// `advice-gate --kind rerank` branch. A fake client only: no model call, no network, no tool, no write to the shipped
-// verdict file (the tests that use --write point at a temp registry directory).
+// `advice-gate --kind rerank` branch (175 O-5: it prints nDCG@5 figures and the paired arm difference, no bar, and stores
+// nothing). A fake client only: no model call, no network, no tool.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,9 +21,7 @@ const ADVICE = loadAdviceRegistry({ repoRoot: REPO_ROOT });
 assert.equal(ADVICE.ok, true);
 const REGISTRY = ADVICE.registry;
 const RERANK = REGISTRY.kinds.find((kind: any) => kind.id === 'rerank');
-const EMPTY = { schemaVersion: 1, corpora: {}, verdicts: [] };
 const SETTING = { state: 'on', model: 'fake-model', endpoint: 'http://127.0.0.1:1', provider: 'ollama', decidedBy: {} };
-const REAL_VERDICT_FILE = path.join(REPO_ROOT, 'core/registry/advice-verdicts.json');
 const SHA = 'ab'.repeat(32);
 
 function readJson(file: string) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -116,47 +114,39 @@ function fakeClient({ items, fail = [] as string[], garbage = [] as string[], ca
   };
 }
 
-function registryDir(t: any, verdicts: any = EMPTY) {
-  const dir = tempDir(t, 'doflow-rerank-gate-');
-  fs.writeFileSync(path.join(dir, 'advice-verdicts.json'), JSON.stringify(verdicts));
-  return { dir, file: path.join(dir, 'advice-verdicts.json') };
-}
-
-function run(t: any, { items, client, arm, write = false, verdicts = EMPTY, extra = {} }: any) {
-  const reg = registryDir(t, verdicts);
+function run(t: any, { items, client, arm, extra = {} }: any) {
   const out: string[] = [];
   const err: string[] = [];
   const clientUsed = client ?? fakeClient({ items });
   return adviceGate({
-    kind: 'rerank', arm, write, adviceRegistry: REGISTRY, setting: SETTING, client: clientUsed, registryDir: reg.dir,
+    kind: 'rerank', arm, adviceRegistry: REGISTRY, setting: SETTING, client: clientUsed,
     firstStage: () => ({ items, snapshotId: 1, tasksSha256: SHA }),
-    now: () => new Date('2026-11-06T00:00:00.000Z'), log: (s: string) => out.push(s), error: (s: string) => err.push(s),
+    log: (s: string) => out.push(s), error: (s: string) => err.push(s),
     ...extra,
-  }).then((result: any) => ({ ...result, out, err, reg, client: clientUsed }));
+  }).then((result: any) => ({ ...result, out, err, client: clientUsed }));
 }
 
 // ---------------------------------------------------------------- the gate branch
 
-test('--arm both scores both arms over the same tasks, prints two verdicts and the paired difference', async (t) => {
+test('--arm both scores both arms over the same tasks, prints two figure blocks and the paired difference', async (t) => {
   const items = syntheticItems(40);
   const result = await run(t, { items, arm: 'both' });
   assert.equal(result.code, 0, result.err.join('\n'));
-  assert.deepEqual(result.verdicts.map((v: any) => v.arm), ['choice', 'ladder']);
+  assert.deepEqual(result.arms.map((v: any) => v.arm), ['choice', 'ladder']);
   assert.equal(result.client.calls.length, 80, 'the choice arm asks once per task and the ladder arm once per task');
   assert.equal(result.client.calls.filter((c: any) => c.questionSet.questions.length === 6).length, 40, 'one score question per candidate');
   assert.equal(result.client.calls.every((c: any) => c.record === false && c.kind === 'rerank' && c.caller === 'bench'), true);
 
-  const [choice, ladder] = result.verdicts;
-  for (const verdict of result.verdicts) {
-    assert.equal(verdict.kind, 'rerank');
-    assert.equal(verdict.model, 'fake-model');
-    assert.equal(verdict.n, 40);
-    assert.equal(verdict.valid, 40);
-    assert.equal(verdict.quality.metric, 'ndcg@5');
-    assert.ok(verdict.quality.model > verdict.quality.static, 'promoting the relevant candidate raises nDCG@5');
-    assert.equal(verdict.corpusVersion, rerankLib.RERANK_CORPUS_VERSION);
-    assert.equal(verdict.corpusDigest, `sha256:${SHA}`);
-    assert.match(verdict.criteriaDigest, /^[0-9a-f]{12}$/);
+  const [choice, ladder] = result.arms;
+  for (const figures of result.arms) {
+    assert.equal(figures.kind, 'rerank');
+    assert.equal(figures.model, 'fake-model');
+    assert.equal(figures.n, 40);
+    assert.equal(figures.valid, 40);
+    assert.equal(figures.quality.metric, 'ndcg@5');
+    assert.ok(figures.quality.model > figures.quality.static, 'promoting the relevant candidate raises nDCG@5');
+    assert.match(figures.criteriaDigest, /^[0-9a-f]{12}$/);
+    assert.equal('result' in figures || 'failedChecks' in figures, false, 'no bar: no pass or fail is printed');
   }
   assert.equal(choice.armDelta, null);
   assert.equal(ladder.armDelta.versus, 'choice');
@@ -168,23 +158,22 @@ test('--arm both scores both arms over the same tasks, prints two verdicts and t
   assert.match(text, /paired nDCG@5, ladder minus choice: 0\.000, ci \[0\.000, 0\.000\], n 40/);
   assert.match(text, /would drop \(ladder, confidence < 0\.5\): 200 of 240 candidates, 0 of 40 judged-relevant/);
   assert.match(text, /would drop \(ladder, expected < 2\): 200 of 240 candidates, 0 of 40 judged-relevant/);
-  assert.match(text, /not written \(pass --write/);
-  assert.deepEqual(readJson(result.reg.file), EMPTY, 'nothing is written without --write');
+  assert.match(text, /print-only: nothing is stored/);
 });
 
 test('an arm can be asked on its own, and --arm defaults to both', async (t) => {
   const items = syntheticItems(30);
   const ladder = await run(t, { items, arm: 'ladder' });
-  assert.deepEqual(ladder.verdicts.map((v: any) => v.arm), ['ladder']);
-  assert.equal(ladder.verdict.armDelta, null, 'the difference needs both arms');
+  assert.deepEqual(ladder.arms.map((v: any) => v.arm), ['ladder']);
+  assert.equal(ladder.arms[0].armDelta, null, 'the difference needs both arms');
   assert.equal(ladder.client.calls.length, 30);
 
   const choice = await run(t, { items, arm: 'choice' });
-  assert.deepEqual(choice.verdicts.map((v: any) => v.arm), ['choice']);
+  assert.deepEqual(choice.arms.map((v: any) => v.arm), ['choice']);
   assert.equal(choice.client.calls.every((c: any) => c.staticAnswer === 'A' && c.questionSet.questions.length === 1), true);
 
   const dflt = await run(t, { items });
-  assert.deepEqual(dflt.verdicts.map((v: any) => v.arm), ['choice', 'ladder']);
+  assert.deepEqual(dflt.arms.map((v: any) => v.arm), ['choice', 'ladder']);
 });
 
 test('invalid and unavailable replies count as the first-stage order and stay in the denominator', async (t) => {
@@ -192,18 +181,16 @@ test('invalid and unavailable replies count as the first-stage order and stay in
   const failed = items.slice(0, 2).map((item) => item.id);
   const garbage = items.slice(2, 4).map((item) => item.id);
   const client = fakeClient({ items, fail: failed, garbage });
-  const { verdicts, err } = await run(t, { items, client, arm: 'both' });
+  const { arms, err } = await run(t, { items, client, arm: 'both' });
   assert.deepEqual(err, []);
-  for (const verdict of verdicts) {
-    assert.equal(verdict.n, 40);
-    assert.equal(verdict.valid, 36);
-    assert.equal(verdict.validShare, 36 / 40);
-    assert.equal(verdict.result, 'fail');
-    assert.ok(verdict.failedChecks.includes('valid-share'));
+  for (const figures of arms) {
+    assert.equal(figures.n, 40);
+    assert.equal(figures.valid, 36);
+    assert.equal(figures.validShare, 36 / 40);
     // 36 tasks reach nDCG 1 (the relevant candidate on top); the 4 invalid ones keep the first-stage score 1/log2(5).
     const first = 1 / Math.log2(5);
-    assert.ok(Math.abs(verdict.quality.model - (36 + 4 * first) / 40) < 1e-12);
-    assert.ok(Math.abs(verdict.quality.static - first) < 1e-12);
+    assert.ok(Math.abs(figures.quality.model - (36 + 4 * first) / 40) < 1e-12);
+    assert.ok(Math.abs(figures.quality.static - first) < 1e-12);
   }
 });
 
@@ -214,10 +201,10 @@ test('a task with no judged positive is excluded from quality and listed; a task
   const printed = JSON.parse(result.out[0]);
   assert.deepEqual(printed.excluded, ['T-000', 'T-001']);
   assert.deepEqual(printed.skipped, ['T-002']);
-  for (const verdict of result.verdicts) {
-    assert.equal(verdict.n, 33, 'the skipped task got no call and is not counted for or against the model');
-    assert.equal(verdict.quality.excluded, 2);
-    assert.equal(verdict.valid, 33, 'the excluded tasks were still asked and answered');
+  for (const figures of result.arms) {
+    assert.equal(figures.n, 33, 'the skipped task got no call and is not counted for or against the model');
+    assert.equal(figures.quality.excluded, 2);
+    assert.equal(figures.valid, 33, 'the excluded tasks were still asked and answered');
   }
   assert.equal(printed.armDelta.n, 31);
   assert.equal(printed.cases.choice.length, 34);
@@ -225,54 +212,17 @@ test('a task with no judged positive is excluded from quality and listed; a task
   assert.equal(result.client.calls.length, 66);
 });
 
-test('the verdict is bound to the criteria in force: the digest comes from resolveRerankCriteria, the registry text only', async (t) => {
+test('the figures are bound to the criteria in force: the digest comes from resolveRerankCriteria, the registry text only', async (t) => {
   const items = syntheticItems(30);
   const registryCriteria = resolveRerankCriteria({ kind: RERANK });
   const base = await run(t, { items, arm: 'both' });
-  assert.equal(base.verdicts.every((v: any) => v.criteriaDigest === registryCriteria.digest), true);
+  assert.equal(base.arms.every((v: any) => v.criteriaDigest === registryCriteria.digest), true);
   assert.equal(base.out.some((line: string) => /^criteria: /.test(line)), false, 'no criteria warning: nothing overrides the registry text');
 
   const choiceCall = base.client.calls.find((c: any) => c.questionSet.questions.length === 1);
   assert.equal(choiceCall.questionSet.questions[0].instructions, RERANK.instructions);
   const ladderCall = base.client.calls.find((c: any) => c.questionSet.questions.length > 1);
   assert.deepEqual(ladderCall.questionSet.questions[0].criteria, RERANK.scoreLadder.criteria);
-});
-
-test('--write stores one verdict per (kind, model, arm) in a temp registry, replacing only its own entries', async (t) => {
-  const items = syntheticItems(30);
-  const other = { kind: 'tier', model: 'fake-model', arm: null, criteriaDigest: null, n: 30 };
-  const stale = { kind: 'rerank', model: 'fake-model', arm: 'choice', criteriaDigest: 'ffffffffffff', n: 1 };
-  const otherModel = { kind: 'rerank', model: 'other-model', arm: 'ladder', criteriaDigest: 'ffffffffffff', n: 1 };
-  const seeded = { schemaVersion: 1, corpora: { tier: { corpusVersion: 1, digest: 'sha256:x', heldoutCases: 30 } }, verdicts: [other, stale, otherModel] };
-  const result = await run(t, { items, arm: 'both', write: true, verdicts: seeded });
-  assert.equal(result.code, 0, result.err.join('\n'));
-  const stored = readJson(result.reg.file);
-  assert.equal(stored.verdicts.length, 4);
-  assert.deepEqual(stored.verdicts[0], other);
-  assert.equal(stored.verdicts[1].arm, 'choice', 'the stale choice entry is replaced in place');
-  assert.equal(stored.verdicts[1].n, 30);
-  assert.deepEqual(stored.verdicts[2], otherModel);
-  assert.equal(stored.verdicts[3].arm, 'ladder');
-  assert.deepEqual(stored.corpora.rerank, { corpusVersion: 1, digest: `sha256:${SHA}`, heldoutCases: 30, snapshotId: 1 });
-  assert.deepEqual(stored.corpora.tier, seeded.corpora.tier);
-  assert.match(result.out[0], /verdict written/);
-  // The file holds aggregates only.
-  const text = fs.readFileSync(result.reg.file, 'utf8');
-  assert.equal(/query number|snippet \d|src\/t\d/.test(text), false);
-
-  const again = await run(t, { items, arm: 'both', write: true, verdicts: stored });
-  assert.equal(readJson(again.reg.file).verdicts.length, 4, 'a second run replaces, never appends');
-
-  assert.deepEqual(readJson(REAL_VERDICT_FILE), EMPTY, 'the shipped verdict file is still empty');
-});
-
-test('--write refuses a changed dev task set whose corpusVersion did not increase', async (t) => {
-  const items = syntheticItems(30);
-  const seeded = { schemaVersion: 1, corpora: { rerank: { corpusVersion: 1, digest: 'sha256:other', heldoutCases: 30, snapshotId: 1 } }, verdicts: [] };
-  const result = await run(t, { items, arm: 'both', write: true, verdicts: seeded });
-  assert.equal(result.code, 1);
-  assert.match(result.err.join('\n'), /--write refused: kind 'rerank': the dev tasks changed but corpusVersion is still 1/);
-  assert.deepEqual(readJson(result.reg.file), seeded);
 });
 
 test('usage and setup errors', async (t) => {

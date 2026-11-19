@@ -1,5 +1,8 @@
 'use strict';
 
+// The decision-model adapter for the Ollama systemone route. Adapter contract for the model build (175 IC-007):
+// `parseList` returns `{ name, capabilities, digest }` per listed model, and a provider that cannot name the model build returns a digest of null.
+
 const SYSTEMONE_PATH = '/v1/systemone';
 const VERSION_PATH = '/api/version';
 const TAGS_PATH = '/api/tags';
@@ -175,6 +178,7 @@ function parseList(status: number, bodyText: any): any[] {
       name: model.name,
       capabilities: Array.isArray(model.capabilities) && model.capabilities.every((capability: any) => typeof capability === 'string')
         ? model.capabilities : null,
+      digest: typeof model.digest === 'string' && model.digest.trim() ? model.digest : null,
     }));
 }
 

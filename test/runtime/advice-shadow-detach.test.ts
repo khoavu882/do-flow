@@ -371,7 +371,7 @@ test('A4: an act call and the advice client stop at the kind budgetMs against a 
   const adviceClient = createAdviceClient({ adviceRegistry: registry, roots: s.roots });
   let started = Date.now();
   const res = await interceptDecisionPoint(ctx(s, { adviceRegistry: registry }), {
-    adviceClient, roots: s.roots, benchGate: async () => ({ passed: true, reason: 'injected' }), shadowConfig: { ...SHADOW, mode: 'act' },
+    adviceClient, roots: s.roots, trust: async () => ({ standing: 'act', reason: 'injected' }), shadowConfig: { ...SHADOW, mode: 'act' },
   });
   const actMs = Date.now() - started;
   assert.ok(actMs >= 380 && actMs < 2000, `the act call took ${actMs} ms against a 400 ms kind budget`);

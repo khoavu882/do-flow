@@ -804,7 +804,7 @@ test('N-6: every error refusal prints applicable null; a precondition refusal st
 // ---- IC-001 step 6: advice raises, never lowers ---------------------------------------------------
 
 /**
- * An awaited act answer cannot be reached by a real run (the shipped bench verdicts are empty, so act degrades to shadow):
+ * An awaited act answer cannot be reached by a real run (no local result is stored, so act degrades to shadow):
  * the dispatcher's reply is stood in for. `resolution` is what interceptDecisionPoint returns; `during` runs while the
  * "call" is in flight. The contexts the verb handed over are returned. The real function is restored after the test.
  */
@@ -1250,7 +1250,7 @@ test('084 H2: advice.kinds.review-depth shadow writes exactly one advice line an
   assert.deepEqual(stateEntries(r).filter((e: string) => !before.includes(e)), ['advice'], 'no review or telemetry file');
 });
 
-test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth and says why', async (t) => {
+test('084 H2: advice.kinds.review-depth act without a local result (LOCAL_RESULT_UNMET) keeps the decided depth and says why', async (t) => {
   const r = kindsRepo(t, 'act');
   const advice = await serveAdvice(t, r, 'deep');
   const { json } = await start(r, { base: r.base });
@@ -1258,13 +1258,13 @@ test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
-  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(json.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   const lines = await adviceLines(r);
   assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);
   assert.equal(lines[0].mode, 'shadow');
   const text = await start(r, { base: r.base, json: false });
-  assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=BENCH_BAR_UNMET: /.test(line)), text.out.join('\n'));
+  assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=LOCAL_RESULT_UNMET: none: /.test(line)), text.out.join('\n'));
 });
 
 test('084 D3: advice.kinds.review-depth act with a passing bench file in the project keeps the decided depth', async (t) => {
@@ -1275,7 +1275,7 @@ test('084 D3: advice.kinds.review-depth act with a passing bench file in the pro
   assert.equal(json.depthBasis.raisedBy, null);
   assert.equal(json.advice.status, 'shadow');
   assert.equal(json.advice.pick, null);
-  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.match(json.advice.reason, /^LOCAL_RESULT_UNMET: none: /);
   const lines = await adviceLines(r);
   assert.equal(advice.asks(), 1, 'degraded to shadow: the call is made and recorded');
   assert.equal(lines.length, 1);
