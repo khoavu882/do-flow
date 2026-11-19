@@ -146,7 +146,12 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     } else {
       model = { harness: lineHarness, model: null, source: 'harness-default' };
     }
-    effortPlan = effortPlanFor({ registry, env, declaredHarness: primary?.declared?.harness ?? null, workerHarness: lineHarness, choice: binding.choice ?? null, loginModeOf });
+    // As the dispatch loop (`effortPlanOf`): a binding gap refuses the launch before any plan, so no Effort line; otherwise the
+    // bound choice counts only when its model flag is evidenced.
+    if (!bindingGap(binding)) {
+      const choice = binding.flag === 'supported' ? binding.choice ?? null : null;
+      effortPlan = effortPlanFor({ registry, env, declaredHarness: primary?.declared?.harness ?? null, workerHarness: lineHarness, choice, loginModeOf });
+    }
   }
   const sourceText = resolved.source === 'owner' ? `owner ${owner}`
     : resolved.source === 'task' ? 'task line' : `default; ${resolved.note || `owner ${owner} has no tier`}`;

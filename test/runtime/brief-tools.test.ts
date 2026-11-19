@@ -693,11 +693,25 @@ test('178 T6 (g): the record carries the effortPlan the line renders, a bound ef
   assert.deepEqual(unknown.record.effortPlan, {
     pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null },
   });
+  const evidenced = { ...FAKE_WORK, worker: { ...FAKE_WORK.worker, model: { status: 'supported', argv: ['--model', '{model}'] } } };
   const bound: any = renderEffort(t, { MAIN_H_SESSION: '1', MAIN_H_EFFORT: 'ultra' }, {
+    registry: { ...registry, harnesses: [FAKE_MAIN, evidenced] },
     bindings: { state: 'set', map: { [FAKE_WORK.id]: { frontier: { model: 'm-1', effort: 'medium' } } }, reason: null },
   });
   assert.deepEqual(bound.record.effortPlan, { pass: 'medium', source: 'binding' });
   assert.equal(effortLine(bound.markdown), 'Effort: `medium` (tier binding) on `work-h`.');
+});
+
+test('178 T6 (g): a bound tier dispatch refuses (its model flag unevidenced) gives no Effort line and no plan, as the loop launches none', (t) => {
+  // B-1: one harness, a worker with no `model`, an effort bound on its tier. The Model line names the refusal; the brief must not
+  // also claim the bound effort, since the dispatch loop refuses the gap before it resolves any plan.
+  const refused: any = renderEffort(t, {}, {
+    registry: { ...registry, harnesses: [FAKE_WORK] },
+    bindings: { state: 'set', map: { [FAKE_WORK.id]: { frontier: { model: 'm-1', effort: 'medium' } } }, reason: null },
+  });
+  assert.match(refused.markdown, /^Model: .*model-flag:unevidenced/m);
+  assert.equal(effortLine(refused.markdown), undefined);
+  assert.equal(refused.record.effortPlan, null);
 });
 
 test('178 T6 (g): the verb reads the environment it runs in and prints the plan under --json', (t) => {
