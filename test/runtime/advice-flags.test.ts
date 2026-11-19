@@ -10,7 +10,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
+const { spawnSync } = require('node:child_process');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
@@ -246,4 +247,23 @@ test('--limit is a whole number from 1 to 200 and --kind names only instructs-re
   assert.equal((await flags(fx, { kind: 'claim-support' })).exit, 2);
   assert.equal((await flags(fx, { kind: KIND })).exit, 0);
   assert.equal(fx.calls.length, 2, 'a usage error makes no listing call');
+});
+
+test('a CLI run of advise --action flags runs no upkeep; report (control) runs it', (t) => {
+  const fx = fixture(t);
+  const env = {
+    HOME: fx.home, USERPROFILE: fx.home, XDG_CONFIG_HOME: fx.env.XDG_CONFIG_HOME,
+    PATH: process.platform === 'win32' ? process.env.PATH : `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+    ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}),
+    ...GIT_NO_MAINTENANCE_ENV, DOFLOW_TELEMETRY: 'off', DOFLOW_FAILURE_CAPTURE: 'off',
+  };
+  const run = (...args: string[]) => spawnSync(process.execPath, [path.join(REPO_ROOT, 'bin', 'doflow.js'), 'advise', ...args], { cwd: fx.project, env, encoding: 'utf8' });
+  const upkeepMarks = () => [fx.roots['project-state'], fx.roots['user-state']].flatMap((root: string) => ['.gitignore', 'upkeep-due'].filter((name) => fs.existsSync(path.join(root, name))));
+  // Upkeep skips a state root that does not exist yet, so both exist before the first run.
+  for (const root of [fx.roots['project-state'], fx.roots['user-state']]) fs.mkdirSync(root, { recursive: true });
+  const shown = run('--action', 'flags', '--json');
+  assert.equal(shown.status, 0, shown.stderr);
+  assert.deepEqual(upkeepMarks(), [], 'flags left no upkeep marker');
+  assert.notEqual(run('--action', 'report', '--json').status, 2);
+  assert.notDeepEqual(upkeepMarks(), [], 'control: report runs upkeep, which writes its marker');
 });
