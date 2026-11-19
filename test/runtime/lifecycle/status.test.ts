@@ -1,16 +1,16 @@
 'use strict';
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { makeRepo, featureBranch, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures.ts');
-const { foldEvents } = require('../../src/runtime/lifecycle/fold.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { deriveStatuses, readGitFacts, resolveGitStateHelper, bucketize, subjectNames, behindNote } = require('../../src/runtime/lifecycle/status.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { makeRepo, featureBranch, FIXTURES, SLUG, TRACKED_AT } = require('../../helper/lifecycle-git-fixtures.ts');
+const { foldEvents } = require('../../../src/runtime/lifecycle/fold.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { deriveStatuses, readGitFacts, resolveGitStateHelper, bucketize, subjectNames, behindNote } = require('../../../src/runtime/lifecycle/status.ts');
 
 const scratch = createScratch('doflow-status-');
 test.before(() => scratch.apply());
@@ -313,7 +313,7 @@ test('git-state --lifecycle reports the base tag the release ritual uses', () =>
   repo.git('tag', 'v1.0.0', firstCommit(repo));
   repo.tag('v1.1.0');
   repo.tag('1.9.9');
-  const out = JSON.parse(execFileSync(bashPath(), [path.join(__dirname, '../../core/shared/scripts/doflow/bash/do-git-state.sh'), '--lifecycle'], { cwd: repo.dir, encoding: 'utf8', env: scratch.env() }));
+  const out = JSON.parse(execFileSync(bashPath(), [path.join(__dirname, '../../../core/shared/scripts/doflow/bash/do-git-state.sh'), '--lifecycle'], { cwd: repo.dir, encoding: 'utf8', env: scratch.env() }));
   assert.equal(out.base_tag, 'v1.1.0');
   assert.deepEqual(out.release_tags, ['v1.0.0', 'v1.1.0']);
   assert.deepEqual(out.feature_prefixes, ['feat', 'feature']);
@@ -366,6 +366,6 @@ test('readGitFacts names the missing helper instead of a generic failure, and us
   const repo = makeRepo(scratch, 'helper-missing');
   assert.deepEqual(readGitFacts(repo.dir, runtimeLayout('missing').root), { error: 'git-state-helper-missing' });
   const install = runtimeLayout('real-install', { install: true });
-  fs.copyFileSync(path.join(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh'), install.installHelper);
+  fs.copyFileSync(path.join(__dirname, '..', '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-git-state.sh'), install.installHelper);
   assert.equal(readGitFacts(repo.dir, install.root).integration_ref, 'develop');
 });

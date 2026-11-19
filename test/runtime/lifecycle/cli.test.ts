@@ -5,13 +5,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { makeRepo, FIXTURES, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { buildOverview, initFeature, featureStatus } = require('../../src/runtime/lifecycle/overview.ts');
-const { FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { makeRepo, FIXTURES, SLUG, TRACKED_AT } = require('../../helper/lifecycle-git-fixtures.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { buildOverview, initFeature, featureStatus } = require('../../../src/runtime/lifecycle/overview.ts');
+const { FollowupUsageError } = require('../../../src/runtime/lifecycle/followup.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const RUN = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const scratch = createScratch('doflow-lcli-');
@@ -61,7 +61,7 @@ test('the dispatcher routes both verbs to the Node CLI', () => {
 
 test('--help lists every action and the flags the parser takes, for followup, lifecycle and goal', () => {
   const { repo } = newRepo();
-  const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../src/runtime/lifecycle/cli.ts');
+  const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../../src/runtime/lifecycle/cli.ts');
   const help = run(repo.dir, ['--help']).stdout;
   assert.ok(help.includes(`(--action ${FOLLOWUP_ACTIONS.join('|')}; list:`), 'followup verb line');
   assert.ok(help.includes(`(--action ${LIFECYCLE_ACTIONS.join('|')}; overview:`), 'lifecycle verb line');

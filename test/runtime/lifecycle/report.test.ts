@@ -6,11 +6,11 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { makeRepo } = require('../helper/lifecycle-git-fixtures.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { reportFollowup, listFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
-const reportStore = require('../../src/runtime/lifecycle/report-store.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { makeRepo } = require('../../helper/lifecycle-git-fixtures.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { reportFollowup, listFollowups, FollowupUsageError } = require('../../../src/runtime/lifecycle/followup.ts');
+const reportStore = require('../../../src/runtime/lifecycle/report-store.ts');
 
 /** POSIX permission bits are not expressible on Windows (files report 0666, folders 0777): there the strongest check is that the entry exists with the right kind. */
 function expectMode(entry: any, mode: number) {
@@ -20,7 +20,7 @@ function expectMode(entry: any, mode: number) {
 }
 
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const scratch = createScratch('doflow-report-');
 test.before(() => scratch.apply());
@@ -271,7 +271,7 @@ test('an empty XDG_CONFIG_HOME falls back to HOME/.config (the scratch HOME, nev
 });
 
 test('the reports home sits beside the failure home for every environment shape (IC-005 resolves as IC-011 does)', () => {
-  const { failureHome } = require('../../src/runtime/failure/home.ts');
+  const { failureHome } = require('../../../src/runtime/failure/home.ts');
   const envs: any = [{}, { HOME: '/h' }, { HOME: 'rel' }, { XDG_CONFIG_HOME: '/x' }, { XDG_CONFIG_HOME: 'rel', HOME: '/h' }, { XDG_CONFIG_HOME: '', HOME: '/h' }];
   for (const env of envs) {
     const failures = failureHome(env);
@@ -300,7 +300,7 @@ test('R1: a run with no whitespace at all keeps nothing but the marker; a mask f
   const repo = newRepo();
   const out = report(repo, { input: { text: 'A'.repeat(2 * MiB) } });
   assert.equal(fs.readFileSync(bodyFile(repo, out.created[0].id), 'utf8'), '\n[truncated by doflow at 1 MiB]');
-  const maskModule = require('../../src/runtime/mask.ts');
+  const maskModule = require('../../../src/runtime/mask.ts');
   const original = maskModule.maskBody;
   maskModule.maskBody = () => { throw new RangeError('Maximum call stack size exceeded'); };
   try {

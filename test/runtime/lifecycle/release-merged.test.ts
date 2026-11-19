@@ -1,6 +1,6 @@
 'use strict';
-// lifecycle-release-merged.test.js: lifecycle --action merged, the verb, review round G2 to G6 and git failures.
-// Sibling of lifecycle-release.test.js. Shared fixtures: lifecycle-release.shared.js.
+// lifecycle/release-merged.test.ts: lifecycle --action merged, the verb, review round G2 to G6 and git failures.
+// Sibling of lifecycle/release.test.ts. Shared fixtures: lifecycle/release.shared.ts.
 const { test }: any = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
   scratch, CLI, CLOCK, track, release, eventFiles, slugsOf, run, makeRepo, featureBranch, FIXTURES, failingGit, SLUG, store, featureStatus, FollowupUsageError, releaseFeatures, recordMerged,
-} = require('./lifecycle-release.shared.ts');
+} = require('./release.shared.ts');
 
 test.before(() => scratch.apply());
 test.after(() => { scratch.restore(); scratch.remove(); });
@@ -108,7 +108,7 @@ test('G2: a hotfix merged only into the tag\'s branch (develop is the integratio
 test('G2: the evidence uses the full merge commit, so a 7-character abbreviation that is ambiguous cannot misresolve it', () => {
   const { repo } = FIXTURES.deletedBranch(scratch);
   track(repo, SLUG);
-  const { deriveStatuses } = require('../../src/runtime/lifecycle/status.ts');
+  const { deriveStatuses } = require('../../../src/runtime/lifecycle/status.ts');
   const derived = deriveStatuses({ root: repo.dir, fold: store.readFold(repo.dir, { now: CLOCK }) });
   assert.match(derived.evidenceCommits[SLUG], /^[0-9a-f]{40}$/);
   assert.equal(derived.evidenceCommits[SLUG].slice(0, 7), derived.statuses[SLUG].evidence.ref);
@@ -151,7 +151,7 @@ test('G3: a feature whose only merge is after the tag stays notDetected for that
 test('G4: the preview is bound to the commit the status view pinned, with the same ref name', () => {
   const repo = makeRepo(scratch, 'g4');
   track(repo, SLUG);
-  const { deriveStatuses } = require('../../src/runtime/lifecycle/status.ts');
+  const { deriveStatuses } = require('../../../src/runtime/lifecycle/status.ts');
   const derived = deriveStatuses({ root: repo.dir, fold: store.readFold(repo.dir, { now: CLOCK }) });
   assert.equal(derived.integrationRef, 'develop');
   assert.equal(derived.integrationSha, repo.git('rev-parse', 'develop'));

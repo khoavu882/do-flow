@@ -5,11 +5,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { projectRoot } = require('../../src/runtime/lifecycle/root.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { foldEvents } = require('../../src/runtime/lifecycle/fold.ts');
-const { prepareStore } = require('../../src/runtime/lifecycle/store-upkeep.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { projectRoot } = require('../../../src/runtime/lifecycle/root.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { foldEvents } = require('../../../src/runtime/lifecycle/fold.ts');
+const { prepareStore } = require('../../../src/runtime/lifecycle/store-upkeep.ts');
 
 const scratch = createScratch('doflow-store-');
 test.before(() => scratch.apply());
@@ -264,7 +264,7 @@ test('write: a lock that cannot be taken refuses with store-locked and writes no
 test('write: concurrent processes serialise; every event lands, ids and times are distinct, no conflict', async () => {
   const dir = plainDir('write-concurrent');
   const script = `
-    const store = require(${JSON.stringify(path.resolve(__dirname, '../../src/runtime/lifecycle/event-store.ts'))});
+    const store = require(${JSON.stringify(path.resolve(__dirname, '../../../src/runtime/lifecycle/event-store.ts'))});
     const tag = process.argv[1];
     for (let i = 0; i < 5; i += 1) {
       const out = store.appendEvents(${JSON.stringify(dir)}, [{ type: 'followup.added', by: 'agent', data: { id: 'FU-' + tag + i, statement: 's', source: { kind: 'manual' } } }]);

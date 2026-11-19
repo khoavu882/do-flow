@@ -5,10 +5,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { FIXTURES, TRACKED_AT } = require('../helper/lifecycle-git-fixtures.ts');
-const followup = require('../../src/runtime/lifecycle/followup.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { FIXTURES, TRACKED_AT } = require('../../helper/lifecycle-git-fixtures.ts');
+const followup = require('../../../src/runtime/lifecycle/followup.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
 
 const scratch = createScratch('doflow-followup-');
 test.before(() => scratch.apply());
@@ -125,7 +125,7 @@ test('add: a branch with no feature folder is refused with both ways forward, an
 
 test('add: a runtime with no bash helpers anywhere says so, instead of "no feature resolved"', () => {
   // The shape of an installed runtime whose scripts directory is gone: bin/, src/ and core/registry/ only.
-  const repoRoot = path.resolve(__dirname, '..', '..');
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
   const tree = path.join(scratch.dir, 'runtime-without-helpers', 'runtime');
   fs.mkdirSync(path.join(tree, 'core'), { recursive: true });
   for (const part of ['bin', 'src']) fs.cpSync(path.join(repoRoot, part), path.join(tree, part), { recursive: true });

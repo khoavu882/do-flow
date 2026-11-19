@@ -10,11 +10,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync, spawn, spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL, MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { prepareStore, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL, MARKER_REL } = require('../../../src/runtime/lifecycle/store-upkeep.ts');
 
-const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
+const CLI = path.resolve(__dirname, '..', '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
@@ -94,7 +94,7 @@ test('copy: the first verb copies the old store once with equal names and bytes;
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), oldTree);
   assert.equal(git(dir, 'status', '--porcelain', '--', 'agent-docs'), '');
   for (const file of ['.gitignore', path.join('.doflow', '.gitignore')]) assert.equal(fs.existsSync(path.join(dir, file)), false, file);
-  assert.equal(fs.readFileSync(path.join(dir, '.doflow', 'state', '.gitignore'), 'utf8'), `${require('../../core/registry/storage.json').settings.ignoreFile.lines.join('\n')}\n`);
+  assert.equal(fs.readFileSync(path.join(dir, '.doflow', 'state', '.gitignore'), 'utf8'), `${require('../../../core/registry/storage.json').settings.ignoreFile.lines.join('\n')}\n`);
   assert.equal(fs.readFileSync(path.join(dir, '.git', 'info', 'exclude'), 'utf8'), exclude);
 });
 
@@ -373,7 +373,7 @@ test('marker: an unlistable old folder refuses with store-migration-failed befor
 /** A preload that makes every store read time out on the lock, as a long pass by another verb would. */
 function lockedPreload() {
   const file = path.join(scratch.dir, 'locked-preload.js');
-  const storePath = path.resolve(__dirname, '..', '..', 'src', 'runtime', 'lifecycle', 'event-store.ts');
+  const storePath = path.resolve(__dirname, '..', '..', '..', 'src', 'runtime', 'lifecycle', 'event-store.ts');
   fs.writeFileSync(file, `const store = require(${JSON.stringify(storePath)});
 const locked = () => { throw new store.StoreLockedError("Could not lock 'events' after 5s. Nothing was written."); };
 store.readEvents = locked;

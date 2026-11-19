@@ -11,11 +11,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { bashPath } = require('../helper/bash-locator.ts');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { makeRepo } = require('../helper/lifecycle-git-fixtures.ts');
-const { addFollowups } = require('../../src/runtime/lifecycle/followup.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { makeRepo } = require('../../helper/lifecycle-git-fixtures.ts');
+const { addFollowups } = require('../../../src/runtime/lifecycle/followup.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');

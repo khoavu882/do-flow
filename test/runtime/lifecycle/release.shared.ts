@@ -1,20 +1,20 @@
 'use strict';
-// lifecycle-release.shared.js — fixtures and runners the lifecycle-release test files share. Not a test file.
+// lifecycle/release.shared.ts — fixtures and runners the lifecycle/release test files share. Not a test file.
 // Each test file creates its own scratch from here and applies/removes it itself.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { makeRepo, featureBranch, FIXTURES, twoReleases, failingGit, SLUG, TRACKED_AT } = require('../helper/lifecycle-git-fixtures.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { buildOverview, featureStatus } = require('../../src/runtime/lifecycle/overview.ts');
-const { addFollowups, takeFollowups, loadFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
-const { releaseFeatures, recordMerged } = require('../../src/runtime/lifecycle/release.ts');
-const { readGitFacts } = require('../../src/runtime/lifecycle/status.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { makeRepo, featureBranch, FIXTURES, twoReleases, failingGit, SLUG, TRACKED_AT } = require('../../helper/lifecycle-git-fixtures.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { buildOverview, featureStatus } = require('../../../src/runtime/lifecycle/overview.ts');
+const { addFollowups, takeFollowups, loadFollowups, FollowupUsageError } = require('../../../src/runtime/lifecycle/followup.ts');
+const { releaseFeatures, recordMerged } = require('../../../src/runtime/lifecycle/release.ts');
+const { readGitFacts } = require('../../../src/runtime/lifecycle/status.ts');
 
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const scratch = createScratch('doflow-release-');
 

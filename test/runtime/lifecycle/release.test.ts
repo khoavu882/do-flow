@@ -1,14 +1,14 @@
 'use strict';
-// lifecycle-release.test.js: release and merged-evidence behaviour (features 046 to 047). This file: the worked
-// example, the preview and record rules, the integration ref. Sibling: lifecycle-release-merged.test.js (the merged
-// action, the verb, review round G2 to G6, git failures). Shared fixtures: lifecycle-release.shared.js.
+// lifecycle/release.test.ts: release and merged-evidence behaviour (features 046 to 047). This file: the worked
+// example, the preview and record rules, the integration ref. Sibling: lifecycle/release-merged.test.ts (the merged
+// action, the verb, review round G2 to G6, git failures). Shared fixtures: lifecycle/release.shared.ts.
 const { test }: any = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
   scratch, CLOCK, track, release, eventFiles, slugsOf, firstCommit, run, makeRepo, featureBranch, FIXTURES, twoReleases, SLUG, store, buildOverview, featureStatus, addFollowups, takeFollowups, loadFollowups, releaseFeatures, recordMerged, readGitFacts,
-} = require('./lifecycle-release.shared.ts');
+} = require('./release.shared.ts');
 
 test.before(() => scratch.apply());
 test.after(() => { scratch.restore(); scratch.remove(); });

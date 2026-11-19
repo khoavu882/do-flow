@@ -10,14 +10,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention.ts');
-const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
-const { EVENT_TYPES } = require('../../src/runtime/lifecycle/fold.ts');
-const { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { parseWindow, retentionWindow, selectExpired } = require('../../../src/runtime/lifecycle/retention.ts');
+const { loadSettings } = require('../../../src/runtime/settings/resolve.ts');
+const { EVENT_TYPES } = require('../../../src/runtime/lifecycle/fold.ts');
+const { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../../src/runtime/lifecycle/store-upkeep.ts');
 
-const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
+const CLI = path.resolve(__dirname, '..', '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
 const HOUR = 3600000;
@@ -460,7 +460,7 @@ test('run state under .doflow/state and an old agent-docs/lifecycle folder keep 
   const r = run(dir, ['followup', '--action', 'list', '--json'], '1');
   assert.deepEqual(retentionLines(r.stderr), ['doflow followup: retention: removed 2 event files older than 1 h']);
   const afterState = state(snapshot(path.join(dir, '.doflow', 'state')));
-  assert.equal(fs.readFileSync(path.join(dir, '.doflow', 'state', '.gitignore'), 'utf8'), `${require('../../core/registry/storage.json').settings.ignoreFile.lines.join('\n')}\n`);
+  assert.equal(fs.readFileSync(path.join(dir, '.doflow', 'state', '.gitignore'), 'utf8'), `${require('../../../core/registry/storage.json').settings.ignoreFile.lines.join('\n')}\n`);
   assert.deepEqual(afterState, { ...runState, '.gitignore': afterState['.gitignore'] });
   assert.deepEqual(snapshot(path.join(dir, LEGACY_LIFECYCLE_REL)), legacy);
 });
@@ -745,5 +745,5 @@ test('a lifecycle verb that runs a retention pass also clears a stale crashed te
 });
 
 test('the default stale age matches the storage registry setting', () => {
-  assert.equal(STALE_TMP_MS, require('../../core/registry/storage.json').settings.staleTmpHours * HOUR);
+  assert.equal(STALE_TMP_MS, require('../../../core/registry/storage.json').settings.staleTmpHours * HOUR);
 });

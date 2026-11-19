@@ -8,11 +8,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { makeRepo, historyBuilder, failingGit } = require('../helper/lifecycle-git-fixtures.ts');
-const store = require('../../src/runtime/lifecycle/event-store.ts');
-const { buildOverview, FEATURES_SHOWN } = require('../../src/runtime/lifecycle/overview.ts');
-const { addFollowups, settleFollowups } = require('../../src/runtime/lifecycle/followup.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { makeRepo, historyBuilder, failingGit } = require('../../helper/lifecycle-git-fixtures.ts');
+const store = require('../../../src/runtime/lifecycle/event-store.ts');
+const { buildOverview, FEATURES_SHOWN } = require('../../../src/runtime/lifecycle/overview.ts');
+const { addFollowups, settleFollowups } = require('../../../src/runtime/lifecycle/followup.ts');
 
 const scratch = createScratch('doflow-overview-');
 test.before(() => scratch.apply());
@@ -59,7 +59,7 @@ test('maintain names open runs silent for over a week, with the close command; t
   repo.dir = fs.realpathSync(repo.dir);
   const root = repo.dir;
   const orchestrate = (...args: any[]) => {
-    const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), 'orchestrate', ...args], {
+    const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', '..', 'bin', 'doflow.js'), 'orchestrate', ...args], {
       cwd: root, encoding: 'utf8', env: { ...process.env, DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off' },
     });
     assert.equal(out.status, 0, `${args.join(' ')}: ${out.stdout}${out.stderr}`);
@@ -132,7 +132,7 @@ test('the finished and awaiting-release buckets are shown bounded, with the true
 
 test('the text overview prints at most ten slugs per bounded bucket and says how many more there are', () => {
   const { root, slugs } = trackedRepo('shown-text', { merged: 12, open: 11 });
-  const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), 'lifecycle', '--action', 'overview'], { cwd: root, env: scratch.env(), encoding: 'utf8' });
+  const out = spawnSync(process.execPath, [path.join(__dirname, '..', '..', '..', 'bin', 'doflow.js'), 'lifecycle', '--action', 'overview'], { cwd: root, env: scratch.env(), encoding: 'utf8' });
   assert.equal(out.status, 0, out.stderr);
   const line = (label: any) => out.stdout.split('\n').find((l: any) => l.startsWith(`${label}: `));
   assert.equal(line('finished'), `finished: ${slugs.slice(2, 12).join(', ')} (+2 more; --json lists them all, lifecycle --action status --slug <slug> shows one)`);
@@ -143,7 +143,7 @@ test('a git failure while deriving statuses still answers the overview: follow-u
   const { root, slugs } = trackedRepo('overview-git-fails', { merged: 2 });
   addFollowups({ root, cwd: root, items: [{ statement: 'still listed without git' }], defaults: { stage: 'review', slug: slugs[0] }, now: at(0) });
   const git = failingGit(scratch);
-  const cli = (args: any, extra: any) => spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), 'lifecycle', '--action', 'overview', ...args], { cwd: root, env: { ...scratch.env(), ...extra }, encoding: 'utf8' });
+  const cli = (args: any, extra: any) => spawnSync(process.execPath, [path.join(__dirname, '..', '..', '..', 'bin', 'doflow.js'), 'lifecycle', '--action', 'overview', ...args], { cwd: root, env: { ...scratch.env(), ...extra }, encoding: 'utf8' });
   const out = cli(['--json'], git.env('any'));
   assert.equal(out.status, 0, out.stderr);
   const view = JSON.parse(out.stdout);

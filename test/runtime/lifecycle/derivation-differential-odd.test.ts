@@ -1,6 +1,6 @@
 'use strict';
 
-// The odd-numbered histories of the derivation differential (see lifecycle-derivation-differential.test.js
+// The odd-numbered histories of the derivation differential (see lifecycle/derivation-differential.test.ts
 // and test/helper/lifecycle-derivation-reference.ts), and the spawn budget of the overview and the
 // release preview. Services run in process under a scratch HOME, XDG_CONFIG_HOME and git config (DEC-041).
 //
@@ -22,11 +22,11 @@ for (const name of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile'
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { historyBuilder } = require('../helper/lifecycle-git-fixtures.ts');
-const { compareHistories, writeEvents, OUTCOMES, HISTORIES, CLOCK } = require('../helper/lifecycle-derivation-reference.ts');
-const { releaseFeatures } = require('../../src/runtime/lifecycle/release.ts');
-const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { historyBuilder } = require('../../helper/lifecycle-git-fixtures.ts');
+const { compareHistories, writeEvents, OUTCOMES, HISTORIES, CLOCK } = require('../../helper/lifecycle-derivation-reference.ts');
+const { releaseFeatures } = require('../../../src/runtime/lifecycle/release.ts');
+const { buildOverview } = require('../../../src/runtime/lifecycle/overview.ts');
 
 const scratch = createScratch('doflow-differential-odd-');
 test.before(() => scratch.apply());
