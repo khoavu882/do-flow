@@ -1,5 +1,5 @@
 'use strict';
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -7,9 +7,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { handleStorageCommand } = require('../../src/runtime/storage/cli.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { handleStorageCommand } = require('../../../src/runtime/storage/cli.ts');
 const DAY = 86400000;
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');

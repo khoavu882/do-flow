@@ -4,10 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { gatherGateFacts, gatherGitFacts, countMarkers, sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
-const { loadPolicy, evaluate } = require('../../src/runtime/roadmap/gates.ts');
-const baseBytes = fs.readFileSync(path.join(__dirname, '../../core/registry/gates.json'));
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { gatherGateFacts, gatherGitFacts, countMarkers, sha256Digest } = require('../../../src/runtime/roadmap/facts.ts');
+const { loadPolicy, evaluate } = require('../../../src/runtime/roadmap/gates.ts');
+const baseBytes = fs.readFileSync(path.join(__dirname, '../../../core/registry/gates.json'));
 const HEAD = 'a'.repeat(40);
 const PARENT = 'b'.repeat(40);
 const row: any = { id: '113', slug: '113-goal-order', class: 'feature', writeSet: ['src/x.ts'], needs: [], requires: [] };
@@ -179,7 +179,7 @@ test('D.4: gate-b gathers the authoring-identities fact; dispositions schemaVali
   assert.equal(authorsFact(empty).unreadable, undefined);
 
   // When dispatch store has dispatches, authoring-identities fact gathers them
-  const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
+  const { storeFileFor } = require('../../../src/runtime/dispatch/store.ts');
   const storeFile = storeFileFor(env.root, row.slug);
   fs.mkdirSync(path.dirname(storeFile), { recursive: true });
   fs.writeFileSync(storeFile, JSON.stringify({

@@ -12,12 +12,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { repoFromTemplate } = require('../helper/repo-template.ts');
-const { next } = require('../../src/runtime/roadmap/loop.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { repoFromTemplate } = require('../../helper/repo-template.ts');
+const { next } = require('../../../src/runtime/roadmap/loop.ts');
+const { WorkflowOrchestrator } = require('../../../src/runtime/workflow-orchestrator.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const SWITCH = 'DOFLOW_AUTOPILOT_ENABLED';
 const digest = (bytes: any) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const write = (file: any, bytes: any) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); };

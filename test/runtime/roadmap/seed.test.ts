@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 // Guard: no test here may reach the machine's real /dev/tty through the production-default reader (it would wait on a
 // person when the suite runs from a terminal). Every isTTY:true call passes its own `confirm`; the last test asserts it.
 const realOpenForGuard = fs.openSync;
@@ -17,7 +17,7 @@ const ttyGuard: any = ((p: any, ...rest: any[]) => {
 }) as any;
 beforeEach(() => { fs.openSync = ttyGuard; });
 
-const { bashPath } = require('../helper/bash-locator.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
 // The land command quotes any argument outside the portable word set (seed.ts quoteLandArgument); a native Windows path carries backslashes, so it is quoted.
 const lq = (value: any) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`);
 const {
@@ -27,13 +27,13 @@ const {
   SEED_RULES,
   seedFindings,
   parseSeed,
-} = require('../../src/runtime/roadmap/rows.ts');
-const { handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
-const { sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
+} = require('../../../src/runtime/roadmap/rows.ts');
+const { handleRoadmapCommand } = require('../../../src/runtime/roadmap/loop.ts');
+const { sha256Digest } = require('../../../src/runtime/roadmap/facts.ts');
 const {
   judgeDraft,
   handleSeedCommand,
-} = require('../../src/runtime/roadmap/seed.ts');
+} = require('../../../src/runtime/roadmap/seed.ts');
 
 const sha256 = (bytes: any) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 
@@ -1446,7 +1446,7 @@ test('C-1 malformed store rows are rejected by judgement and apply/amend leave b
 });
 
 test('C-2 seed reader fails closed for env-off, invalid settings, no config home, and resolver faults: maint-thin lands the rows proposed', (t) => {
-  const settings = require('../../src/runtime/settings/resolve.ts');
+  const settings = require('../../../src/runtime/settings/resolve.ts');
   const cases: any = [
     ['settings on plus env off', { setting: 'on', envOff: true }],
     ['unparsable settings', { setting: 'bad-json' }],

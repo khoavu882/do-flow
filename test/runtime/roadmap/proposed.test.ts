@@ -9,11 +9,11 @@ const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { seedFindings, deriveStatus, pick, render, renderRoadmapFile } = require('../../src/runtime/roadmap/rows.ts');
-const { loadPolicy, evaluate } = require('../../src/runtime/roadmap/gates.ts');
-const { sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
-const { handleSeedCommand, handlePromoteCommand } = require('../../src/runtime/roadmap/seed.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { seedFindings, deriveStatus, pick, render, renderRoadmapFile } = require('../../../src/runtime/roadmap/rows.ts');
+const { loadPolicy, evaluate } = require('../../../src/runtime/roadmap/gates.ts');
+const { sha256Digest } = require('../../../src/runtime/roadmap/facts.ts');
+const { handleSeedCommand, handlePromoteCommand } = require('../../../src/runtime/roadmap/seed.ts');
 
 // Guard: no test in this file may reach the machine's real /dev/tty through a production-default reader (it would wait
 // on a person when the suite runs from a terminal). Tests that stub fs.openSync themselves sit above this and never
@@ -60,7 +60,7 @@ test('rows: proposed is a known row key, only true; a proposed row derives statu
 });
 
 test('decide-gate by policy denies row-proposed for a proposed row; the same row without the mark is not denied for it', () => {
-  const policy = loadPolicy(fs.readFileSync(path.join(__dirname, '../../core/registry/gates.json'))).policy;
+  const policy = loadPolicy(fs.readFileSync(path.join(__dirname, '../../../core/registry/gates.json'))).policy;
   const facts = (value: any) => [{ name: 'row', value, locator: 'fixture:row', sha256: sha256Digest(JSON.stringify(value)) }];
   const denied = evaluate(policy, 'feature', 'gate-0', facts(row('130', { proposed: true })));
   assert.equal(denied.decision, 'deny');
@@ -384,7 +384,7 @@ test('mutation: no flag, option or environment variable bypasses the prompt; the
   assert.deepEqual(seen, ['open'], 'only /dev/tty was tried; stdin was never read for the answer');
   assert.equal(rawRows(dir), before);
   // the source declares no such switch either
-  const source = fs.readFileSync(path.join(__dirname, '../../src/runtime/roadmap/seed.ts'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../../../src/runtime/roadmap/seed.ts'), 'utf8');
   const promote = source.slice(source.indexOf('function readTtyAnswer'), source.indexOf('module.exports')).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.equal(/process\.env|--yes|assumeYes|options\.yes|\byes\b\s*[,=:]/.test(promote), false, 'promote reads no environment variable and declares no yes option');
 });

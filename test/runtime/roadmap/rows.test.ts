@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 const {
   parseSeed,
   deriveStatus,
@@ -22,9 +22,9 @@ const {
   SEED_RULES,
   ROW_KEYS,
   TOP_KEYS,
-} = require('../../src/runtime/roadmap/rows.ts');
-const { gatherGitFacts } = require('../../src/runtime/roadmap/facts.ts');
-const { handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
+} = require('../../../src/runtime/roadmap/rows.ts');
+const { gatherGitFacts } = require('../../../src/runtime/roadmap/facts.ts');
+const { handleRoadmapCommand } = require('../../../src/runtime/roadmap/loop.ts');
 
 test('parseSeed: accepts valid seed with declared schema and rows', () => {
   const seedJson = JSON.stringify({

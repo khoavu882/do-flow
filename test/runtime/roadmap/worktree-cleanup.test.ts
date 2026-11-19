@@ -9,10 +9,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { bashPath } = require('../helper/bash-locator.ts');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { cleanupWorktree, handleWorktreeCommand } = require('../../src/runtime/roadmap/worktree-cleanup.ts');
+const { bashPath } = require('../../helper/bash-locator.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { cleanupWorktree, handleWorktreeCommand } = require('../../../src/runtime/roadmap/worktree-cleanup.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');

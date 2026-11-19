@@ -6,19 +6,19 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const registry = require('../../core/registry/storage.json');
-const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
-const { prepareStore, LEGACY_EVENTS_REL, MARKER_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
-const { EVENTS_REL } = require('../../src/runtime/lifecycle/event-store.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const registry = require('../../../core/registry/storage.json');
+const { resolveRoots } = require('../../../src/runtime/storage/roots.ts');
+const { prepareStore, LEGACY_EVENTS_REL, MARKER_REL } = require('../../../src/runtime/lifecycle/store-upkeep.ts');
+const { EVENTS_REL } = require('../../../src/runtime/lifecycle/event-store.ts');
 
-const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
+const CLI = path.resolve(__dirname, '..', '..', '..', 'bin', 'doflow.js');
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 const DAY = 24 * 60 * 60 * 1000;
 const IGNORE = `${registry.settings.ignoreFile.lines.join('\n')}\n`;
 const MIGRATION_MESSAGE = 'the lifecycle store has not been copied yet; run any followup, lifecycle or goal command once without DOFLOW_UPKEEP=off. Nothing was written.';
 const DOCTOR_NOTE = 'note: DOFLOW_UPKEEP=off in this environment: upkeep and lifecycle retention are skipped';
-const upkeep = () => require('../../src/runtime/storage/upkeep.ts');
+const upkeep = () => require('../../../src/runtime/storage/upkeep.ts');
 
 function fixture(t: any) {
   const dir = tempDir(t, 'doflow-upkeep-switch-');
@@ -360,8 +360,8 @@ for (const [label, value] of NON_OFF_VALUES) {
 }
 
 test('doctor warns of a pending lifecycle copy read-only, under DOFLOW_UPKEEP=off or not, and not for a migrated or absent store', (t) => {
-  const { buildHealthReport } = require('../../src/runtime/health.ts');
-  const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+  const { buildHealthReport } = require('../../../src/runtime/health.ts');
+  const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
   const stub = () => { const error: any = new Error('not found'); error.code = 'ENOENT'; throw error; };
   const KIND = 'lifecycle-migration-pending';
   const report = (f: any, upkeep?: string) => {

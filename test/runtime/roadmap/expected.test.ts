@@ -16,21 +16,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { shPath } = require('../helper/tool-stub.ts');
-const { systemPath } = require('../helper/system-path.ts');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { GIT_NULL_CONFIG } = require('../helper/git-null-config.ts');
-const { repoFromTemplate } = require('../helper/repo-template.ts');
-const { next, handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
-const { mergeRoadmapRow } = require('../../src/runtime/roadmap/merge.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
-const { initRegister, addDecisions } = require('../../src/runtime/decision-register.ts');
+const { shPath } = require('../../helper/tool-stub.ts');
+const { systemPath } = require('../../helper/system-path.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { GIT_NULL_CONFIG } = require('../../helper/git-null-config.ts');
+const { repoFromTemplate } = require('../../helper/repo-template.ts');
+const { next, handleRoadmapCommand } = require('../../../src/runtime/roadmap/loop.ts');
+const { mergeRoadmapRow } = require('../../../src/runtime/roadmap/merge.ts');
+const { WorkflowOrchestrator } = require('../../../src/runtime/workflow-orchestrator.ts');
+const { initRegister, addDecisions } = require('../../../src/runtime/decision-register.ts');
 
-const REPO = path.resolve(__dirname, '../..');
-const { verificationRunsRoot, verificationRunRecordFile } = require('../../src/runtime/verification/engine.ts');
+const REPO = path.resolve(__dirname, '../../..');
+const { verificationRunsRoot, verificationRunRecordFile } = require('../../../src/runtime/verification/engine.ts');
 /** Where the real verify verb appends the IC-007 run records of a checkout (the writer's own rule). */
 const runRecordFile = (checkout: any, slug: any) => verificationRunRecordFile(verificationRunsRoot(checkout), slug);
-const FIXTURES = path.join(__dirname, '../fixtures/roadmap/g-l1');
+const FIXTURES = path.join(__dirname, '../../fixtures/roadmap/g-l1');
 const SCENARIOS_FILE = path.join(FIXTURES, 'scenarios.json');
 const EXPECTED_FILE = path.join(FIXTURES, 'expected.json');
 // Recorded by the orchestrator when the oracle was frozen (A.2, sha256.txt).

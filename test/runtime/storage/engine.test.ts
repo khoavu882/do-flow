@@ -3,9 +3,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const registry = require('../../core/registry/storage.json');
-const { runPass } = require('../../src/runtime/storage/engine.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const registry = require('../../../core/registry/storage.json');
+const { runPass } = require('../../../src/runtime/storage/engine.ts');
 const DAY = 86400000;
 const NOW = Date.parse('2026-10-10T12:00:00Z');
 function fixture(t: any) {

@@ -3,9 +3,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry.ts');
+const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../../src/runtime/storage/registry.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 
 function validRegistry() { return structuredClone(loadStorageRegistry({ repoRoot: REPO })); }
 function rejects(label: any, change: any, pattern: any) {

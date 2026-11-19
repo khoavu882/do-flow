@@ -5,11 +5,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { repoFromTemplate } = require('../helper/repo-template.ts');
-const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
-const { next, handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { repoFromTemplate } = require('../../helper/repo-template.ts');
+const { mergeRoadmapRow, readOpenIntents } = require('../../../src/runtime/roadmap/merge.ts');
+const { next, handleRoadmapCommand } = require('../../../src/runtime/roadmap/loop.ts');
+const { WorkflowOrchestrator } = require('../../../src/runtime/workflow-orchestrator.ts');
 const { createHash } = require('node:crypto');
 
 // A separate fixture keeps this suite independently runnable (no test-file imports).
@@ -227,7 +227,7 @@ for (const after of ['remove', 'branch']) {
 // to idle again. Each of those runs must end with exactly one merge for the row, a current table and
 // no open intent: 0 duplicate merges, 0 stale rows.
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const ROW: any = { id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [], writeSet: ['toy/'] };
 const digestOf = (bytes: any) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const put = (file: any, bytes: any) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); };

@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 test('verify runs unthrottled storage upkeep and preserves its visible result', () => {
@@ -96,7 +96,7 @@ test('C-9: upkeepAfterVerify prunes verification-reuse records aged 3 days; prun
 
     const pruneFile = path.join(project, '.doflow/settings.json');
     fs.writeFileSync(pruneFile, '{"schema":1,"storage.prune":"off"}\n');
-    const { upkeepAfterVerify } = require('../../src/runtime/storage/upkeep.ts');
+    const { upkeepAfterVerify } = require('../../../src/runtime/storage/upkeep.ts');
     upkeepAfterVerify({ projectRoot: project, now, env: scratch.env() });
     assert.equal(fs.readdirSync(reuseDir).length, 450, 'with prune-off, 450 records are kept');
 

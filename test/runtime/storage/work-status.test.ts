@@ -4,8 +4,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { workStatus, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES } = require('../../src/runtime/storage/work-status.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { workStatus, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES } = require('../../../src/runtime/storage/work-status.ts');
 
 const ROOT_USER = typeof process.getuid === 'function' && process.getuid() === 0;
 const DAY = 24 * 60 * 60 * 1000;
@@ -315,7 +315,7 @@ test('workStatus reads mtime when omitted and every missing record read fails cl
 });
 
 test('work-status has no process, network, or HTTP imports', () => {
-  const source = fs.readFileSync(path.join(__dirname, '../../src/runtime/storage/work-status.ts'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../../../src/runtime/storage/work-status.ts'), 'utf8');
   for (const prohibited of ['node:child_process', 'node:http', 'node:https', 'node:net', 'node:dns']) {
     assert.equal(source.includes(prohibited), false, prohibited);
   }
@@ -486,9 +486,9 @@ test('FU-c2ddw2 a lock directory in orchestration is not a run namespace', (t) =
 // C-1 (maint-runtime-b review): a record is judged only by a run it owns. A record under feature A's
 // namespace never takes feature B's namespaced run of the same task id, and a flat record that two
 // namespaces could claim is undecidable rather than guessed.
-const storageRegistry = require('../../core/registry/storage.json');
-const { runPass } = require('../../src/runtime/storage/engine.ts');
-const { recordStillCandidate } = require('../../src/runtime/storage/rules.ts');
+const storageRegistry = require('../../../core/registry/storage.json');
+const { runPass } = require('../../../src/runtime/storage/engine.ts');
+const { recordStillCandidate } = require('../../../src/runtime/storage/rules.ts');
 const OLD = Date.parse('2026-07-01T00:00:00Z');
 const OLD_ISO = '2026-01-01T00:00:00.000Z';
 
@@ -813,7 +813,7 @@ test('N-4 a FIFO in the record\'s run namespace folder neither hangs retention n
   const fifo = path.join(projectRoot, '.doflow', 'state', 'orchestration', 'feat-a', 'T.5.json');
   fs.mkdirSync(path.dirname(fifo), { recursive: true });
   assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
-  const script = `const { workStatus } = require(${JSON.stringify(path.join(__dirname, '../../src/runtime/storage/work-status.ts'))});
+  const script = `const { workStatus } = require(${JSON.stringify(path.join(__dirname, '../../../src/runtime/storage/work-status.ts'))});
     process.stdout.write(JSON.stringify(workStatus({ projectRoot: ${JSON.stringify(projectRoot)}, store: 'task-evidence', taskId: 'T.5', namespace: 'feat-a', mtimeMs: 1 })));`;
   const ran = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 8000, killSignal: 'SIGKILL' });
   assert.equal(ran.error, undefined, `retention blocked on the FIFO: ${ran.error && ran.error.code}`);

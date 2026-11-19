@@ -4,10 +4,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { loadPolicy, evaluate, validateFindings, verifyRecordReasons } = require('../../src/runtime/roadmap/gates.ts');
-const { sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
-const baseBytes = fs.readFileSync(path.join(__dirname, '../../core/registry/gates.json'));
+const { tempDir } = require('../../helper/tmp.ts');
+const { loadPolicy, evaluate, validateFindings, verifyRecordReasons } = require('../../../src/runtime/roadmap/gates.ts');
+const { sha256Digest } = require('../../../src/runtime/roadmap/facts.ts');
+const baseBytes = fs.readFileSync(path.join(__dirname, '../../../core/registry/gates.json'));
 const HEAD = 'a'.repeat(40);
 const PARENT = 'b'.repeat(40);
 const copy = (x: any) => JSON.parse(JSON.stringify(x));
@@ -23,7 +23,7 @@ function facts(overrides: any = {}) {
   return Object.entries(values).map(([name, value]: any) => ({ name, value, locator: `fixture:${name}`, sha256: sha256Digest(JSON.stringify(value)) }));
 }
 
-for (const fixture of require('../fixtures/roadmap/gates/policy-cases.json')) {
+for (const fixture of require('../../fixtures/roadmap/gates/policy-cases.json')) {
   test(`policy fixture: ${fixture.name}`, () => {
     if ('base' in fixture || fixture.override) {
       const loaded = loadPolicy('base' in fixture ? fixture.base : baseBytes, fixture.override && JSON.stringify(fixture.override));
@@ -38,7 +38,7 @@ for (const fixture of require('../fixtures/roadmap/gates/policy-cases.json')) {
   });
 }
 
-for (const fixture of require('../fixtures/roadmap/gates/cases.json')) {
+for (const fixture of require('../../fixtures/roadmap/gates/cases.json')) {
   test(`predicate fixture: ${fixture.name}`, () => {
     const policy = loadPolicy(baseBytes).policy;
     policy.classes.feature[fixture.gate].predicates = [fixture.predicate];
@@ -314,7 +314,7 @@ const mutations: any = [
   { name: 'preset floor', from: "|| protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
   { name: 'flat requirement is read', module: 'facts', from: "? ['intention/requirement.md']", to: "? ['requirement.md', 'intention/requirement.md']", pattern: 'artifact lookup reads only' },
 ];
-for (const fixture of require('../fixtures/roadmap/gates/cases.json')) {
+for (const fixture of require('../../fixtures/roadmap/gates/cases.json')) {
   if (mutations.some((m: any) => m.name === `predicate ${fixture.predicate}`)) continue;
   mutations.push({ name: `predicate ${fixture.predicate}`, from: 'for (const predicate of gate.predicates) {',
     to: `for (const predicate of gate.predicates.filter((entry: string) => entry !== ${JSON.stringify(fixture.predicate)})) {`,
@@ -326,10 +326,10 @@ for (const mutation of mutations) test(`scratch negative control: ${mutation.nam
   // Since 095 the findings validator lives in src/runtime/review/findings.ts; gates.ts imports it,
   // so its control mutates that module and runs the gates tests through a scratch gates.ts.
   const viaGates = targetName === 'findings';
-  const gatesModule = path.join(__dirname, '../../src/runtime/roadmap/gates.ts');
-  const originalModule = viaGates ? path.join(__dirname, '../../src/runtime/review/findings.ts')
-    : path.join(__dirname, `../../src/runtime/roadmap/${targetName}.ts`);
-  const originalTest = path.join(__dirname, `roadmap-${viaGates ? 'gates' : targetName}.test.ts`);
+  const gatesModule = path.join(__dirname, '../../../src/runtime/roadmap/gates.ts');
+  const originalModule = viaGates ? path.join(__dirname, '../../../src/runtime/review/findings.ts')
+    : path.join(__dirname, `../../../src/runtime/roadmap/${targetName}.ts`);
+  const originalTest = path.join(__dirname, `${viaGates ? 'gates' : targetName}.test.ts`);
   const targetModule = path.join(scratch, `${targetName}.ts`);
   const targetTest = path.join(scratch, 'control.test.ts');
   const absolutize = (source: any, directory: any, substitute?: any, replacement: any = targetModule) => source.replace(/require\('([.][.]?\/[^']+)'\)/g, (_match: any, specifier: any) => {

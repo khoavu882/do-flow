@@ -5,12 +5,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 // seed.ts quoteLandArgument single-quotes any argument outside the portable word set, so a native Windows path (backslashes) is quoted.
 const lq = (value: any) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`);
-const { deriveStatus, render, renderRoadmapFile } = require('../../src/runtime/roadmap/rows.ts');
+const { deriveStatus, render, renderRoadmapFile } = require('../../../src/runtime/roadmap/rows.ts');
 
-const BIN = path.join(__dirname, '..', '..', 'bin', 'doflow.js');
+const BIN = path.join(__dirname, '..', '..', '..', 'bin', 'doflow.js');
 const GIT_ENV: any = {
   GIT_AUTHOR_NAME: 't',
   GIT_AUTHOR_EMAIL: 't@example.test',

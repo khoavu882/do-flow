@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { mergeRoadmapRow, readOpenIntents, cleanupFeature } = require('../../src/runtime/roadmap/merge.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { mergeRoadmapRow, readOpenIntents, cleanupFeature } = require('../../../src/runtime/roadmap/merge.ts');
 
 function fixture(t: any, conflict: any = false) {
   const dir = tempDir(t, 'doflow-roadmap-merge-');
@@ -115,7 +115,7 @@ test('post-ff failure persists merged-unverified, renders nothing and denies cle
   assert.equal(fs.existsSync(path.join(f.root, 'agent-docs/roadmap/ROADMAP.md')), false);
   assert.ok(fs.existsSync(f.feature));
   assert.equal(readOpenIntents({ root: f.root })[0].status, 'merged-unverified');
-  const source = `require(${JSON.stringify(path.resolve(__dirname, '../../src/runtime/roadmap/loop.ts'))}).handleRoadmapCommand({ action:'status',json:true,root:process.argv[1] });`;
+  const source = `require(${JSON.stringify(path.resolve(__dirname, '../../../src/runtime/roadmap/loop.ts'))}).handleRoadmapCommand({ action:'status',json:true,root:process.argv[1] });`;
   const status = JSON.parse(cp.execFileSync(process.execPath, ['-e', source, f.root], { env: f.options.env, encoding: 'utf8' }));
   assert.equal(status.openIntents[0].phase, 'ff-done');
   assert.equal(status.rows[0].status, 'merged-unverified'); assert.equal(status.rowStatus['113'], 'merged-unverified');
@@ -125,7 +125,7 @@ test('post-ff failure persists merged-unverified, renders nothing and denies cle
 test('status names the open intent in JSON and text, and corrupt intent reads fail closed', async (t) => {
   const f = fixture(t);
   await assert.rejects(mergeRoadmapRow({ ...f.options, onPhase: (p: any) => { if (p === 'intent') throw new Error('crash'); } }));
-  const modulePath = path.resolve(__dirname, '../../src/runtime/roadmap/loop.ts');
+  const modulePath = path.resolve(__dirname, '../../../src/runtime/roadmap/loop.ts');
   const invoke = (json: any) => cp.spawnSync(process.execPath, ['-e', `require(${JSON.stringify(modulePath)}).handleRoadmapCommand({action:'status',row:'113',json:${json},root:process.argv[1]});`, f.root], { env: f.options.env, encoding: 'utf8' });
   const status = invoke(true); assert.equal(status.status, 0); assert.equal(JSON.parse(status.stdout).intent.phase, 'intent');
   assert.match(invoke(false).stdout, /Open merge intent: intent/);
