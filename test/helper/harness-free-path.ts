@@ -34,10 +34,11 @@ function harnessFreePath(): string {
   const deny = new Set(HARNESS_BINARY_NAMES);
   const entries = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
   if (process.platform === 'win32') {
-    cached = entries.filter((entry) => {
+    const kept: string = entries.filter((entry) => {
       try { return !fs.readdirSync(entry).some((file: string) => deny.has(stem(file))); } catch { return false; }
     }).join(path.delimiter);
-    return cached;
+    cached = kept;
+    return kept;
   }
   const dir = suiteTempDir('doflow-harness-free-path-');
   for (const entry of entries) {
@@ -49,7 +50,7 @@ function harnessFreePath(): string {
       try { fs.symlinkSync(path.join(entry, file), link); } catch { /* already linked by an earlier entry, or unreadable */ }
     }
   }
-  cached = dir;
+  cached = String(dir);
   return cached;
 }
 
