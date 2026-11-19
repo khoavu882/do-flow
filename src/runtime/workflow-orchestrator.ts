@@ -589,7 +589,7 @@ class WorkflowOrchestrator {
       }
 
       const existing = readWindow({ roots: safeRoots, fsImpl: this.fsImpl }).records
-        .filter(({ record }: any) => record.type === 'outcome')
+        .filter(({ record }: any) => record.type === 'outcome' && record.actual !== undefined)
         .map(({ record }: any) => record.pickId);
       const seen = new Set(existing);
       for (const record of briefRecords) {
