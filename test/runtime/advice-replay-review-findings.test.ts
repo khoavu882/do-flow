@@ -83,6 +83,7 @@ describe('cases', () => {
     const { skipped } = run(project(t));
     assert.deepEqual(skipped, {
       'not-a-review-record': 1,   // slug-schema-two
+      'single-seat': 1,           // slug-oneseat: production asks only multi-seat reviews
       'unreadable-file': 3,       // slug-broken, slug-linked, slug-reviewlink
       ungrouped: 1,               // a-6 / a-7: neither is in a converged entry
       'not-a-candidate': 25,      // 19 in alpha (21 placed pairs, 2 candidates), 6 in beta (10 placed pairs, 4 candidates)

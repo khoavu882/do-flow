@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "row": "900",
+  "slug": "slug-oneseat",
+  "rounds": 1,
+  "seats": [
+    {
+      "id": "seat-1",
+      "findings": [
+        {
+          "id": "o-1",
+          "severity": "should-fix",
+          "locator": "src/api.ts:20",
+          "summary": "handler returns an error on an empty body"
+        },
+        {
+          "id": "o-2",
+          "severity": "should-fix",
+          "locator": "src/api.ts:22",
+          "summary": "empty request body causes a server error"
+        }
+      ]
+    }
+  ],
+  "converged": [
+    { "id": "c-1", "from": ["o-1", "o-2"] }
+  ]
+}

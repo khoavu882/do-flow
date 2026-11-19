@@ -8,6 +8,8 @@
 // Read-only: the folder entries are listed with their types, a record is read only when its `review` folder is a real
 // directory and it is a regular file of at most 8 MiB (a link is never followed, at either level), and nothing is written.
 // A finding id that repeats keeps its first item. A skipped file, finding or pair is counted by reason, not shown.
+// A record with fewer than two seats is skipped as `single-seat`: production asks only multi-seat reviews (`review
+// --action similar` runs only with more than one seat), so a one-seat record is a case the kind is never asked.
 //
 // Pin: `CODE_DIGEST` fixes the code a case set depends on: `same-issue/rule.ts` (which pairs are asked and the rule's
 // answer), `advice/batch.ts` and this file. A change to any of the three files moves the digest, so the pin must be set
@@ -25,7 +27,7 @@ const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const CODE_FILES = ['src/runtime/advice/same-issue/rule.ts', 'src/runtime/advice/batch.ts'];
 const SELF_FILE = 'src/runtime/advice/replay/sources/review-findings.ts';
 
-const CODE_DIGEST = '66cfd33b0f2495a17d01bf09eafc833f00a53d7bb8aa58fc219dbff988c8e6f9';
+const CODE_DIGEST = '431a5c2e0d526214f97b0d0a3c8f4f6fd63cc990c02a9a2789181597440e25c8';
 
 /** Lowercase hex over the two code files' bytes, then this file's text without its pin line; null when one is unreadable. */
 function computeCodeDigest(fsImpl: any = nodeFs): string | null {
@@ -71,6 +73,7 @@ function build({ projectRoot, kind, fsImpl = nodeFs }: any = {}): { cases: any[]
     if (read === 'unreadable') { skip('unreadable-file'); continue; }
     const record = read.value;
     if (!record || record.schema !== 1 || !Array.isArray(record.seats) || !Array.isArray(record.converged)) { skip('not-a-review-record'); continue; }
+    if (record.seats.length < 2) { skip('single-seat'); continue; }
 
     const items: any[] = [];
     const itemById = new Map<string, any>();
