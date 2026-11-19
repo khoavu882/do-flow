@@ -17,6 +17,8 @@ const { checkPairs } = require('../advice/same-issue/ask.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { finishRuntime } = require('../cli-result.ts');
 
+const FINDING_ID = /^[A-Za-z0-9._:-]{1,64}$/;
+
 type SeatsRead = { seats: any[] } | { error: 'seats-unreadable' | 'seats-invalid'; message: string; field?: string };
 
 /** The seats of `file`, or the first fault: unreadable, not JSON, not a schema-1 object with a seats array, or a seat rule. */
@@ -30,7 +32,14 @@ function readSeats(file: string): SeatsRead {
   if (data.schema !== 1) return invalid('schema', 'schema');
   if (!Array.isArray(data.seats)) return invalid('seats', 'seats');
   const fault = seatFaults(data.seats).faults[0];
-  return fault ? invalid(fault.field, fault.error) : { seats: data.seats };
+  if (fault) return invalid(fault.field, fault.error);
+  // An id is echoed into the `--out` document line, so it holds to the id charset (one line, no markup).
+  for (let s = 0; s < data.seats.length; s += 1) {
+    for (let f = 0; f < data.seats[s].findings.length; f += 1) {
+      if (!FINDING_ID.test(data.seats[s].findings[f].id)) return invalid(`seats[${s}].findings[${f}].id`, 'id');
+    }
+  }
+  return { seats: data.seats };
 }
 
 const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;

@@ -295,6 +295,24 @@ test('(f) unreadable or invalid seats, or no feature: exit 1 naming the file or 
   assert.equal(a.asks().length, 0, 'no candidate pair, no call');
 });
 
+test('(f2) a finding id outside the id charset (a newline, too long, a space) is seats-invalid naming the field, nothing reaches --out', async (t) => {
+  const p = project(t);
+  const out = path.join(p.dir, 'possible-duplicates.md');
+  const bad = ['A-1\n- injected line', 'x'.repeat(65), 'A 1'];
+  for (const id of bad) {
+    const file = path.join(p.dir, 'ids.json');
+    fs.writeFileSync(file, JSON.stringify({ schema: 1, seats: [{ id: 'seat-a', findings: [finding('A-1'), { ...finding('A-2'), id }] }] }));
+    const r = await similar(p, { seats: file, outFile: out, json: true });
+    assert.equal(r.status, 1, JSON.stringify(id));
+    assert.deepEqual([r.json.error, r.json.field], ['seats-invalid', 'seats[0].findings[1].id']);
+    assert.ok(r.json.message.endsWith(': seats[0].findings[1].id fails the seat rules (id)'), r.json.message);
+  }
+  assert.equal(fs.existsSync(out), false);
+  const ok = path.join(p.dir, 'ok.json');
+  fs.writeFileSync(ok, JSON.stringify({ schema: 1, seats: [{ id: 'seat-a', findings: [finding('A-1'), { ...finding('A-2'), id: 'F.2:b-c-x' }] }] }));
+  assert.equal((await similar(p, { seats: ok, json: true })).status, 0);
+});
+
 /** Every regular file under `root` as relative path -> bytes, leaving out the decision record store the dispatcher writes. */
 function tree(root: string, base: string = root, out: Record<string, string> = {}) {
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
