@@ -4,8 +4,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { parseTestCounts, extractFailedFiles } = require('../../src/runtime/verification/contract-runner.ts');
-const { tempDir } = require('../helper/tmp.ts');
+const { parseTestCounts, extractFailedFiles } = require('../../../src/runtime/verification/contract-runner.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 
 const TAP_PASS = `TAP version 13
 # Subtest: test one

@@ -13,11 +13,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { v0Enabled, levelOf, v0Applies, loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
-const { VerificationEngine, handleVerifyCommand } = require('../../src/runtime/verification/engine.ts');
-const { buildVerifyRecords, emitVerifyTelemetry } = require('../../src/runtime/verification/telemetry-emit.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { v0Enabled, levelOf, v0Applies, loadVerificationRegistry } = require('../../../src/runtime/verification/registry.ts');
+const { VerificationEngine, handleVerifyCommand } = require('../../../src/runtime/verification/engine.ts');
+const { buildVerifyRecords, emitVerifyTelemetry } = require('../../../src/runtime/verification/telemetry-emit.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const sha16 = (x: any) => crypto.createHash('sha256').update(String(x)).digest('hex').slice(0, 16);
 
@@ -447,7 +447,7 @@ test('failed-first fixture: flag off (env or sentinel) equals pre-088 engine (no
 
 // G.4: the explicit runner seam must remain inert when flag-off or outside L1/L2.
 test('dedup fixture: flag off and L3 execute unshared and create no inflight state', (t) => {
-  const { VerificationContractRunner } = require('../../src/runtime/verification/contract-runner.ts');
+  const { VerificationContractRunner } = require('../../../src/runtime/verification/contract-runner.ts');
   const root = tempDir(t, 'doflow-v0-dedup-off-');
   const registry = loadVerificationRegistry();
   for (const [v0, riskLevel] of [[false, 'LOW'], [true, 'HIGH'], [true, 'CRITICAL']]) {

@@ -9,10 +9,10 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp.ts');
-const { samePath } = require('../helper-platform.ts');
+const { suiteTempDir } = require('../../helper/tmp.ts');
+const { samePath } = require('../../helper-platform.ts');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
 
 // The scratch environment is this process's, so the git helper, the in-process resolver and every
 // spawned verify read no real HOME, global or system git config even when this file runs alone.
@@ -23,13 +23,13 @@ after(() => {
   scratch.remove();
 });
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const {
   buildScopeBound, taskFilesFromPlan, resolveIntegrationBase, resolveExplicitBaseline, resolvePlanSource, parseDeclaredScope, resolveScopeBound,
   scopeReasonText, boundSourcesText,
-} = require('../../src/runtime/verification/scope-bound.ts');
-const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
+} = require('../../../src/runtime/verification/scope-bound.ts');
+const { VerificationEngine } = require('../../../src/runtime/verification/engine.ts');
 const resolveIntegrationBaseOf = (cwd: any) => resolveIntegrationBase({ cwd });
 
 const SLUG = '050-scope-demo';

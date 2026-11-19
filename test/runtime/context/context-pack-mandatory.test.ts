@@ -16,7 +16,7 @@ const featureResolve = require('../../../src/runtime/feature-resolve.ts');
 const FIXTURES_DIR = path.resolve(__dirname, '../../fixtures/context-pack');
 // Every handleContextPackCommand call passes a temp stateRoot: its default is process.cwd(), and
 // verify's broad tier runs this file with cwd in a live checkout, whose store it then polluted
-// (FU-k9h1df; test/runtime/verify-broad-tier-store-isolation.test.ts runs it from a linked worktree).
+// (FU-k9h1df; test/runtime/verification/broad-tier-store-isolation.test.ts runs it from a linked worktree).
 // A stubbed resolver's repoRoot is a different temp dir from the state root, so the CX.5 tests still
 // pin that requirement and plan paths resolve from feature.repoRoot, not the state root.
 

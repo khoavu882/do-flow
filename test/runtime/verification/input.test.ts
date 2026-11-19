@@ -7,9 +7,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir } = require('../helper/tmp.ts');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { VerificationEngine, validateVerificationInput } = require('../../src/runtime/verification/engine.ts');
+const { suiteTempDir } = require('../../helper/tmp.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { VerificationEngine, validateVerificationInput } = require('../../../src/runtime/verification/engine.ts');
 
 const scratch = createScratch('doflow-vinput-env-');
 scratch.apply();
@@ -18,7 +18,7 @@ after(() => {
   scratch.remove();
 });
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const SLUG = '063-verify-test';
 

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * test/runtime/verification-impact.test.ts: task A.3 (IC-009, DD-7, DD-8).
+ * test/runtime/verification/impact.test.ts: task A.3 (IC-009, DD-7, DD-8).
  *
  * Impacted test selector: static relative specifier resolution, spawn wildcard,
  * guard directory inclusion, and unknown-file full suite expansion.
@@ -11,9 +11,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const IMPACT_SRC_PATH = path.join(REPO, 'src/runtime/verification/impact.ts');
 
 function fixtureProject(t: any, { script = 'node --test test/', files = {} }: any = {}) {
@@ -33,7 +33,7 @@ function fixtureProject(t: any, { script = 'node --test test/', files = {} }: an
   return { root, found };
 }
 
-// Execute mutated modules in memory per worker-rules and test/runtime/verification-inflight.test.ts:476-
+// Execute mutated modules in memory per worker-rules and test/runtime/verification/inflight.test.ts:476-
 function mutated(file: any, before: any, after: any) {
   const Module = require('node:module');
   const filename = path.join(REPO, 'src/runtime/verification', file);
@@ -55,13 +55,13 @@ test('IC-009 pure: impact.ts does not contain child_process or mutating fs calls
 });
 
 test('IC-009 null convention: returns null when conventionFor(found) returns null', () => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   assert.equal(selectImpactedTests({ root: '/tmp', found: null, changedFiles: ['src/a.ts'] }), null);
   assert.equal(selectImpactedTests({ root: '/tmp', found: { source: 'unknown' }, changedFiles: ['src/a.ts'] }), null);
 });
 
 test('IC-009 module change: transitive reachability selects reaching tests + spawn tests + guard directory', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/a.test.js': "const m1 = require('../src/m1.ts');\n",
@@ -99,7 +99,7 @@ test('IC-009 module change: transitive reachability selects reaching tests + spa
 });
 
 test('IC-009 spawn wildcard: path.join dispatcher segments select both quote styles', (t) => {
-  const { selectImpactedTests, isSpawnTest } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests, isSpawnTest } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/regular.test.js': "require('../src/regular.ts');\n",
@@ -126,7 +126,7 @@ spawnSync(process.execPath, [path.join(__dirname, "..", "..", "bin", "doflow.js"
 });
 
 test('IC-009 test file change: changed test selects itself without pulling spawn wildcard', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/a.test.js': "const m1 = require('../src/m1.ts');\n",
@@ -154,7 +154,7 @@ test('IC-009 test file change: changed test selects itself without pulling spawn
 });
 
 test('IC-009 unknown files: registry, package.json, lockfile, md, unreached src give mode "full"', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/a.test.js': "const m1 = require('../src/m1.ts');\n",
@@ -187,7 +187,7 @@ test('IC-009 unknown files: registry, package.json, lockfile, md, unreached src 
 });
 
 test('IC-009 empty changedFiles: selects just guard dir tests, or empty array when none', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root: rootWithGuard, found: foundWithGuard } = fixtureProject(t, {
     files: {
       'test/a.test.js': "// a\n",
@@ -211,7 +211,7 @@ test('IC-009 empty changedFiles: selects just guard dir tests, or empty array wh
 });
 
 test('IC-009 deleted files: deleted test is non-unknown; deleted source without graph entry is unknown', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/a.test.js': "require('../src/lib.ts');\n",
@@ -260,7 +260,7 @@ test('IC-009 deleted files: deleted test is non-unknown; deleted source without 
 });
 
 test('IC-009 resolution: handles exact path, .ts, .js, /index.ts, /index.js', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/t1.test.js': "require('../src/exact.ts');\n",
@@ -290,7 +290,7 @@ test('IC-009 resolution: handles exact path, .ts, .js, /index.ts, /index.js', (t
 });
 
 test('IC-009 import forms: supports import, import(), and multiline import statements', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/esm.test.js': `
@@ -321,7 +321,7 @@ test('IC-009 import forms: supports import, import(), and multiline import state
 });
 
 test('IC-009 spawn test detection: recognizes bin/doflow and doflow-run with child_process functions', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/t1.test.js': "const { execSync } = require('child_process');\nexecSync('doflow-run verify');\n",
@@ -380,7 +380,7 @@ test('negative control: treating unknown files as no-op turns the registry case 
 });
 
 test('090 IC-001: test/** helper traversal selects tests importing helper or spawning CLI through helper', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/runtime/prepared-run.test.ts': "const { createEnv } = require('../helper/settings-fixtures');\n",
@@ -416,7 +416,7 @@ test('090 IC-001: test/** helper traversal selects tests importing helper or spa
 });
 
 test('090 IC-001: guard-covered paths stay selected when test/guards exists and expand to full when absent', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root: withGuards, found: foundWithGuards } = fixtureProject(t, {
     files: {
       'test/a.test.js': "require('../src/a.ts');\n",
@@ -455,7 +455,7 @@ test('090 IC-001: guard-covered paths stay selected when test/guards exists and 
 });
 
 test('090 IC-001: CLI hub cutting and verb-scoped spawn edges isolate verb subgraphs while preserving hub and wildcard fallback', (t) => {
-  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { selectImpactedTests } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'bin/doflow.js': "require('../src/cli/index.ts');\n",
@@ -493,7 +493,7 @@ test('090 IC-001: CLI hub cutting and verb-scoped spawn edges isolate verb subgr
 });
 
 test('090 IC-002: resolveTestsImportingHelper resolves transitive test importers and handles cycles', (t) => {
-  const { resolveTestsImportingHelper } = require('../../src/runtime/verification/impact.ts');
+  const { resolveTestsImportingHelper } = require('../../../src/runtime/verification/impact.ts');
   const { root, found } = fixtureProject(t, {
     files: {
       'test/hooks/a.test.js': "require('./prompt-nudge.shared.js');\n",

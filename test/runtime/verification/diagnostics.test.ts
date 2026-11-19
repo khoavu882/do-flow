@@ -9,10 +9,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 const {
   VerificationContractRunner, extractFailedTests, MAX_FAILED_TESTS,
-} = require('../../src/runtime/verification/contract-runner.ts');
+} = require('../../../src/runtime/verification/contract-runner.ts');
 
 function workdir(t: any) {
   const dir = tempDir(t, 'doflow-verification-diagnostics-');

@@ -16,12 +16,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir, tempDir } = require('../helper/tmp.ts');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { withinPath } = require('../helper-platform.ts');
-const { verifyStateRoot } = require('../../src/runtime/verification/engine.ts');
+const { suiteTempDir, tempDir } = require('../../helper/tmp.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { withinPath } = require('../../helper-platform.ts');
+const { verifyStateRoot } = require('../../../src/runtime/verification/engine.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 
 /** fs that sees only `inside`: the walk-up climbs above the fixture, and on win32 the temp folder sits under the runner's real
  * profile, whose own .doflow would otherwise be found as the store. Anything outside reads as absent. */

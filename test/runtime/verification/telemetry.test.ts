@@ -16,17 +16,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir, tempDir } = require('../helper/tmp.ts');
-const { createScratch } = require('../helper/scratch-env.ts');
+const { suiteTempDir, tempDir } = require('../../helper/tmp.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
 const VERIFY_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/verify.jsonl');
-const { emitVerifyTelemetry, buildVerifyRecords } = require('../../src/runtime/verification/telemetry-emit.ts');
-const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
-const { VerificationContractRunner } = require('../../src/runtime/verification/contract-runner.ts');
-const { runVerification } = require('../../src/runtime/dispatch/verify-run.ts');
+const { emitVerifyTelemetry, buildVerifyRecords } = require('../../../src/runtime/verification/telemetry-emit.ts');
+const { VerificationEngine } = require('../../../src/runtime/verification/engine.ts');
+const { VerificationContractRunner } = require('../../../src/runtime/verification/contract-runner.ts');
+const { runVerification } = require('../../../src/runtime/dispatch/verify-run.ts');
 
 const scratch = createScratch('doflow-verify-telemetry-');
 after(() => scratch.remove());
@@ -422,7 +422,7 @@ test('outside any project store the verify verb writes nothing (no global fallba
 });
 
 test('checkKey: equal inputs give equal check_key', () => {
-  const { checkKey } = require('../../src/runtime/verification/check-key.ts');
+  const { checkKey } = require('../../../src/runtime/verification/check-key.ts');
   const input: any = {
     command: 'npm test',
     timeoutMs: 60000,
@@ -438,7 +438,7 @@ test('checkKey: equal inputs give equal check_key', () => {
 });
 
 test('checkKey: a dirty file or a NODE_OPTIONS change gives a different key', () => {
-  const { checkKey } = require('../../src/runtime/verification/check-key.ts');
+  const { checkKey } = require('../../../src/runtime/verification/check-key.ts');
   const base: any = {
     command: 'npm test',
     timeoutMs: 60000,
@@ -456,7 +456,7 @@ test('checkKey: a dirty file or a NODE_OPTIONS change gives a different key', ()
 });
 
 test('checkKey: /tmp and /private/tmp equal', () => {
-  const { checkKey } = require('../../src/runtime/verification/check-key.ts');
+  const { checkKey } = require('../../../src/runtime/verification/check-key.ts');
   if (process.platform === 'darwin') {
     const inputTmp: any = {
       command: 'echo 1',
@@ -475,7 +475,7 @@ test('checkKey: /tmp and /private/tmp equal', () => {
 });
 
 test('checkKey: more than 500 files gives null', (t) => {
-  const { treeDigest, checkKey } = require('../../src/runtime/verification/check-key.ts');
+  const { treeDigest, checkKey } = require('../../../src/runtime/verification/check-key.ts');
   const dir = tempDir(t, 'doflow-check-key-500-');
   git(dir, 'init', '-q');
   const fakeEntries = Array.from({ length: 501 }, (_, i) => `?? file_${i}.txt`).join('\0') + '\0';

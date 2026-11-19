@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { evictReuse, lookupReuse, storeReuse, reuseDir } = require('../../src/runtime/verification/reuse.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { evictReuse, lookupReuse, storeReuse, reuseDir } = require('../../../src/runtime/verification/reuse.ts');
 
 const KEY = '0123456789abcdef';
 const DIGEST = 'a'.repeat(64);
@@ -52,7 +52,7 @@ function lookup(dir: any, options: any = {}) {
 }
 
 function mutatedReuse(before: any, after: any) {
-  const filename = path.resolve(__dirname, '../../src/runtime/verification/reuse.ts');
+  const filename = path.resolve(__dirname, '../../../src/runtime/verification/reuse.ts');
   const source = fs.readFileSync(filename, 'utf8');
   assert.ok(source.includes(before), `mutation target exists: ${before}`);
   const instance: any = new Module(filename, module);

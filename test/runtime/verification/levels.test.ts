@@ -14,10 +14,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadVerificationRegistry, levelOf, v0Applies, reuseApplies } = require('../../src/runtime/verification/registry.ts');
-const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
+const { loadVerificationRegistry, levelOf, v0Applies, reuseApplies } = require('../../../src/runtime/verification/registry.ts');
+const { VerificationEngine } = require('../../../src/runtime/verification/engine.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const GOLDEN_PATH = path.join(REPO, 'test/fixtures/verification/levels-golden.json');
 
 const FIXTURE_PLAN = [

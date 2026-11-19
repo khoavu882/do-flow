@@ -13,12 +13,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
-const CR = require('../../src/runtime/verification/contract-runner.ts');
-const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { loadVerificationRegistry } = require('../../../src/runtime/verification/registry.ts');
+const CR = require('../../../src/runtime/verification/contract-runner.ts');
+const { VerificationEngine } = require('../../../src/runtime/verification/engine.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const KEY_FILE = path.join(REPO, 'src/runtime/verification/check-key.ts');
 const REGISTRY = loadVerificationRegistry();
 const PASS_OUT = '# tests 4\n# fail 0\n';

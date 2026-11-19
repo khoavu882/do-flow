@@ -7,8 +7,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { treeDigest, treeState, checkKey, checkKeyV2, toolDigest, envDigest } = require('../../src/runtime/verification/check-key.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { treeDigest, treeState, checkKey, checkKeyV2, toolDigest, envDigest } = require('../../../src/runtime/verification/check-key.ts');
 
 const HEAD = '1'.repeat(40);
 const CLEAN = crypto.createHash('sha256').update('clean').digest('hex');
@@ -83,7 +83,7 @@ test('the contract runner supplies its nested configDir to the tree digest', (t)
     }
     process.stdout.write(JSON.stringify(keys));
   `;
-  const child = spawnSync(process.execPath, ['-e', script, path.resolve(__dirname, '../..'), root], { encoding: 'utf8' });
+  const child = spawnSync(process.execPath, ['-e', script, path.resolve(__dirname, '../../..'), root], { encoding: 'utf8' });
   assert.equal(child.status, 0, child.stderr);
   const [before, after] = JSON.parse(child.stdout);
   assert.match(before, /^[0-9a-f]{16}$/);
@@ -311,7 +311,7 @@ test('checkKeyV2 returns the key and the full sha256 of the version 2 payload', 
   assert.equal(out.key, out.payloadDigest.slice(0, 16));
   assert.equal(checkKey(input), out.key);
   // Recompute the payload from first principles: nothing declared, no PATH, a clean tree.
-  const inputs = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../core/registry/verification.json'), 'utf8'))
+  const inputs = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../core/registry/verification.json'), 'utf8'))
     .policy.reuse.ignoredInputs;
   const payload: any = [2, 'npm test', 1000, fs.realpathSync(root), HEAD, CLEAN, NONE,
     sha(inputs.map((rel: any) => `${rel}\0absent`).join('\n')),
@@ -349,7 +349,7 @@ test('a caller-supplied tree outside a git checkout is keyable but never equals 
 // production file is never edited, and each mutation must break the case asserted above.
 function mutated(before: any, after: any) {
   const Module = require('node:module');
-  const filename = path.resolve(__dirname, '../../src/runtime/verification/check-key.ts');
+  const filename = path.resolve(__dirname, '../../../src/runtime/verification/check-key.ts');
   const source = fs.readFileSync(filename, 'utf8');
   assert.ok(source.includes(before), `mutation target exists: ${before}`);
   const instance: any = new Module(filename, module);

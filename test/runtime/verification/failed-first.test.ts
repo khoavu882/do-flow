@@ -12,9 +12,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { VerificationEngine } = require('../../../src/runtime/verification/engine.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const sha16 = (x: any) => crypto.createHash('sha256').update(String(x)).digest('hex').slice(0, 16);
 

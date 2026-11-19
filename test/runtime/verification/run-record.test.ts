@@ -10,11 +10,11 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { createScratch } = require('../helper/scratch-env.ts');
-const { verifyRecordReasons } = require('../../src/runtime/roadmap/gates.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { verifyRecordReasons } = require('../../../src/runtime/roadmap/gates.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const scratch = createScratch('doflow-verify-run-record-');
 after(() => scratch.remove());

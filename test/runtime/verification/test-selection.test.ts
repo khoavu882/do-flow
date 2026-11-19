@@ -7,12 +7,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir } = require('../helper/tmp.ts');
-const { detectCommands } = require('../../src/runtime/command-detect.ts');
-const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
-const { selectChangedTests, quotePath } = require('../../src/runtime/verification/test-selection.ts');
+const { suiteTempDir } = require('../../helper/tmp.ts');
+const { detectCommands } = require('../../../src/runtime/command-detect.ts');
+const { VerificationEngine } = require('../../../src/runtime/verification/engine.ts');
+const { selectChangedTests, quotePath } = require('../../../src/runtime/verification/test-selection.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 
 /** A project whose test script is `script`, with `files` (relative path -> content) written under it. */
 function project({ script = 'node --test test/', files = {} }: any = {}) {
@@ -374,13 +374,13 @@ test('review 4: on win32 a path holding `%` or `!` is not selectable and the bro
 test('090 IC-003: testFilesFor discovers .test.ts files', () => {
   const root = project({ files: { 'test/a.test.ts': '', 'test/b.test.js': '', 'test/c.txt': '' } });
   const found = detectCommands({ projectRoot: root }).commands.testTargeted;
-  const { testFilesFor } = require('../../src/runtime/verification/test-selection.ts');
+  const { testFilesFor } = require('../../../src/runtime/verification/test-selection.ts');
   const files = testFilesFor(found, root);
   assert.deepEqual(files, ['test/a.test.ts', 'test/b.test.js']);
 });
 
 test('090 IC-003: formatSelectedTestPattern replaces files under guardDir with single token and shell quotes', () => {
-  const { formatSelectedTestPattern } = require('../../src/runtime/verification/test-selection.ts');
+  const { formatSelectedTestPattern } = require('../../../src/runtime/verification/test-selection.ts');
   const pattern = formatSelectedTestPattern({
     selectedTests: ['test/b.test.js', 'test/guards/g1.test.js', 'test/guards/g2.test.js', 'test/a test.js'],
     guardDir: 'test/guards',
@@ -390,7 +390,7 @@ test('090 IC-003: formatSelectedTestPattern replaces files under guardDir with s
 });
 
 test('the guard token runs the guard files on this Node, where a directory argument may not', () => {
-  const { formatSelectedTestPattern } = require('../../src/runtime/verification/test-selection.ts');
+  const { formatSelectedTestPattern } = require('../../../src/runtime/verification/test-selection.ts');
   const passing = "require('node:test')('ok', () => {});\n";
   const root = project({ files: { 'test/guards/g1.test.js': passing, 'test/guards/deep/g2.test.ts': passing, 'test/guards/notes.txt': 'x' } });
   const pattern = formatSelectedTestPattern({ selectedTests: [], guardDir: 'test/guards' });

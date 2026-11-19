@@ -8,10 +8,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { verifyStateRoot } = require('../../src/runtime/verification/engine.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { verifyStateRoot } = require('../../../src/runtime/verification/engine.ts');
 
-const CLI = path.resolve(__dirname, '../../bin/doflow.js');
+const CLI = path.resolve(__dirname, '../../../bin/doflow.js');
 const TASK = '905-demo';
 
 function fixture(t: any, { failing = false, nested = false }: any = {}) {

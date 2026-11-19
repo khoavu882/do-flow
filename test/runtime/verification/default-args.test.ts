@@ -3,8 +3,8 @@
 // destructure itself (A5 of the 073 final review).
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { destructiveCommandGlobs } = require('../../src/helper/guardrails.ts');
-const { handleVerifyCommand } = require('../../src/runtime/verification/engine.ts');
+const { destructiveCommandGlobs } = require('../../../src/helper/guardrails.ts');
+const { handleVerifyCommand } = require('../../../src/runtime/verification/engine.ts');
 
 test('handleVerifyCommand() with no argument returns a usage exit code instead of throwing', () => {
   const write = process.stderr.write;
