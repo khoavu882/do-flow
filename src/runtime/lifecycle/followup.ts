@@ -105,8 +105,8 @@ const SIMILAR_MAX = 3;
 
 /**
  * The same-issue kind's `params`, read from core/registry/advice.json itself rather than through the advice registry
- * module, whose require graph costs about 19 ms of the 50 ms `add` may add (measured 2026-11-19); null when unreadable,
- * so `add` then lists no matches. The registry's own checks validate the values.
+ * module, whose require graph costs about 19 ms of the 50 ms `add` may add per created item (measured 2026-11-19; a batch
+ * add has no item cap); null when unreadable, so `add` then lists no matches. The registry's own checks validate the values.
  */
 function sameIssueParams(repoRoot = REPO_ROOT) {
   try {

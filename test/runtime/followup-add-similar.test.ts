@@ -2,8 +2,9 @@
 
 // Row 176 T6 (design §11, IC-009, AC-5): `followup --action add` names the open and taken follow-ups that look like each
 // item it just filed, by the rule stage alone: at most three `{ id, score }` per created item, compared with the newest
-// `maxCompare` of the fold and the other created items, in under 50 ms on 2,000 items. Nothing is refused or merged, and
-// no model is asked: the fake decision server counts no request while `add` runs, even with the kind set to show.
+// `maxCompare` of the fold and the other created items, in under 50 ms per created item on 2,000 items (a batch add has no
+// item cap). Nothing is refused or merged, and no model is asked: the fake decision server counts no request while `add`
+// runs, even with the kind set to show.
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -111,7 +112,7 @@ test('(c) only the newest maxCompare open and taken items are compared', () => {
   assert.deepEqual(newest, ['FU-mid000', 'FU-new000']);
 });
 
-test('(d) ruleMatchesOnAdd over 2,000 open items: the median of 15 in-process runs is under 50 ms', () => {
+test('(d) ruleMatchesOnAdd over 2,000 open items: the median of 15 in-process runs is under 50 ms for one created item', () => {
   const words = 'cache ttl constant wrong module retry upload client timeout parser config window token budget guard ledger report store event fold lock'.split(' ');
   const followups = Array.from({ length: 2000 }, (_, n) => ({
     id: `FU-${String(n).padStart(6, '0')}`, state: 'open',
