@@ -9,10 +9,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir } = require('../../helper/tmp.ts');
 const { spawnSync } = require('node:child_process');
-const { telemetryOff, TelemetryWriter } = require('../../src/runtime/trace/telemetry.ts');
-const { resolveRunsLocation, outerProjectRoot } = require('../../src/runtime/trace/ledger.ts');
+const { telemetryOff, TelemetryWriter } = require('../../../src/runtime/trace/telemetry.ts');
+const { resolveRunsLocation, outerProjectRoot } = require('../../../src/runtime/trace/ledger.ts');
 
 const NOW: any = new Date('2026-10-17T08:30:15.123Z');
 const NOW_ISO = '2026-10-17T08:30:15.123Z';
@@ -307,8 +307,8 @@ test('A.1 writer: the shipped registry is the default, kinds are declared and wr
 });
 
 test('A.1 writer: SAFE_TOKEN is the ledger pattern, held equal by reading ledger.ts', () => {
-  const { SAFE_TOKEN } = require('../../src/runtime/trace/telemetry.ts');
-  const ledger = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'runtime', 'trace', 'ledger.ts'), 'utf8');
+  const { SAFE_TOKEN } = require('../../../src/runtime/trace/telemetry.ts');
+  const ledger = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'runtime', 'trace', 'ledger.ts'), 'utf8');
   assert.ok(ledger.includes(`const SAFE_TOKEN = ${SAFE_TOKEN};`), 'ledger.ts SAFE_TOKEN changed: update telemetry.ts');
 });
 
@@ -320,7 +320,7 @@ test('A.1 writer: a hostile record costs only itself', (t) => {
 
 // --- A.1c: a non-regular target never blocks, never throws and is never followed -----------------
 
-const TELEMETRY_MODULE = path.join(__dirname, '..', '..', 'src', 'runtime', 'trace', 'telemetry.ts');
+const TELEMETRY_MODULE = path.join(__dirname, '..', '..', '..', 'src', 'runtime', 'trace', 'telemetry.ts');
 const POSIX = process.platform !== 'win32';
 
 /** Runs one write in a child process that is killed after 3 s: a hang is a failure, not a stall. */

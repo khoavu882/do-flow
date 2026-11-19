@@ -13,17 +13,17 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { start, pause, resume, inspect } = require('../../src/runtime/task-attempts.ts');
-const { runKeyFor, formatInspect, inspectRun } = require('../../src/runtime/task-run.ts');
-const { cwdHash } = require('../../src/runtime/context/identity.ts');
-const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { start, pause, resume, inspect } = require('../../../src/runtime/task-attempts.ts');
+const { runKeyFor, formatInspect, inspectRun } = require('../../../src/runtime/task-run.ts');
+const { cwdHash } = require('../../../src/runtime/context/identity.ts');
+const { WorkflowOrchestrator } = require('../../../src/runtime/workflow-orchestrator.ts');
 
 const SLUG = 'feat-t';
 const NOW: any = new Date('2026-02-01T00:00:00.000Z');
 const LATER: any = new Date('2026-02-01T00:05:00.000Z');
 const LATEST: any = new Date('2026-02-01T00:10:00.000Z');
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const HEX32 = /^[0-9a-f]{32}$/;
 const PLAN = [
   '# Plan', '', '**Task graph:** v1', '', '## Tasks', '', '### Phase A', '',

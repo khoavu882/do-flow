@@ -8,10 +8,10 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs');
-const { tempDir } = require('../helper/tmp.ts');
-const { resolveOtlpEnv, sendRequests, handleTraceExport } = require('../../src/runtime/trace/otlp-export.ts');
-const otlpMap = require('../../src/runtime/trace/otlp-map.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { resolveOtlpEnv, sendRequests, handleTraceExport } = require('../../../src/runtime/trace/otlp-export.ts');
+const otlpMap = require('../../../src/runtime/trace/otlp-map.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const registry = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/telemetry.json'), 'utf8'));
 

@@ -4,8 +4,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { buildOtlpRequests, ownedLists } = require('../../src/runtime/trace/otlp-map.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
+const { buildOtlpRequests, ownedLists } = require('../../../src/runtime/trace/otlp-map.ts');
 
 const registry = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/telemetry.json'), 'utf8'));
 
@@ -728,7 +728,7 @@ test('byte identity: two invocations with identical inputs produce identical ser
 // --- 091 review fixes: C-1 typed attribute rules, C-4 export-time span ids, C-5 pinned filters ---
 
 const crypto = require('node:crypto');
-const { attributeRule } = require('../../src/runtime/trace/otlp-map.ts');
+const { attributeRule } = require('../../../src/runtime/trace/otlp-map.ts');
 const sha16 = (text: any) => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
 const clone = (value: any) => JSON.parse(JSON.stringify(value));
 const oneSpanView = (attrs: any, extra: any = {}) => ({

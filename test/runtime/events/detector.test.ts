@@ -8,9 +8,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
-const { createDetector, DEBOUNCE_MS, RETRY_MS } = require('../../src/runtime/events/detector.ts');
-const { updateTaskState } = require('../../src/runtime/task-state.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { createDetector, DEBOUNCE_MS, RETRY_MS } = require('../../../src/runtime/events/detector.ts');
+const { updateTaskState } = require('../../../src/runtime/task-state.ts');
 
 /** Lets every queued promise chain and immediate run. */
 async function settle(): Promise<void> {

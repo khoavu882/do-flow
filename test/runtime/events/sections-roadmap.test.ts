@@ -9,10 +9,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { roadmapStatusResult } = require('../../src/runtime/roadmap/loop.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { roadmapStatusResult } = require('../../../src/runtime/roadmap/loop.ts');
 
-const CLI = path.resolve(__dirname, '../../bin/doflow.js');
+const CLI = path.resolve(__dirname, '../../../bin/doflow.js');
 const write = (file: any, bytes: any) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); };
 
 const SEED = {

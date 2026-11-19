@@ -13,10 +13,10 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { ENVELOPE_ID, LOG_ID } = require('../../src/runtime/events/envelope.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { ENVELOPE_ID, LOG_ID } = require('../../../src/runtime/events/envelope.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SOURCE = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
 const WIN = process.platform === 'win32';

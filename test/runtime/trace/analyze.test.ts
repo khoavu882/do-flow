@@ -6,7 +6,7 @@
 // the way `trace discover` does, and prints evidence and proposal batches for the existing verbs.
 // It writes nothing.
 //
-// In-process against seeded stores in temp projects with an empty environment (the trace-spans
+// In-process against seeded stores in temp projects with an empty environment (the trace/spans
 // `seed` pattern); the verdict table and the rider R1 `context` section use in-memory views.
 
 const { test } = require('node:test');
@@ -15,19 +15,19 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { projectSpans } = require('../../src/runtime/trace/spans.ts');
-const { percentile } = require('../../src/runtime/trace/views.ts');
-const analyze = require('../../src/runtime/trace/analyze.ts');
-const { validateEvidenceItem } = require('../../src/runtime/candidate.ts');
-const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
-const { maskLine } = require('../../src/runtime/mask.ts');
-const { oneLine, STATEMENT_MAX } = require('../../src/runtime/lifecycle/followup.ts');
-const { EVIDENCE_SCORE_FIELDS } = require('../../src/runtime/evidence-fields.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { projectSpans } = require('../../../src/runtime/trace/spans.ts');
+const { percentile } = require('../../../src/runtime/trace/views.ts');
+const analyze = require('../../../src/runtime/trace/analyze.ts');
+const { validateEvidenceItem } = require('../../../src/runtime/candidate.ts');
+const { EvidenceLedger } = require('../../../src/runtime/evidence-ledger.ts');
+const { maskLine } = require('../../../src/runtime/mask.ts');
+const { oneLine, STATEMENT_MAX } = require('../../../src/runtime/lifecycle/followup.ts');
+const { EVIDENCE_SCORE_FIELDS } = require('../../../src/runtime/evidence-fields.ts');
 
 const { buildAnalysis, buildEvidenceBatch, buildProposalBatch, handleTraceAnalyze } = analyze;
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const ANALYZE_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'analyze.ts');
 const THRESHOLDS: any = { minSamples: 5, tailRatio: 4, minTailMs: 1000, retryRun: 2 };
 const DAY = '2026-09-01';

@@ -12,7 +12,7 @@
 //   permissions  the harness's front door runs `permission-audit` (AUDIT below; claude only, D8)
 //   questions    never: no harness writes a record of a question or a pending prompt (D7)
 //
-// AUDIT is checked against the front-door hooks on disk by test/runtime/events-layers.test.ts:
+// AUDIT is checked against the front-door hooks on disk by test/runtime/events/layers.test.ts:
 // a hook added or removed without this table moving fails that test. Read-only; no path leaves.
 
 const fs = require('node:fs');

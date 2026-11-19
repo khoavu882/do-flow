@@ -10,11 +10,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
-const { listRunsResult, statusResult, timelineResult } = require('../../src/runtime/workflow-orchestrator.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { clearCheckoutCache } = require('../../../src/runtime/checkouts.ts');
+const { listRunsResult, statusResult, timelineResult } = require('../../../src/runtime/workflow-orchestrator.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
 function project(t: any) {

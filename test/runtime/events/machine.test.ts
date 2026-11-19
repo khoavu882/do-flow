@@ -11,12 +11,12 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { cwdHash } = require('../../src/runtime/context/identity.ts');
-const { handleEventsCommand } = require('../../src/runtime/events/command.ts');
-const { channelSpec } = require('../../src/runtime/events/sections.ts');
-const { createProjectsIndex, REFRESH_MS } = require('../../src/runtime/events/projects-index.ts');
-const { ACTIVITY_PROJECTS, GATE_LIMIT, STARTED_LIMIT } = require('../../src/runtime/events/machine.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { cwdHash } = require('../../../src/runtime/context/identity.ts');
+const { handleEventsCommand } = require('../../../src/runtime/events/command.ts');
+const { channelSpec } = require('../../../src/runtime/events/sections.ts');
+const { createProjectsIndex, REFRESH_MS } = require('../../../src/runtime/events/projects-index.ts');
+const { ACTIVITY_PROJECTS, GATE_LIMIT, STARTED_LIMIT } = require('../../../src/runtime/events/machine.ts');
 
 const WIN = process.platform === 'win32';
 const SCRATCH = 'scratch.noindex'; // not in any fixture path, so the scratch projects are listed

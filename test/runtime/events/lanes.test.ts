@@ -12,17 +12,17 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { cwdHash } = require('../../src/runtime/context/identity.ts');
-const { sha16 } = require('../../src/runtime/scaffold/fingerprint.ts');
-const { maskBody } = require('../../src/runtime/mask.ts');
-const { handleEventsCommand } = require('../../src/runtime/events/command.ts');
-const { createProjectsIndex } = require('../../src/runtime/events/projects-index.ts');
-const { createEnvelopeWriter, LOG_ID, LINE_CAP_BYTES } = require('../../src/runtime/events/envelope.ts');
-const { LOG_PASS_MS, DEBOUNCE_MS, FULL_TICKS, PASS_MS } = require('../../src/runtime/events/detector.ts');
-const { createFileLane } = require('../../src/runtime/events/files.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { cwdHash } = require('../../../src/runtime/context/identity.ts');
+const { sha16 } = require('../../../src/runtime/scaffold/fingerprint.ts');
+const { maskBody } = require('../../../src/runtime/mask.ts');
+const { handleEventsCommand } = require('../../../src/runtime/events/command.ts');
+const { createProjectsIndex } = require('../../../src/runtime/events/projects-index.ts');
+const { createEnvelopeWriter, LOG_ID, LINE_CAP_BYTES } = require('../../../src/runtime/events/envelope.ts');
+const { LOG_PASS_MS, DEBOUNCE_MS, FULL_TICKS, PASS_MS } = require('../../../src/runtime/events/detector.ts');
+const { createFileLane } = require('../../../src/runtime/events/files.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const WIN = process.platform === 'win32';
 const SCRATCH = 'scratch.noindex'; // not in any fixture path, so the scratch projects are listed

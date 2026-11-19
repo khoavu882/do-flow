@@ -11,12 +11,12 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { handleEventsCommand, CONTROL_LINE_BYTES } = require('../../src/runtime/events/command.ts');
-const { CHANNEL_LIMIT } = require('../../src/runtime/events/channels.ts');
-const { ENVELOPE_ID } = require('../../src/runtime/events/envelope.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { handleEventsCommand, CONTROL_LINE_BYTES } = require('../../../src/runtime/events/command.ts');
+const { CHANNEL_LIMIT } = require('../../../src/runtime/events/channels.ts');
+const { ENVELOPE_ID } = require('../../../src/runtime/events/envelope.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SPAWN_DEADLINE_MS = 20000;
 

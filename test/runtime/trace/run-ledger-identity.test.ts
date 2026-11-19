@@ -9,11 +9,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { RunLedger, RUN_FIELDS, normalizeRunRecord } = require('../../src/runtime/trace/ledger.ts');
-const { ATTEMPT_PATTERN, ID_PATTERN, identityFields } = require('../../src/runtime/context/identity.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { RunLedger, RUN_FIELDS, normalizeRunRecord } = require('../../../src/runtime/trace/ledger.ts');
+const { ATTEMPT_PATTERN, ID_PATTERN, identityFields } = require('../../../src/runtime/context/identity.ts');
 
-const REPO = path.resolve(__dirname, '../..');
+const REPO = path.resolve(__dirname, '../../..');
 const BIN = path.join(REPO, 'bin', 'doflow.js');
 const NOW: any = new Date('2026-10-12T08:00:00.000Z');
 const VALID = Object.freeze({ DOFLOW_RUN_ID: 'r_082-a', DOFLOW_LINEAGE_ID: 'lin_1', DOFLOW_ATTEMPT: '3' });

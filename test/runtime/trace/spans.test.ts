@@ -15,10 +15,10 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { projectSpans, handleTraceSpans } = require('../../src/runtime/trace/spans.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { projectSpans, handleTraceSpans } = require('../../../src/runtime/trace/spans.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const BIN = path.join(REPO, 'bin', 'doflow.js');
 const SPANS_FILE = path.join(REPO, 'src', 'runtime', 'trace', 'spans.ts');
 
@@ -279,8 +279,8 @@ test('--run keeps the traces of that run key, else of that run id', (t) => {
 });
 
 test('real 080 start and resume records project to two linked traces', (t) => {
-  const { start, resume } = require('../../src/runtime/task-attempts.ts');
-  const { runKeyFor } = require('../../src/runtime/task-run.ts');
+  const { start, resume } = require('../../../src/runtime/task-attempts.ts');
+  const { runKeyFor } = require('../../../src/runtime/task-run.ts');
   const dir = tempDir(t, 'doflow-trace-spans-real-');
   fs.mkdirSync(path.join(dir, '.git'));
   const plan = path.join(dir, 'agent-docs', 'doflow', 'feat-s', 'plan.md');

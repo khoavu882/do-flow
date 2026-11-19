@@ -6,10 +6,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
-const { buildBaseline, sorted } = require('../../src/runtime/trace/baseline.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const { buildBaseline, sorted } = require('../../../src/runtime/trace/baseline.ts');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 function sha256(content: any) {
   return crypto.createHash('sha256').update(content).digest('hex');
@@ -581,7 +581,7 @@ test('9. While recording window is not filled: no Median or Lower End in report.
   assert.match(md, /- \*\*Verification Ratio:\*\* 0\.0466/, 'ratio must be formatted to 3 sig figs');
 
   // Negative control: when window is filled (5 loops, 2 harnesses), report.md DOES contain Median and Lower End
-  const { renderReportMarkdown } = require('../../src/runtime/trace/baseline.ts');
+  const { renderReportMarkdown } = require('../../../src/runtime/trace/baseline.ts');
   const filledReport: any = {
     verdict: 'material',
     progress: '5 of 5 loops, 2 of 2 harnesses',

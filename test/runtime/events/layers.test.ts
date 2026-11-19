@@ -3,7 +3,7 @@
 // Feature 161 T4 (IC-003, D5-D8, AC-5): the `layers:<pk>` channel of `doflow events --follow`.
 // Scratch HOME and config home, scratch git projects; the in-process cases inject the clock and the
 // watch, so passes, debounces and throttles run on a fake clock. Read-only, no lock (AC-7: the
-// source scan of `src/runtime/events/*.ts` in events-control.test.ts covers the modules added here).
+// source scan of `src/runtime/events/*.ts` in events/control.test.ts covers the modules added here).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -11,20 +11,20 @@ const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { cwdHash } = require('../../src/runtime/context/identity.ts');
-const { sha16 } = require('../../src/runtime/scaffold/fingerprint.ts');
-const { handleEventsCommand } = require('../../src/runtime/events/command.ts');
-const { channelSpec } = require('../../src/runtime/events/sections.ts');
-const { createProjectsIndex } = require('../../src/runtime/events/projects-index.ts');
-const { scanArtifacts, findArtifact, artifactDirs, ARTIFACT_LIMIT } = require('../../src/runtime/events/artifacts.ts');
-const { AUDIT } = require('../../src/runtime/events/coverage.ts');
-const { maskBody } = require('../../src/runtime/mask.ts');
-const { gateName, REVIEW_BYTES } = require('../../src/runtime/events/layers.ts');
-const { channelsBody, ITEMS, RECENT, LIVENESS_READS } = require('../../src/runtime/events/session-channels.ts');
-const { procStart } = require('../../src/runtime/worker/process-tree.ts');
-const { preparePrompt } = require('../../src/runtime/worker/session-prompt.ts');
-const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { cwdHash } = require('../../../src/runtime/context/identity.ts');
+const { sha16 } = require('../../../src/runtime/scaffold/fingerprint.ts');
+const { handleEventsCommand } = require('../../../src/runtime/events/command.ts');
+const { channelSpec } = require('../../../src/runtime/events/sections.ts');
+const { createProjectsIndex } = require('../../../src/runtime/events/projects-index.ts');
+const { scanArtifacts, findArtifact, artifactDirs, ARTIFACT_LIMIT } = require('../../../src/runtime/events/artifacts.ts');
+const { AUDIT } = require('../../../src/runtime/events/coverage.ts');
+const { maskBody } = require('../../../src/runtime/mask.ts');
+const { gateName, REVIEW_BYTES } = require('../../../src/runtime/events/layers.ts');
+const { channelsBody, ITEMS, RECENT, LIVENESS_READS } = require('../../../src/runtime/events/session-channels.ts');
+const { procStart } = require('../../../src/runtime/worker/process-tree.ts');
+const { preparePrompt } = require('../../../src/runtime/worker/session-prompt.ts');
+const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const WIN = process.platform === 'win32';
 const SCRATCH = 'scratch.noindex'; // not in any fixture path, so the scratch projects are listed

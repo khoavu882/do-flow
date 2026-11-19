@@ -7,9 +7,9 @@ const assert = require('node:assert/strict');
 const {
   createEnvelopeWriter, newEpoch, maskJson, maskSections,
   ENVELOPE_VERSION, FRAME_TYPES, ERROR_CODES, RESET_REASONS, LINE_CAP_BYTES, ENVELOPE_ID, EPOCH_PATTERN, LOG_ID,
-} = require('../../src/runtime/events/envelope.ts');
-const { parseChannel, parseChannelList, isChannelId, projectKeyOf, isLogKind, CHANNEL_LIMIT, CHANNEL_KINDS, PROJECT_LIMIT } = require('../../src/runtime/events/channels.ts');
-const { ID_PATTERN } = require('../../src/runtime/context/identity.ts');
+} = require('../../../src/runtime/events/envelope.ts');
+const { parseChannel, parseChannelList, isChannelId, projectKeyOf, isLogKind, CHANNEL_LIMIT, CHANNEL_KINDS, PROJECT_LIMIT } = require('../../../src/runtime/events/channels.ts');
+const { ID_PATTERN } = require('../../../src/runtime/context/identity.ts');
 
 const T0 = Date.UTC(2026, 10, 7, 12, 0, 0, 0);
 const EPOCH = '3f9a0c12';

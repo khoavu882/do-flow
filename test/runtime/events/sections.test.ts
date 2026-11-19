@@ -16,11 +16,11 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
-const { channelSpec, resolveContext, findWorkerRun, workerSources, CATALOGUE, WORKER_SECTIONS, WORKER_SECTION_LIMIT } = require('../../src/runtime/events/sections.ts');
-const { workerResultBody, workerRunsBody, handleWorkerResultCommand, handleWorkerRunsCommand } = require('../../src/runtime/worker/reads.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { channelSpec, resolveContext, findWorkerRun, workerSources, CATALOGUE, WORKER_SECTIONS, WORKER_SECTION_LIMIT } = require('../../../src/runtime/events/sections.ts');
+const { workerResultBody, workerRunsBody, handleWorkerResultCommand, handleWorkerRunsCommand } = require('../../../src/runtime/worker/reads.ts');
 
-const REPO = path.resolve(__dirname, '..', '..');
+const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SLUG = 'feat-a';
 const RUN_ID = 'w-0123456789ab';
@@ -328,7 +328,7 @@ test('IC-004: every section of every channel kind equals its verb with --json ov
 });
 
 // 161 IC-002: `machine` is in the catalogue with its two sections, none derived, and is routed to
-// its producer (`machine.ts`, tested in events-machine.test.ts) over the context's project index.
+// its producer (`machine.ts`, tested in events/machine.test.ts) over the context's project index.
 test('161 IC-002: the machine channel is catalogued with projects and activity and refuses other names', async () => {
   assert.deepEqual([...CATALOGUE.machine.sections], ['projects', 'activity']);
   assert.deepEqual([...CATALOGUE.machine.derived], []);
