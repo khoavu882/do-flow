@@ -35,9 +35,10 @@
 // DOFLOW_WORKER_RUN and the primary declaration (it names the caller's session, not this one), sets
 // nothing worker-ish and adds DOFLOW_STARTED_RUN=<runId>. No context emission is prepended.
 //
-// 178 D9: `withIdentity` and `mainEnv` also drop the harness-session variables (the caller passes the registry's list) and,
-// when the launch passes an effort, the worker's own `effort.overrideEnv`, so a child never inherits the level it was
-// not given. This module reads no registry: the list and the override names arrive as `scrub`.
+// 178 D9: the harness-session variables are dropped once, by `spawnSupervisor` (the one scrub site, `command.ts`), which
+// holds the registry; the launch functions here never see them. `withIdentity` and `mainEnv` drop, when the launch passes
+// an effort, the worker's own `effort.overrideEnv`, so a child never inherits the level it was not given. This module
+// reads no registry: the override names arrive as `scrub`, and `scrubbed` also takes `sessionVariables` for that one site.
 
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
@@ -387,11 +388,11 @@ function refuseUnknownMainParser(recipe: any, which: 'main' | 'channel' = 'main'
 }
 
 /** 165 D1, D9: launches a started main session from its recipe in `execWorktree`. No context emission, no grant. */
-function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile, sessionVariables = [] }: {
-  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: LaunchChoice | null; lastMessageFile?: string; sessionVariables?: readonly string[];
+function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = null, lastMessageFile }: {
+  recipe: any; prompt: string; execWorktree: string; env: Env; runId: string; model?: LaunchChoice | null; lastMessageFile?: string;
 }): Promise<any> {
   return Promise.resolve().then(() => {
-    const sessionEnv = mainEnv(env, runId, { sessionVariables, overrideEnv: recipe?.effort?.overrideEnv, effort: model?.effort ?? null });
+    const sessionEnv = mainEnv(env, runId, { overrideEnv: recipe?.effort?.overrideEnv, effort: model?.effort ?? null });
     const argv = mainArgv(recipe, prompt, lastMessageFile, model);
     refuseUnknownMainParser(recipe);
     return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, promptInput(recipe, prompt, true), { env: sessionEnv, launched: null });
@@ -403,11 +404,11 @@ function launchMainSession({ recipe, prompt, execWorktree, env, runId, model = n
  * 165 D9 environment, detached with `shell: false`, and stdin a pipe KEPT OPEN. The caller (the supervisor) is the pipe's
  * only writer: the prompt goes in as the first framed message, and when the caller dies the pipe closes (no orphan).
  */
-function launchChannelSession({ recipe, execWorktree, env, runId, model = null, sessionVariables = [] }: {
-  recipe: any; execWorktree: string; env: Env; runId: string; model?: LaunchChoice | null; sessionVariables?: readonly string[];
+function launchChannelSession({ recipe, execWorktree, env, runId, model = null }: {
+  recipe: any; execWorktree: string; env: Env; runId: string; model?: LaunchChoice | null;
 }): Promise<any> {
   return Promise.resolve().then(() => {
-    const sessionEnv = mainEnv(env, runId, { sessionVariables, overrideEnv: recipe?.effort?.overrideEnv, effort: model?.effort ?? null });
+    const sessionEnv = mainEnv(env, runId, { overrideEnv: recipe?.effort?.overrideEnv, effort: model?.effort ?? null });
     const argv = channelArgvOf(recipe, model, false);
     refuseUnknownMainParser(recipe, 'channel');
     return spawnHarness(recipe.cli?.binary, argv, { cwd: execWorktree, env: sessionEnv, shell: false }, { stdin: null, keepOpen: true }, { env: sessionEnv, launched: null });
@@ -430,14 +431,12 @@ interface LaunchOptions {
   runId?: string;
   /** 120 IC-011: insert model.argv only for a supported binding. */
   binding?: ModelBinding | null;
-  /** 178 D9: the registry's harness-session variables; the child's environment drops them. */
-  sessionVariables?: readonly string[];
 }
 
 /** IC-012 steps 1 to 5. Resolves `{ child, env, launched: { reason, bytes } }` once the process has spawned. */
-function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId, binding, sessionVariables = [] }: LaunchOptions): Promise<any> {
+function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId, binding }: LaunchOptions): Promise<any> {
   return new Promise((resolve, reject) => {
-    const workerEnv = withIdentity(env, identity, execWorktree, runId, { sessionVariables, overrideEnv: recipe?.effort?.overrideEnv, effort: launchChoiceOf(binding)?.effort ?? null });
+    const workerEnv = withIdentity(env, identity, execWorktree, runId, { overrideEnv: recipe?.effort?.overrideEnv, effort: launchChoiceOf(binding)?.effort ?? null });
     if (grant) grantSummary({ ...grant, toRun: identity.run, toLineage: identity.lineage, env });
     const emitted = emitContext({ event: 'launch', cwd: execWorktree, env: workerEnv, ...(taskId ? { taskId } : {}) });
     const reason: string = emitted.decision.reason;
