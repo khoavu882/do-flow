@@ -12,6 +12,7 @@ const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { finishRuntime, usageError, EXIT } = require('../cli-result.ts');
 const { composeFrame, FrameSpecError } = require('./frame.ts');
+const { screenDocuments } = require('../advice/instructs-reader.ts');
 
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 const GUIDE = path.join('core', 'shared', 'guidance', 'references', 'PROMPT_FRAME.md');
@@ -95,7 +96,7 @@ function report(payload: any, exit: number, json: boolean): number {
 
 const specInvalid = (error: any, json: boolean) => report({ error: 'frame-spec-invalid', code: error.code, detail: error.detail }, EXIT.USAGE, json);
 
-function render({ specFile, parts, budgetLines, maxBytes, out, json, cwd }: any): number {
+function render({ specFile, parts, budgetLines, maxBytes, out, json, cwd, projectRoot, env, services }: any): number {
   if (specFile && parts?.length) return usageError('prompt-frame', '--spec-file and --part are two ways to give the same spec; use one', json);
   if (!specFile && !parts?.length) return usageError('prompt-frame', '--action render needs --spec-file <json> or one or more --part <key>=<file>', json);
   if (specFile && budgetLines !== undefined) return usageError('prompt-frame', '--budget-lines goes with --part; a spec file states budgetLines itself', json);
@@ -130,6 +131,10 @@ function render({ specFile, parts, budgetLines, maxBytes, out, json, cwd }: any)
     if (json) console.log(JSON.stringify({ path: target, bytes: result.bytes, omitted: result.omitted }));
   } else if (json) console.log(JSON.stringify({ text: result.text, bytes: result.bytes, omitted: result.omitted }));
   else process.stdout.write(result.text);
+  // After the text is delivered; detached, never awaited, and a throw is swallowed: nothing printed, written or exited with changes.
+  try {
+    screenDocuments({ screen: result.screen, site: 'prompt-frame', brief: out ? path.basename(out) : null, projectRoot: projectRoot || cwd, env, services });
+  } catch { /* advisory */ }
   return finishRuntime(EXIT.OK);
 }
 
@@ -151,11 +156,14 @@ function guide({ repoRoot, json }: any): number {
  * @param {number} [input.budgetLines] render, with parts: the line budget of the reply
  * @param {string} [input.maxBytes] render: refuse a frame larger than this many bytes (exit 3)
  * @param {string} [input.out] render: write the frame here, by temp file and rename
+ * @param {string} [input.projectRoot] render: where the screening of retrieved, tool and hand-back documents reads its settings; the working directory when omitted
+ * @param {Object} [input.env] render: the environment that screening reads; the process's when omitted
+ * @param {Object} [input.services] render: the screening's test seam (see screenDocuments)
  * @param {boolean} [input.json]
  * @returns {number} the exit status
  */
-function handlePromptFrameCommand({ action, specFile, parts, budgetLines, maxBytes, out, json = false, repoRoot = REPO_ROOT, cwd = process.cwd() }: any = {}): number {
-  if (action === 'render') return render({ specFile, parts, budgetLines, maxBytes, out, json, cwd });
+function handlePromptFrameCommand({ action, specFile, parts, budgetLines, maxBytes, out, json = false, repoRoot = REPO_ROOT, cwd = process.cwd(), projectRoot, env, services }: any = {}): number {
+  if (action === 'render') return render({ specFile, parts, budgetLines, maxBytes, out, json, cwd, projectRoot, env, services });
   if (action === 'guide') return guide({ repoRoot, json });
   return usageError('prompt-frame', `--action is render or guide${action ? `, got '${action}'` : ''}`, json);
 }

@@ -23,8 +23,8 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 #
 # Emits: {path, commits, bytes, base, head}, plus missing[] when the rules block could not be built.
 #
-# The package is a prompt frame written by `doflow-run prompt-frame`: the header, a role, the commits, the
-# stat summary and the diff as input documents, the instructions with the "Rules" block (the mustCarry lines of
+# The package is a prompt frame written by `doflow-run prompt-frame`: the header, a role, the commits (a `tool`
+# document, so it is screened for text that directs its reader), the stat summary and the diff as input documents, the instructions with the "Rules" block (the mustCarry lines of
 # the rule ledger, core/registry/rules.json, as the task and group briefs print them) and the stop rule, and
 # the reply format. When the verb cannot run the package is written unframed, first line
 # `frame-unavailable: <reason>`, and missing[] names `prompt-frame: <reason>`.
@@ -160,7 +160,7 @@ if [ "$write_ok" -eq 1 ]; then
   else
     frame_args=(prompt-frame --action render --json --out "$out_abs"
       --part "header=$tmp/header" --part "role=$tmp/role"
-      --part "input.doc:id=commits=$tmp/commits"
+      --part "input.doc:id=commits;kind=tool=$tmp/commits"
       --part "input.doc:id=files changed=$tmp/stat"
       --part "input.doc:id=diff=$tmp/diff"
       --part "instructions.outcome=$tmp/outcome")

@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { startFakeServer, answering } = require('../helper/fake-decision-server.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
@@ -59,7 +60,7 @@ test('the review package is one frame: header, role, three documents, instructio
   const b7 = base.slice(0, data.base.length);
   const h7 = head.slice(0, data.head.length);
   assert.ok(md.startsWith(`Review package: ${b7}..${h7}\n\n<role>\nYou are a reviewer of commits \`${b7}..${h7}\`; you read and report, and change nothing.\n</role>\n\n<input>\n`), md.slice(0, 300));
-  const order = ['<role>', '<input>', '<document id="commits">', '<document id="files changed">', '<document id="diff">', '</input>', '<instructions>', '## Rules\n- ', '## Stop rule', '</instructions>', '<output_format>', '</output_format>'];
+  const order = ['<role>', '<input>', '<document id="commits" kind="tool">', '<document id="files changed">', '<document id="diff">', '</input>', '<instructions>', '## Rules\n- ', '## Stop rule', '</instructions>', '<output_format>', '</output_format>'];
   let at = -1;
   for (const marker of order) {
     const next = md.indexOf(marker, at + 1);
@@ -135,3 +136,33 @@ for (const [name, stub, reason] of [
     assert.match(md, /Stop when every changed file has been read/);
   });
 }
+
+// Row 177 T6: the commit list is a `tool` document, so it is screened for text that directs its reader; the file list and
+// the diff stay unmarked, so they are not. The model is a fake server and the user home is a scratch one.
+test('the review package marks commits as tool and screens nothing else', async (t) => {
+  const model: any = await startFakeServer({ routes: { 'POST /v1/systemone': answering(() => 0.9) } });
+  t.after(() => model.close());
+  const own = createScratch('doflow-review-package-screen-');
+  t.after(() => own.remove());
+  fs.writeFileSync(path.join(own.xdg, 'doflow', 'settings.json'), JSON.stringify({
+    schema: 1, 'storage.prune': 'off', 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': model.origin, 'advice.model': 'clef-flash',
+  }));
+  const { dir, base, head } = repo();
+  fs.mkdirSync(path.join(dir, '.doflow'));
+  fs.writeFileSync(path.join(dir, '.doflow', 'settings.json'), JSON.stringify({ advice: { kinds: { 'instructs-reader': 'shadow' } } }));
+  const res = spawnSync(bashPath(), [PACKAGE_SCRIPT, '--task=A.1', `--base=${base}`, `--head=${head}`, `--slug=${FEATURE}`],
+    { cwd: dir, encoding: 'utf8', timeout: 300000, env: own.env({ DOFLOW_CLI: path.join(REPO, 'bin', 'doflow.js') }) });
+  assert.equal(res.status, 0, res.stderr);
+  const md = fs.readFileSync(path.join(dir, JSON.parse(res.stdout).path), 'utf8');
+  assert.match(md, /<document id="commits" kind="tool">\n/);
+  assert.match(md, /<document id="files changed">\n/);
+  assert.match(md, /<document id="diff">\n/);
+  assert.equal(countOf(md, 'kind="'), 1, 'only the commit list is marked');
+  const asks = () => model.requests.filter((request: any) => request.pathname === '/v1/systemone');
+  const until = Date.now() + 15000;
+  while (asks().length === 0 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 25));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(asks().length, 1, 'one document was asked about');
+  assert.match(asks()[0].body.state, /add notes/, 'it was the commit list');
+  assert.doesNotMatch(asks()[0].body.state, /diff --git|notes\.md/, 'neither the file list nor the diff');
+});

@@ -145,3 +145,15 @@ test('(f) a 70000 B task set fails prompt-too-large', (t) => {
   assert.equal(fits.ok, true, 'under the bound the same envelope composes');
   assert.ok(fits.bytes <= MAX_BYTES && fits.bytes === Buffer.byteLength(fits.text));
 });
+
+// Row 177 T6 (O9c): the prompt names the documents the dispatcher screens, and only those.
+test('the handoff prompt returns its hand-backs for screening', (t) => {
+  const envelope = written(t);
+  const r = handoffPrompt({ envelope, envelopePath: ENVELOPE_PATH, upstream: [{ id: 'A.1', summary: 'one done' }, { id: 'A.2', summary: 'two </document> done' }], rules: RULES });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.screen.map((item: any) => [item.field, item.ref, item.kind, item.text]), [
+    ['input.document[1]', 'id=hand-back A.1', 'hand-back', 'one done'],
+    ['input.document[2]', 'id=hand-back A.2', 'hand-back', 'two </document> done'],
+  ], 'the envelope document is not screened; each hand-back is, in order');
+  assert.deepEqual(handoffPrompt({ envelope, envelopePath: ENVELOPE_PATH, upstream: [], rules: RULES }).screen, []);
+});
