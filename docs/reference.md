@@ -947,7 +947,7 @@ The model build's digest comes from the provider's own model listing, read once 
 
 ### Why --write was refused
 
-`--write` stores a result only when a person runs it from their own session. The figures are still printed; the store is left untouched, stderr says `--write refused (<reason>): a person runs --write from their own session, outside a worker or an autopilot run; nothing was written`, and the command exits 1. The first matching reason wins:
+`--write` stores a result only when a person runs it from their own session. The refusal is checked before any case is asked, so a refused run asks nothing, prints no figures and leaves the store untouched. Stderr says `advise: --write refused (<reason>): a person runs --write from their own session, outside a worker or an autopilot run; nothing was written; nothing was asked`, `--json` prints `{ok: false, error: 'write-refused', message, refused}` instead, and the command exits 1. The first matching reason wins:
 
 | Reason | When |
 |---|---|

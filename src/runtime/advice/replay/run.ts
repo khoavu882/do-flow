@@ -5,9 +5,9 @@
 // stores, each case is asked once, in case-id order, one at a time, with no pick or miss line written, and the replay
 // scorer and judge turn the answers into the figures of design section 5 and a standing against the effective bars.
 //
-// Nothing is written unless `--write` is given; then one entry goes to the user-level result store, after the refusal
-// check below. Case text (state, claim, passage) and model replies stay in memory: stdout, stderr and the store hold
-// numbers, digests, ids from data and at most MAX_WORSE_IDS case ids. Exit 0 when figures were produced, whatever the
+// Nothing is written unless `--write` is given; then one entry goes to the user-level result store. A refused `--write`
+// (design section 10) stops the command before any case is asked. Case text (state, claim, passage) and model replies
+// stay in memory: stdout, stderr and the store hold numbers, digests, ids from data and at most MAX_WORSE_IDS case ids. Exit 0 when figures were produced, whatever the
 // standing; 1 for a setup refusal or a refused or failed write; 2 for a usage fault.
 
 const fs = require('node:fs');
@@ -127,8 +127,8 @@ function renderText(r: any): string {
 async function handleReplay(options: any, runtime: any, { inspectFailure, createClient = createAdviceClient }: any): Promise<number> {
   const { json } = options;
   const env = options.env || process.env;
-  const fail = (error: string, message: string) => {
-    if (json) console.log(JSON.stringify({ ok: false, error, message }, null, 2));
+  const fail = (error: string, message: string, extra: Record<string, unknown> = {}) => {
+    if (json) console.log(JSON.stringify({ ok: false, error, message, ...extra }, null, 2));
     else console.error(message.startsWith('advise:') ? message : `advise: ${message}`);
     return finishRuntime(1);
   };
@@ -177,6 +177,13 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   const digestRead = await client.modelDigest({ endpoint, model, provider: provider.id });
   const modelDigest: string | null = digestRead?.digest ?? null;
 
+  // A refused --write stops here, before any case is asked: the figures could not be stored, and a replay costs up to
+  // DEFAULT_LIMIT model calls. The model digest is known now, so every reason of `writeRefusal` can be checked.
+  if (options.write === true) {
+    const refusedUpFront = writeRefusal({ env, root: projectRoot, modelDigest });
+    if (refusedUpFront) return fail('write-refused', `--write refused (${refusedUpFront}): ${PERSON_ONLY}; nothing was asked`, { refused: refusedUpFront });
+  }
+
   // 4. The cases.
   const eligible = projectRoot ? source.build({ projectRoot, roots, kind: registryKind }) : { cases: [], skipped: {} };
   if (eligible.cases.length === 0) {
@@ -215,25 +222,21 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   let refused: string | null = null;
   let writeMessage: string | null = null;
   if (options.write === true) {
-    refused = writeRefusal({ env, root: projectRoot, modelDigest });
-    if (refused) writeMessage = `--write refused (${refused}): ${PERSON_ONLY}`;
-    else {
-      const { worseIds, perClass, labelCounts, ...figures } = metrics;
-      try {
-        writeResult({
-          roots,
-          entry: {
-            kind, provider: provider.id, model, modelDigest,
-            questionDigest: questionDigest(question), builderDigest: builderDigest(source, registryKind), barsDigest: barsDigest(bars.bars, budgetMs),
-            caseSet: { source: source.id, origin: source.origin, projectKey: key, digest: setDigest, eligible: eligible.cases.length, replayed: cases.length },
-            metrics: figures, runAt: new Date().toISOString(), doflowVersion: doflowVersion(),
-          },
-        });
-        written = true;
-      } catch (error: any) {
-        refused = error?.code === 'results-locked' || error?.code === 'results-lock-lost' ? error.code : 'store-invalid';
-        writeMessage = error?.message || 'result not stored';
-      }
+    const { worseIds, perClass, labelCounts, ...figures } = metrics;
+    try {
+      writeResult({
+        roots,
+        entry: {
+          kind, provider: provider.id, model, modelDigest,
+          questionDigest: questionDigest(question), builderDigest: builderDigest(source, registryKind), barsDigest: barsDigest(bars.bars, budgetMs),
+          caseSet: { source: source.id, origin: source.origin, projectKey: key, digest: setDigest, eligible: eligible.cases.length, replayed: cases.length },
+          metrics: figures, runAt: new Date().toISOString(), doflowVersion: doflowVersion(),
+        },
+      });
+      written = true;
+    } catch (error: any) {
+      refused = error?.code === 'results-locked' || error?.code === 'results-lock-lost' ? error.code : 'store-invalid';
+      writeMessage = error?.message || 'result not stored';
     }
   }
 

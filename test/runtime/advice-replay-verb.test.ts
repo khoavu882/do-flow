@@ -295,22 +295,22 @@ for (const refusal of [
   { reason: 'unattended-run', settings: { 'autopilot.enabled': 'on' }, setup: (f: any) => writeRun(f, openRun()) },
   { reason: 'model-digest-unknown', tags: tagsListing({ omitDigest: true }) },
 ]) {
-  test(`(e) --write is refused for ${refusal.name || refusal.reason}: figures printed, nothing written, exit 1`, async (t) => {
+  test(`(e) --write is refused up front for ${refusal.name || refusal.reason}: nothing asked, nothing written, exit 1`, async (t) => {
     const f = await fixture(t, { tags: refusal.tags, settings: refusal.settings });
     writeLedger(f.project, mainSpecs(6));
     refusal.setup?.(f);
     const text = await f.run(['--kind', KIND, '--write'], refusal.env);
     assert.equal(text.status, 1, text.stderr);
-    assert.match(text.stdout, /^Replay claim-support /m);
-    assert.match(text.stdout, /^Stored: none · not written \(refused: /m);
+    assert.equal(text.stdout, '', 'no figures: the replay did not run');
     assert.ok(text.stderr.includes(`advise: --write refused (${refusal.reason})`), text.stderr);
-    assert.match(text.stderr, /a person runs --write from their own session, outside a worker or an autopilot run; nothing was written/);
+    assert.match(text.stderr, /a person runs --write from their own session, outside a worker or an autopilot run; nothing was written; nothing was asked/);
     const json = await f.run(['--kind', KIND, '--write', '--json'], refusal.env);
     assert.equal(json.status, 1);
     const body = JSON.parse(json.stdout);
-    assert.equal(body.written, false);
+    assert.equal(body.ok, false);
+    assert.equal(body.error, 'write-refused');
     assert.equal(body.refused, refusal.reason);
-    assert.equal(body.metrics.n, 6);
+    assert.equal(asked(f), 0, 'the fake server saw no ask');
     assert.equal(fs.existsSync(f.resultsFile), false);
   });
 }
@@ -403,7 +403,8 @@ test('(h) no case text or sentinel string in stdout or stderr, whatever the outc
     [['--kind', KIND], {}], [['--kind', KIND, '--json'], {}], [['--kind', KIND, '--write'], { CI: '1' }], [['--kind', KIND, '--write', '--json'], {}],
   ] as Array<[string[], any]>) {
     const r = await f.run(args, env);
-    assert.match(r.stdout, /Replay claim-support|"kind": "claim-support"/, 'the figures were printed');
+    if (env.CI) assert.equal(r.status, 1, 'a refused --write runs no replay');
+    else assert.match(r.stdout, /Replay claim-support|"kind": "claim-support"/, 'the figures were printed');
     outputs.push(r.stdout, r.stderr);
   }
   assertNoCaseText(f, ...outputs);
