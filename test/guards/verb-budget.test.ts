@@ -44,7 +44,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['capabilities --json', 0, 3840], // 3,651 B
   ['discover --json', 0, 2240], // 2,109 B
   ['paths --json', 0, 896], // 841 B
-  ['config --json', 0, 49536], // 48,988 B (141: five advice keys grew it: a mode and a model key for claim-support, and three keys of the rerank kind that row 174 removed again; 143: team.enforcement)
+  ['config --json', 0, 49536], // 48,003 B (141: five advice keys grew it: a mode and a model key for claim-support, and three keys of the rerank kind that row 174 removed again; 143: team.enforcement; 176: the same-issue mode and model keys, and the mode key's unset rule; was 48,988 B; the ceiling is left as it was)
   ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
   ['storage --json', 0, 15360], // 14,802 B (170 T4: the channel-spool store row)
   ['indicators --json', 0, 704], // 619 B
