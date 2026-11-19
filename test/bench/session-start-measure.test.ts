@@ -8,6 +8,9 @@ const { measureSessionStart, runHookProcess } = require('../../bench/perf/lib/se
 const { computeStartupContext } = require('../../bench/perf/lib/context.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
+// No test reaches a real harness CLI: the product probes `<harness> --version` through PATH, so this file runs on a PATH without one.
+require("../helper/harness-free-path.ts").useHarnessFreePath();
+
 const FIXTURE_TREE = path.resolve(__dirname, '../fixtures/session-start-tree');
 
 test('session-start-measure: drives counting code against test/fixtures/session-start-tree with no install', () => {
