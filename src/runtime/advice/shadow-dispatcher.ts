@@ -4,6 +4,7 @@ const { resolveShadowConfig } = require('./shadow-config.ts');
 const { applyElevationInvariant } = require('./elevation.ts');
 const { appendPick, appendMiss, newPickId } = require('./record.ts');
 const { createAdviceClient } = require('./client.ts');
+const { materializeKind } = require('./kinds.ts');
 const { resolveSetting } = require('./config.ts');
 const { loadAdviceRegistry } = require('./registry.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
@@ -22,7 +23,7 @@ const { takeSlot, adoptSlot, writeHandoff, releaseSlot, fullRegistry, SLOT_STORE
 const RUNNER = path.join(__dirname, `shadow-runner${path.extname(__filename)}`);
 
 /** The advice registry's kinds (core/registry/advice.json). */
-type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'claim-support' | 'instructs-reader';
+type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'claim-support' | 'instructs-reader' | 'same-issue';
 type AdviceMode = 'off' | 'shadow' | 'show' | 'act';
 type Env = Record<string, string | undefined>;
 type StoreRoots = Record<string, string | null>;
@@ -122,6 +123,12 @@ interface DecisionPointContext {
   caller: string;
   state: string;
   staticPick: string;
+  /**
+   * 176 IC-004: the static answer of each question, aligned with `questionSet.questions`. Only a set of more than one
+   * question with one static answer each is a batch, recorded one line per question (`staticPick` is then
+   * `staticPicks[0]`); any other decision records its one line (isBatch).
+   */
+  staticPicks?: string[];
   taskId?: string | null;
   projectRoot?: string;
   env?: Env;
@@ -151,7 +158,14 @@ interface DecisionPointResolution {
   staticPick: string;
   advisorPick: string | null;
   advisorAnswer?: (AdviceAnswer & { model: string | null }) | null;
+  /**
+   * Per recorded line of a shown or act decision (176 IC-004): the model's pick and strength word, or null. A batch has
+   * one entry per question; any other decision the one entry of its first answer. Empty on off and shadow.
+   */
+  advisorAnswers: Array<{ pick: string; strength: string | null } | null>;
   pickId: string | null;
+  /** Per recorded line of a shown or act decision: its pick id, the first being `pickId` (one entry unless a batch). */
+  pickIds: string[];
   elevated: boolean;
   agreed: boolean | null;
   warning?: string;
@@ -299,40 +313,78 @@ const DESCRIBERS: Record<string, (call: AdvisorCall, context: DecisionPointConte
   },
 };
 
-/** Records one advisor call through record.ts: a pick line when there is a pick, a miss line with its reason otherwise. */
-function recordCall(context: DecisionPointContext, services: DispatcherServices, mode: 'shadow' | 'show' | 'act', asked: AdvisorCall, pickId: string, elevated: boolean): void {
-  if (context.record === false || asked.status === 'off') return;
+/**
+ * A declared batch (176 IC-004): `staticPicks` holds one static answer per question, and there is more than one. Only a
+ * batch records a line per question; any other decision, a caller's own multi-question set included (the ad hoc
+ * `advise` path), records its one line as before. shadow-runner.ts's spawn-failed fallback repeats this test.
+ */
+function isBatch(context: Pick<DecisionPointContext, 'staticPicks' | 'questionSet'>): boolean {
+  const count = context.questionSet?.questions?.length ?? 0;
+  return count > 1 && Array.isArray(context.staticPicks) && context.staticPicks.length === count;
+}
+
+/** How many lines the decision records: one per question for a batch, one otherwise. */
+function lineCount(context: DecisionPointContext): number {
+  return isBatch(context) ? context.staticPicks?.length ?? 1 : 1;
+}
+
+/** The static answer recorded for line `index`: a batch takes it from `staticPicks`, any other decision keeps its one. */
+function staticAnswerAt(context: DecisionPointContext, index: number): string | null {
+  if (!isBatch(context)) return staticAnswerOf(context);
+  const given = context.staticPicks?.[index];
+  return typeof given === 'string' && given ? given : null;
+}
+
+/**
+ * Records one advisor call through record.ts, one line per question (176 IC-004, O-1 (a)): a pick line for each answer,
+ * a miss line with the call's reason for each question otherwise. Every line carries the call's model and duration; the
+ * first question's pick line takes `pickId`, each other one a new id. Returns the pick id of every question.
+ */
+function recordCall(context: DecisionPointContext, services: DispatcherServices, mode: 'shadow' | 'show' | 'act', asked: AdvisorCall, pickId: string, elevated: boolean): string[] {
+  const count = lineCount(context);
+  const pickIds = [pickId, ...Array.from({ length: count - 1 }, () => newPickId())];
+  if (context.record === false || asked.status === 'off') return pickIds;
   const roots = storeRoots(context, services);
-  if (!roots) return;
+  if (!roots) return pickIds;
   const common = { roots, fsImpl: services.fsImpl, kind: context.kind, caller: context.caller, model: asked.model, durationMs: asked.durationMs, mode };
-  if (asked.status === 'answered') {
-    const answer = asked.answer;
+  for (let index = 0; index < count; index += 1) {
+    if (asked.status !== 'answered') {
+      appendMiss({ ...common, reason: asked.reason });
+      continue;
+    }
+    // The first answer is the call's own; another question's answer stands for the call in its describer.
+    const answer = index === 0 ? asked.answer : asked.answers[index] ?? null;
+    const own: AdvisorCall = index === 0 ? asked : { ...asked, answer, pick: typeof answer?.pick === 'string' ? answer.pick : null };
+    if (index > 0 && !own.pick) {
+      appendMiss({ ...common, reason: 'malformed-reply' });
+      continue;
+    }
     let extra: Record<string, unknown> | undefined;
     const describe = Object.hasOwn(DESCRIBERS, context.kind) ? DESCRIBERS[context.kind] : null;
     if (describe) {
       let described: ReturnType<typeof describe> = null;
-      try { described = describe(asked, context); } catch { described = null; }
+      try { described = describe(own, context); } catch { described = null; }
       if (!described || typeof described !== 'object') {
         appendMiss({ ...common, reason: 'malformed-reply' });
-        return;
+        continue;
       }
       extra = described.extra;
     }
     appendPick({
       ...common,
-      pickId,
-      elevated,
+      pickId: pickIds[index],
+      // Only the first answer can raise the decision (applyElevationInvariant), so only its line can be elevated.
+      elevated: index === 0 ? elevated : false,
       answer,
       extra,
-      question: context.questionSet?.questions?.[0],
-      staticAnswer: staticAnswerOf(context),
+      question: context.questionSet?.questions?.[index],
+      staticAnswer: staticAnswerAt(context, index),
       provider: asked.provider,
       state: context.questionSet?.state ?? context.state,
       taskId: context.taskId ?? null,
     });
-  } else {
-    appendMiss({ ...common, reason: asked.reason });
   }
+  return pickIds;
 }
 
 /** A call that was never made, for a miss recorded without asking (spawn-failed, busy). */
@@ -346,7 +398,7 @@ function missCall(reason: string, model: string | null): AdvisorCall {
  */
 interface ShadowPayload {
   v: 1;
-  context: Pick<DecisionPointContext, 'kind' | 'caller' | 'state' | 'staticPick' | 'staticAnswer' | 'taskId' | 'questionSet' | 'adviceRegistry' | 'lineExtra'>;
+  context: Pick<DecisionPointContext, 'kind' | 'caller' | 'state' | 'staticPick' | 'staticPicks' | 'staticAnswer' | 'taskId' | 'questionSet' | 'adviceRegistry' | 'lineExtra'>;
   model: string | null;
   budgetMs: number;
   pickId: string;
@@ -436,7 +488,7 @@ function spawnShadow(context: DecisionPointContext, services: DispatcherServices
       v: 1,
       context: {
         kind: context.kind, caller: context.caller, state: context.state, staticPick: context.staticPick,
-        staticAnswer: context.staticAnswer, taskId: context.taskId ?? null, questionSet: questionSet as QuestionSet | undefined,
+        staticPicks: context.staticPicks, staticAnswer: context.staticAnswer, taskId: context.taskId ?? null, questionSet: questionSet as QuestionSet | undefined,
         // An injected full registry crosses as data; the shipped one and a partial one (no kinds) leave the child on the
         // shipped registry.
         adviceRegistry: Array.isArray(registry?.kinds) && !shippedRegistry(registry) ? registry : undefined,
@@ -454,6 +506,16 @@ function spawnShadow(context: DecisionPointContext, services: DispatcherServices
   } catch {
     failed();
   }
+}
+
+/**
+ * The question the kind's local result was measured on: the decision's first one, or for a batch, whose questions are
+ * lettered blocks, the kind's materialised question (replay/run.ts digests that one).
+ */
+function trustQuestion(context: DecisionPointContext, registry: unknown): unknown {
+  if (!isBatch(context)) return context.questionSet?.questions?.[0] ?? null;
+  const built = materializeKind(context.kind, { adviceRegistry: registry });
+  return built?.ok ? built.question : null;
 }
 
 /**
@@ -478,7 +540,7 @@ async function judgeTrust(context: DecisionPointContext, services: DispatcherSer
     const evaluate: Trust = services.trust || require('./replay/trust.ts').evaluateTrust;
     const request: TrustRequest = {
       kind: context.kind, model, provider: setting?.provider ?? undefined, endpoint: setting?.endpoint ?? undefined,
-      question: context.questionSet?.questions?.[0] ?? null, registry, roots, client,
+      question: trustQuestion(context, registry), registry, roots, client,
       projectRoot: context.projectRoot || process.cwd(), timeoutMs: budget, signal: controller.signal,
     };
     const answer = await Promise.race([Promise.resolve().then(() => evaluate(request)), timeout]);
@@ -511,7 +573,7 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
   // A kind no settings layer sets runs in shadow whatever its local result holds (row 174 O-1).
   if (config.decidedBy && config.decidedBy.mode === null && MODE_RANK[mode] > MODE_RANK.shadow) mode = 'shadow';
   const staticPick = context.staticPick;
-  const unchanged = { kind: context.kind, effectiveDecision: staticPick, staticPick, advisorPick: null, elevated: false, agreed: null };
+  const unchanged = { kind: context.kind, effectiveDecision: staticPick, staticPick, advisorPick: null, advisorAnswers: [], pickIds: [], elevated: false, agreed: null };
 
   // Off: no model call, no record.
   if (mode === 'off') return { ...unchanged, mode: 'off', pickId: null };
@@ -561,7 +623,12 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
   // A shown answer never changes the decision; only act raises it, through the elevation invariant.
   const { effectiveDecision, elevated } = passed === 'act'
     ? applyElevationInvariant(context.kind, staticPick, asked.pick) : { effectiveDecision: staticPick, elevated: false };
-  recordCall(context, services, passed, asked, pickId, elevated);
+  const pickIds = recordCall(context, services, passed, asked, pickId, elevated);
+  const advisorAnswers = pickIds.map((_id, index) => {
+    const answer = asked.status === 'answered' ? asked.answers[index] : null;
+    return typeof answer?.pick === 'string' && answer.pick
+      ? { pick: answer.pick, strength: (answer.strength as { word?: string } | undefined)?.word ?? null } : null;
+  });
 
   return {
     kind: context.kind,
@@ -570,7 +637,9 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
     staticPick,
     advisorPick: asked.pick,
     advisorAnswer: asked.answer,
+    advisorAnswers,
     pickId,
+    pickIds,
     elevated,
     agreed: asked.pick !== null ? asked.pick === staticPick : null,
     ...(heldWarning ? { warning: heldWarning } : {}),
