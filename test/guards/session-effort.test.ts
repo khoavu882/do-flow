@@ -16,12 +16,12 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { sessionVariables, SESSION_REASONS } = require('../../src/runtime/context/session-effort.ts');
 const { NONE_REASONS } = require('../../src/runtime/worker/effort-resolution.ts');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const HARNESSES_FILE = 'core/registry/harnesses.json';
@@ -140,8 +140,7 @@ test('G86.2 control: a Console file whose list misses one name, or lists them ou
   const source = read(REPO, CONSOLE_FILE);
   const declared = /(const SESSION_VARIABLES\b[^=]*=\s*)Object\.freeze\(\[[^\]]*\]\)/;
   assert.equal(source.match(new RegExp(declared, 'g'))?.length, 1, `${CONSOLE_FILE} declares SESSION_VARIABLES once as a frozen array literal`);
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-g86-2-'));
-  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const tmp = tempDir(t, 'doflow-g86-2-');
   const planted = (name: string, list: readonly string[]): string => {
     const root = path.join(tmp, name);
     fs.mkdirSync(path.join(root, path.dirname(CONSOLE_FILE)), { recursive: true });
