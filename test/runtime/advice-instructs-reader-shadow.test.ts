@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 const { startFakeServer, answering } = require('../helper/fake-decision-server.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
@@ -142,7 +142,7 @@ test('prompt-frame render screens retrieved and tool documents and prints the sa
   fs.mkdirSync(project, { recursive: true });
   const env: any = {
     PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), DOFLOW_TELEMETRY: 'off', TMPDIR: process.env.TMPDIR,
-    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
   };
   const put = (name: string, text: string) => fs.writeFileSync(path.join(project, name), text);
   put('role.txt', 'You are a reader of web pages.\n');
@@ -196,7 +196,7 @@ test('prompt-frame render from a project subdirectory screens with the project s
   fs.mkdirSync(sub, { recursive: true });
   const env: any = {
     PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), DOFLOW_TELEMETRY: 'off', TMPDIR: process.env.TMPDIR,
-    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
   };
   assert.equal(spawnSync('git', ['init', '-q'], { cwd: project, env }).status, 0, 'the project is a repository');
   const root = fs.realpathSync(project);
