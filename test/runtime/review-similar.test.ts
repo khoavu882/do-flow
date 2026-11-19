@@ -313,6 +313,20 @@ test('(f2) a finding id outside the id charset (a newline, too long, a space) is
   assert.equal((await similar(p, { seats: ok, json: true })).status, 0);
 });
 
+test('(f3) --seats given and no feature resolved: the verb runs with slug null; without --seats it still fails no-feature', async (t) => {
+  const p = project(t);
+  await advised(t, p);
+  const none = { resolve: () => ({ error: 'no-active-feature', message: 'no-active-feature — checkout a feat/<NNN-slug> branch' }) };
+  const file = path.join(p.dir, 'seats-elsewhere.json');
+  fs.writeFileSync(file, JSON.stringify(SEATS));
+  const r = await similar(p, { ...none, seats: file, json: true });
+  assert.equal(r.status, 0, r.lines[0]);
+  assert.deepEqual([r.json.slug, r.json.findings, r.json.candidates], [null, 8, 5]);
+  await settledLines(p, 5);
+  const without = await similar(p, { ...none, json: true });
+  assert.deepEqual([without.status, without.json.error], [1, 'no-feature']);
+});
+
 /** Every regular file under `root` as relative path -> bytes, leaving out the decision record store the dispatcher writes. */
 function tree(root: string, base: string = root, out: Record<string, string> = {}) {
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {

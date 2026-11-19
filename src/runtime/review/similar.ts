@@ -64,10 +64,10 @@ async function handleReviewSimilar({ slug, seats: seatsFile, outFile, json, cwd,
   };
   let feature: any;
   try { feature = resolve({ projectRoot: cwd, slug }); } catch (error: any) { feature = { error: 'resolver-failed', message: error?.message || String(error) }; }
-  if (feature?.error || typeof feature?.featureFolder !== 'string' || !feature.featureFolder) {
-    return fail('no-feature', feature?.message || feature?.error || 'feature could not be resolved');
-  }
-  const read = readSeats(seatsFile ? path.resolve(cwd, seatsFile) : path.join(feature.featureFolder, 'review', 'seats.json'));
+  const resolved = !feature?.error && typeof feature?.featureFolder === 'string' && feature.featureFolder ? feature.featureFolder : null;
+  // `--seats` names the file itself, so a feature is not needed: the slug is then null.
+  if (!resolved && !seatsFile) return fail('no-feature', feature?.message || feature?.error || 'feature could not be resolved');
+  const read = readSeats(seatsFile ? path.resolve(cwd, seatsFile) : path.join(resolved, 'review', 'seats.json'));
   if ('error' in read) return fail(read.error, read.message, read.field ? { field: read.field } : {});
 
   const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
@@ -82,7 +82,7 @@ async function handleReviewSimilar({ slug, seats: seatsFile, outFile, json, cwd,
     : { shown: false, mode: 'off', reason: 'the same-issue kind could not be loaded', batches: 0, pairs: [] };
 
   const result: any = {
-    schema: 1, slug: path.basename(feature.featureFolder), findings: items.length, candidates: pairs.length,
+    schema: 1, slug: resolved ? path.basename(resolved) : null, findings: items.length, candidates: pairs.length,
     batches: check.batches, mode: check.mode, reason: check.reason, shown: check.shown,
   };
   if (check.shown) {
