@@ -137,6 +137,15 @@ function runVerb(cwd: string, args: string[]): Promise<{ status: number; stdout:
   });
 }
 
+/** Polls (10 s at most) until the shadow slots folder holds no slot file and no handoff file; a missing folder is clear. */
+async function slotsCleared(userState: string, ms = 10000): Promise<boolean> {
+  const dir = path.join(userState, 'advice', 'shadow-slots');
+  const held = () => { try { return fs.readdirSync(dir).some((name: string) => /^slot-.*\.json$/.test(name)); } catch { return false; } };
+  const until = Date.now() + ms;
+  while (held() && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
+  return !held();
+}
+
 test('(e) add asks no model: the fake server counts no request, with advice on and the kind set to show', async (t) => {
   const repo = makeRepo(scratch, 'add-similar');
   const dir = fs.realpathSync(repo.dir);
@@ -156,6 +165,8 @@ test('(e) add asks no model: the fake server counts no request, with advice on a
   const lines = second.stdout.trim().split('\n');
   assert.match(lines[0], /^added FU-[0-9a-z]{6} \(manual\): Upload client retry loop/);
   assert.deepEqual(lines.slice(1), [`  possible duplicate (rule): ${firstId}`]);
-  await new Promise((resolve) => setTimeout(resolve, 300));
+  // A shadow child would hold a slot (and its handoff file) from before the verb exits until its last request is done:
+  // wait, bounded, until none is left, then count. A fixed pause could end before a slow child had asked.
+  assert.equal(await slotsCleared(roots['user-state']), true, 'a shadow child slot or handoff file is still held');
   assert.equal(server.requests.length, 0);
 });
