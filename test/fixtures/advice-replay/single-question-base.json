@@ -1,0 +1,308 @@
+{
+  "asks": [
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 6\npassage: passage 6 answer=0.9",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 4\npassage: passage 4 answer=0.1",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 7\npassage: passage 7 answer=0.9",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 8\npassage: passage 8 answer=0.1",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 9\npassage: passage 9 answer=0.9",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 11\npassage: passage 11 answer=0.9",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 10\npassage: passage 10 answer=0.9",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 2\npassage: passage 2 answer=0.5",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 3\npassage: passage 3 answer=0.9",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 5\npassage: passage 5 answer=0.1",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 0\npassage: passage 0 answer=0.1",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    },
+    {
+      "model": "clef-flash",
+      "state": "claim: claim 1\npassage: passage 1 answer=0.1",
+      "questions": {
+        "claim-support": {
+          "type": "noul",
+          "instructions": "Decide whether the claim is fully supported by the passage.",
+          "criteria": {
+            "false": "The passage does not fully support the claim",
+            "true": "The passage fully supports the claim"
+          }
+        }
+      }
+    }
+  ],
+  "text": "Replay claim-support · model clef-flash (provider ollama, digest sha256:f389f445…) · 12 of 12 cases · source claim-ledger (this project)\nLabels: yes 9, no 3 (smaller class 3)\nValid 12/12 (100.0%) · no answer 1 (8.3%: split 1)\n             accuracy  kappa    kappa low\n  model      0.83      0.64     0.00\n  rule       1.00      1.00     -\nPer class, precision/recall (model | rule): yes 1.00/0.78 | 1.00/1.00 · no 0.60/1.00 | 1.00/1.00\nMisses (labelled yes, answered no): model 2 of 9 · rule 0 of 9\nFalse alarms (labelled no, answered yes): model 0 of 3 · rule 0 of 3\nGain over the rule: kappa -0.36 (low -0.77) · worse 2 (16.7%), better 0\nWorse ids (2): d834602208478ae2, f6b30494d5cca4d7\nLatency ms: …\nStanding: measure-only: the label is the rule's answer by construction, so nothing certifies from this source.\nStored: none · not written (a person adds --write from their own session to store these figures).\n",
+  "body": {
+    "schema": 1,
+    "kind": "claim-support",
+    "provider": "ollama",
+    "model": "clef-flash",
+    "modelDigest": "sha256:f389f44521339d27b0fcb832f25549468dbc7474596093f08e98c2117e1e6bb6",
+    "source": "claim-ledger",
+    "caseSet": {
+      "eligible": 12,
+      "replayed": 12,
+      "digest": "sha256:6c526ee6e649b61acff2f9327799cc57c51fc5904b97964dcb2585e2681224bf",
+      "skipped": {}
+    },
+    "metrics": {
+      "n": 12,
+      "valid": 12,
+      "validShare": 1,
+      "noAnswer": {
+        "count": 1,
+        "share": 0.08333333333333333,
+        "byReason": {
+          "split": 1
+        }
+      },
+      "accuracy": {
+        "model": 0.8333333333333334,
+        "rule": 1
+      },
+      "kappa": {
+        "model": 0.6363636363636364,
+        "rule": 1,
+        "lower": 0,
+        "gain": -0.36363636363636365,
+        "gainLower": -0.7741935483870968
+      },
+      "perClass": {
+        "yes": {
+          "model": {
+            "precision": 1,
+            "recall": 0.7777777777777778
+          },
+          "rule": {
+            "precision": 1,
+            "recall": 1
+          }
+        },
+        "no": {
+          "model": {
+            "precision": 0.6,
+            "recall": 1
+          },
+          "rule": {
+            "precision": 1,
+            "recall": 1
+          }
+        }
+      },
+      "labelCounts": {
+        "yes": 9,
+        "no": 3
+      },
+      "worse": 2,
+      "better": 0,
+      "worseShare": 0.16666666666666666,
+      "minority": 3
+    },
+    "standing": "measure-only",
+    "failedChecks": [],
+    "worseIds": [
+      "d834602208478ae2",
+      "f6b30494d5cca4d7"
+    ],
+    "confusion": {
+      "model": {
+        "misses": 2,
+        "falseAlarms": 0,
+        "nYes": 9,
+        "nNo": 3
+      },
+      "rule": {
+        "misses": 0,
+        "falseAlarms": 0,
+        "nYes": 9,
+        "nNo": 3
+      }
+    },
+    "stored": "none",
+    "written": false,
+    "refused": null,
+    "replaced": null
+  },
+  "entry": {
+    "kind": "claim-support",
+    "provider": "ollama",
+    "model": "clef-flash",
+    "modelDigest": "sha256:f389f44521339d27b0fcb832f25549468dbc7474596093f08e98c2117e1e6bb6",
+    "questionDigest": "sha256:5a2eb7192f2a8bb8da25ea261b6e856c253b5d26fddb0ea6b29c1db18353b090",
+    "builderDigest": "sha256:b81f6f6ba970e9a1fe7319c51d71cd34e68adf75d9d6f59312ea2dbe599bb105",
+    "barsDigest": "sha256:76b31dc89d92919b72e9eefb4bfc2a916a4b50811ee93bca2dfdd70d61f5349b",
+    "caseSet": {
+      "source": "claim-ledger",
+      "origin": "project",
+      "projectKey": "<project>",
+      "digest": "sha256:6c526ee6e649b61acff2f9327799cc57c51fc5904b97964dcb2585e2681224bf",
+      "eligible": 12,
+      "replayed": 12
+    },
+    "metrics": {
+      "n": 12,
+      "valid": 12,
+      "validShare": 1,
+      "noAnswer": {
+        "count": 1,
+        "share": 0.08333333333333333,
+        "byReason": {
+          "split": 1
+        }
+      },
+      "accuracy": {
+        "model": 0.8333333333333334,
+        "rule": 1
+      },
+      "kappa": {
+        "model": 0.6363636363636364,
+        "rule": 1,
+        "lower": 0,
+        "gain": -0.36363636363636365,
+        "gainLower": -0.7741935483870968
+      },
+      "worse": 2,
+      "better": 0,
+      "worseShare": 0.16666666666666666,
+      "minority": 3
+    }
+  }
+}
