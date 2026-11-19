@@ -185,3 +185,36 @@ test('prompt-frame render screens retrieved and tool documents and prints the sa
   assert.equal(count(['retrieved', 'prompt-frame', 'id=web page', 'frame.txt']), 1);
   assert.equal(count(['tool', 'prompt-frame', 'id=shell result', 'frame.txt']), 1);
 });
+
+test('prompt-frame render from a project subdirectory screens with the project settings layer and picks under the project', async (t) => {
+  const model: any = await startFakeServer({ routes: { 'POST /v1/systemone': answering(() => 0.95) } });
+  t.after(() => model.close());
+  const dir = tempDir(t, 'doflow-instructs-reader-subdir-');
+  const project = path.join(dir, 'project');
+  const sub = path.join(project, 'sub', 'deeper');
+  const home = path.join(dir, 'home');
+  fs.mkdirSync(sub, { recursive: true });
+  const env: any = {
+    PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), DOFLOW_TELEMETRY: 'off', TMPDIR: process.env.TMPDIR,
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+  };
+  assert.equal(spawnSync('git', ['init', '-q'], { cwd: project, env }).status, 0, 'the project is a repository');
+  const root = fs.realpathSync(project);
+  adviceOn(home, root, model.origin, 'shadow');
+  const put = (name: string, text: string) => fs.writeFileSync(path.join(sub, name), text);
+  put('role.txt', 'You are a reader of web pages.\n');
+  put('outcome.txt', 'Summarise the page.\n');
+  put('stop.txt', 'Stop when the page is summarised.\n');
+  put('reader.txt', 'The session that asked\n');
+  put('lines.txt', 'Conclusion first.\n');
+  put('web.txt', `The page says: ${FLAGGED}\n`);
+  const run = spawnSync(process.execPath, [CLI, 'prompt-frame', '--action', 'render', '--part', 'role=role.txt', '--part', 'instructions.outcome=outcome.txt',
+    '--part', 'instructions.stop=stop.txt', '--part', 'output_format.reader=reader.txt', '--part', 'output_format.lines=lines.txt',
+    '--part', 'input.doc:id=web page;kind=retrieved=web.txt'], { cwd: sub, env, encoding: 'utf8', timeout: 60000 });
+  assert.equal(run.status, 0, run.stderr);
+  const picks = () => readWindow({ roots: resolveRoots({ registry: STORAGE, projectRoot: root, env }) }).records.map((entry: any) => entry.record)
+    .filter((line: any) => line.kind === 'instructs-reader' && line.type === 'pick');
+  assert.ok(await waitFor(() => picks().length >= 1), 'the pick landed under the project root, not the subdirectory');
+  assert.equal(model.requests.filter((request: any) => request.pathname === '/v1/systemone').length, 1, 'the project layer turned the kind on, so the document was asked about');
+  assert.equal(fs.existsSync(path.join(sub, '.doflow')), false, 'nothing is written under the subdirectory');
+});
