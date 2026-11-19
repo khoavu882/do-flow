@@ -296,12 +296,15 @@ async function piRun(t: any, sessionEnv: any) {
 }
 
 test('178 (f): a driver session that marks Claude at `high` launches the Pi worker with --thinking high, records the plan, and the worker sees neither variable', POSIX, async (t) => {
-  const { d, run } = await piRun(t, { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high' });
+  const { d, run, p } = await piRun(t, { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high' });
   const at = run.argv.indexOf('--thinking');
   assert.deepEqual(run.argv.slice(at, at + 2), ['--thinking', 'high']);
   assert.equal(run.argv.includes('--model'), false);
   assert.deepEqual(d.model.effortPlan, { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' });
   assert.deepEqual(run.env, { CLAUDE_CODE_CHILD_SESSION: null, CLAUDE_EFFORT: null, CLAUDE_CODE_EFFORT_LEVEL: null });
+  // 178 §7.3 (T7): the worker run record's binding carries the same plan the dispatch record shows.
+  const stored = readRuns(p.runStore)[d.workerRunId];
+  assert.deepEqual(stored.binding, { model: null, provider: null, effort: 'high', flag: 'supported', effortPlan: d.model.effortPlan });
 });
 
 test('178 (g): a driver with no session marker passes no --thinking, records why, and the worker still sees no session variable', POSIX, async (t) => {

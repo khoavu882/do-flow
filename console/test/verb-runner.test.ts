@@ -16,6 +16,7 @@ const {
   SHAPES,
   SHAPE_IDS,
   IDENTITY_VARIABLES,
+  SESSION_VARIABLES,
   PASS_THROUGH,
   WRITE_PASS_THROUGH,
   OUTPUT_CAP_BYTES,
@@ -2255,6 +2256,22 @@ test('stop() kills a running write and answers a queued write as core-unreachabl
   assert.deepEqual({ ...(await running) }, { ok: false, code: 'core-unreachable', exit: null });
   assert.deepEqual({ ...(await queued) }, { ok: false, code: 'core-unreachable', exit: null });
   assert.equal(f.writeStarts().length, 1);
+});
+
+test('178 (d), O-6 (a): a Console started from a harness shell passes no harness-session variable to a read or a write child', async () => {
+  assert.ok(Object.isFrozen(SESSION_VARIABLES) && SESSION_VARIABLES.length > 0, 'a frozen, non-empty list');
+  const planted: Record<string, string> = { KEEP_ME: 'kept' };
+  for (const name of SESSION_VARIABLES) planted[name] = '1';
+  const { runner, starts } = setup('echo', planted);
+  assert.equal((await runner.run('list', {})).ok, true);
+  const read = starts()[0].env;
+  for (const name of SESSION_VARIABLES) assert.equal(name in read, false, `${name} reached the read child`);
+  assert.equal(read.KEEP_ME, 'kept');
+  const f = await writeSetup(undefined, planted);
+  assert.equal((await f.runner.act('close-run', WRITE_CASES['close-run'].params)).ok, true);
+  const written = f.writeStarts()[0].env;
+  for (const name of SESSION_VARIABLES) assert.equal(name in written, false, `${name} reached the write child`);
+  assert.equal(written.KEEP_ME, 'kept');
 });
 
 test('the write child has no identity variable and no DOFLOW_* beyond the pass-throughs and DOFLOW_UPKEEP=off', async () => {

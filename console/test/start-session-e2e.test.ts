@@ -498,3 +498,18 @@ test('GET /api/start and /api/start/options for the loopback session: every regi
   for (const c of body.checkouts) assert.deepEqual(Object.keys(c).sort(), ['branch', 'busy', 'label', 'main', 'observedSession', 'worktreeKey']);
 
 });
+
+test('178 O-3, O-6 (a): a Console started from a Claude Code shell offers the claude default with no session to follow, and its start passes no --effort', { ...POSIX, timeout: 90_000 }, async (t: any) => {
+  const w = world(t);
+  const lb = await loopback(t, w, { env: { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high' } });
+  const options = await lb.request('GET', `/api/start/options?projectKey=${w.key}`);
+  assert.equal(options.status, 200, options.body);
+  const claude = json(options).harnesses.find((h: any) => h.harness === 'claude');
+  assert.deepEqual(claude.models.at(-1).effortPlan, { pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null } });
+  const reply = await lb.post('start-session', startBody(w, { harness: 'claude' }));
+  assert.equal(reply.status, 200, reply.body);
+  const [call] = await until(() => (w.calls().length >= 1 ? w.calls() : null), 'the fake claude to start');
+  assert.equal(call.argv.includes('--effort'), false, JSON.stringify(call.argv));
+  const run = (w.runs() as any)[json(reply).result.run.runId];
+  assert.deepEqual([run.binding.effort, run.binding.flag, run.binding.effortPlan.source], [null, null, 'none']);
+});

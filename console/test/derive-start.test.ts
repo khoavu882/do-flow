@@ -140,6 +140,39 @@ test('169: an option is labelled with bindingText of its entry, keyed by its tri
   assert.equal(start.modelNote(entries[2]), 'Cannot start: effort:unsupported.');
 });
 
+// 178 §8.3 (O-3): each entry carries the core's `effortPlan`; the note says in words where the effort comes from. A Console start is
+// outside any harness session (the Console's child environment drops the session variables), so its default follows none.
+const NO_SESSION = { pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null } };
+
+test('178 (e): the note of a no-session default says the harness default and why; a bound effort says the tier binding; a session level names its variable', () => {
+  assert.equal(start.modelNote(model(null, 'default', { effortPlan: NO_SESSION }), 'pi'),
+    'The harness picks its own model. Effort: harness default (no harness session to follow).');
+  assert.equal(start.modelNote(model('gpt-y', 'standard', { effort: 'high', check: { model: 'listed', effort: 'listed' }, effortPlan: { pass: 'high', source: 'binding' } }), 'pi'),
+    'Effort: high (tier binding).');
+  assert.equal(start.modelNote(model('gpt-y', 'standard', { effort: 'low', check: { model: 'listed', effort: 'unchecked' }, effortMayLower: true, effortPlan: { pass: 'low', source: 'binding' } }), 'pi'),
+    '? effort unchecked, the harness may lower the effort. Effort: low (tier binding).');
+  const session = { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' };
+  assert.equal(start.modelNote(model(null, 'default', { effortPlan: session }), 'pi'), "The harness picks its own model. Effort: high, the claude session's level (CLAUDE_EFFORT).");
+  assert.equal(start.modelNote(model('gpt-z', 'observed', { check: { model: 'listed', effort: null }, effortPlan: NO_SESSION }), 'pi'), 'Effort: harness default (no harness session to follow).');
+  assert.equal(start.modelNote(model('gpt-q', 'observed', { effort: 'high', refused: 'effort:unsupported', effortPlan: { pass: 'high', source: 'binding' } }), 'pi'),
+    'Cannot start: effort:unsupported.', 'an entry that cannot start says only why');
+});
+
+test('178 (f): the effort state is words in the note, never a colour or class alone: every plan kind yields a sentence naming its level or the default', () => {
+  const plans = [
+    NO_SESSION,
+    { pass: 'high', source: 'binding' },
+    { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' },
+    { pass: 'medium', source: 'session', harness: 'claude', level: 'ultra', origin: 'CLAUDE_EFFORT', mapped: { from: 'ultra', to: 'medium' }, check: 'listed' },
+    { pass: null, source: 'none', reason: 'worker-takes-no-effort', session: { harness: 'claude', reason: null, level: 'high', origin: 'CLAUDE_EFFORT' } },
+  ];
+  for (const effortPlan of plans) {
+    const note = start.modelNote(model(null, 'default', { effortPlan }), 'opencode');
+    assert.equal(typeof note, 'string', JSON.stringify(effortPlan));
+    assert.match(note, effortPlan.pass === null ? /Effort: harness default \(.+\)\.$/ : new RegExp(`Effort: ${effortPlan.pass}\\b.*\\.$`), JSON.stringify(effortPlan));
+  }
+});
+
 test('opencode and pi carry the prompt-in-argv words; a harness that takes the prompt on stdin carries none', () => {
   const rows = start.harnessRows(options()).startable;
   const words = (name: string) => rows.find((r: any) => r.harness === name).warnings.map((w: any) => w.words);

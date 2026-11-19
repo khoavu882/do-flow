@@ -399,8 +399,9 @@ function formBody(st, options) {
     id: 'start-model', class: 'start__select', disabled: chosen === null, dataset: { focusKey: 'start-model' }, 'aria-describedby': 'start-modelnote',
     on: { change: (/** @type {any} */ event) => set({ choice: modelChoiceOf((offeredModels.find((m) => m.key === String(event.target.value)) ?? { entry: null }).entry) }) },
   }, chosen === null ? [h('option', { value: '' }, 'Choose a harness first')] : groups.map((g) => h('optgroup', { label: g.label }, g.models.map((m) => h('option', { value: m.key, selected: m.key === picked, disabled: m.refused !== null }, m.label)))));
-  // The line under the select: the chosen option's notes in words (the `?` mark and the word, never colour alone), or the default's own sentence.
-  const note = chosen === null ? null : modelNote((offeredModels.find((m) => m.key === picked) ?? { entry: null }).entry);
+  // The line under the select: the chosen option's notes in words (the `?` mark and the word, never colour alone), or the default's own
+  // sentence, then where the effort comes from (178 §8.3), in words too.
+  const note = chosen === null ? null : modelNote((offeredModels.find((m) => m.key === picked) ?? { entry: null }).entry, chosen.harness);
   const modelNoteLine = h('p', { class: 'start__modelnote', id: 'start-modelnote', dataset: { fact: 'model-note' }, hidden: note === null }, note ?? '');
   const entryGroup = group('How the session starts', entryChoices(options).map((e) => h('label', { class: 'start__choice' }, [
     h('input', { type: 'radio', name: 'start-entry', value: e.id, checked: form.entry === e.id, dataset: { focusKey: `start-entry:${e.id}` }, on: { change: () => set({ entry: e.id }) } }),

@@ -47,10 +47,9 @@ const { spawnSync } = require('node:child_process');
 const { readRuns, transition, RUN_ID } = require('./run-store.ts');
 const { readTaskState } = require('../task-state.ts');
 const attempts = require('../task-attempts.ts');
-const { launchWorker, launchMainSession, launchChannelSession } = require('./launch.ts');
+const { launchWorker, launchMainSession, launchChannelSession, launchChoiceOf } = require('./launch.ts');
 const { compileChannel, frameMessage, idOf, TurnTracker, admit, tally, createTurnCoalescer } = require('./channel.ts');
 const { createSpool, spoolDir, takeMessages, removeSpool } = require('./channel-spool.ts');
-const { choiceOf } = require('./model-choice.ts');
 const { readPrompt: readStoredPrompt, requestOfPrompt } = require('./session-prompt.ts');
 const { parserOf, parserIdOf } = require('./parsers.ts');
 const worktreeCheck = require('./worktree-check.ts');
@@ -740,11 +739,11 @@ async function superviseRun({
       fs.rmSync(lastMessageFile, { force: true });
     }
     launched = compiled
-      ? await launchChannel({ recipe: run.descriptor, runId, execWorktree: run.execWorktree, env, model: choiceOf(run.binding) })
+      ? await launchChannel({ recipe: run.descriptor, runId, execWorktree: run.execWorktree, env, model: launchChoiceOf(run.binding) })
       : main
       ? await launchMain({
         recipe: run.descriptor, prompt: promptBytes.toString('utf8'), runId, execWorktree: run.execWorktree, env,
-        model: choiceOf(run.binding), ...(lastMessageFile ? { lastMessageFile } : {}),
+        model: launchChoiceOf(run.binding), ...(lastMessageFile ? { lastMessageFile } : {}),
       })
       : await launch({
         recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity, runId,

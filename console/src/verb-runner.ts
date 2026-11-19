@@ -359,6 +359,13 @@ const IDENTITY_VARIABLES: readonly string[] = Object.freeze([
   'DOFLOW_SESSION_ROLE',
   'DOFLOW_WORKTREE',
 ]);
+/**
+ * 178 D9, O-6 (a): the harness-session variables of the registry (every `sessionEffort` marker and source name), which
+ * `sessionVariables(registry)` in src/runtime/context/session-effort.ts lists. The Console imports nothing from the core, so this is a
+ * copy that guard G86 holds equal to the shipped registry. A Console started from a harness shell passes none of them on, so the core
+ * it runs never reads that shell as its own session: a Console start follows no session effort.
+ */
+const SESSION_VARIABLES: readonly string[] = Object.freeze(['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT']);
 const PASS_THROUGH: readonly string[] = Object.freeze(['DOFLOW_CONFIG_DIR', 'DOFLOW_TELEMETRY', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
 /**
  * 165 review B-1: the one variable a write shape also passes. A Console run inside a started session carries that session's
@@ -443,11 +450,11 @@ function buildArgv(shapeId: unknown, params: unknown, shapes: Readonly<Record<st
   return { argv, projectKey: null, stdin };
 }
 
-/** The parent environment minus every DOFLOW_* and identity variable, plus the pass-throughs (and the write shape's own, B-1) and DOFLOW_UPKEEP=off. */
+/** The parent environment minus every DOFLOW_*, identity and harness-session variable (178 D9), plus the pass-throughs (and the write shape's own, B-1) and DOFLOW_UPKEEP=off. */
 function childEnv(parent: Record<string, string | undefined>, writeShape: string | null = null): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(parent)) {
-    if (value === undefined || name.toUpperCase().startsWith('DOFLOW_') || IDENTITY_VARIABLES.includes(name)) continue;
+    if (value === undefined || name.toUpperCase().startsWith('DOFLOW_') || IDENTITY_VARIABLES.includes(name) || SESSION_VARIABLES.includes(name)) continue;
     env[name] = value;
   }
   const own = writeShape !== null && Object.hasOwn(WRITE_PASS_THROUGH, writeShape) ? WRITE_PASS_THROUGH[writeShape] : [];
@@ -964,6 +971,7 @@ module.exports = {
   FOLLOW_SHAPE_IDS,
   FOLLOW_STDERR_LINE_BYTES,
   IDENTITY_VARIABLES,
+  SESSION_VARIABLES,
   KILL_GRACE_MS,
   OUTPUT_CAP_BYTES,
   PARAM_PATTERN,

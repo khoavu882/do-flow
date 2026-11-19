@@ -54,9 +54,10 @@ const { listCheckouts } = require('../checkouts.ts');
 const { runKeyFor } = require('../task-run.ts');
 const { sha16 } = require('../scaffold/fingerprint.ts');
 const { fileKeyOf } = require('../events/artifacts.ts');
-const { readDispatch } = require('../dispatch/store.ts');
+const { readDispatch, validEffortPlan } = require('../dispatch/store.ts');
 const { readCatalogue } = require('../models/catalogue.ts');
-const { loginAnswerOf } = require('./login.ts');
+const { loginAnswerOf, loginModeOf } = require('./login.ts');
+const { effortPlanFor } = require('./effort-resolution.ts');
 const { readLoginStore } = require('./login-store.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
@@ -248,8 +249,9 @@ function harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platf
  * then the harness default; at most 50. An entry is the IC-005 cell of its choice, `{ model, provider, effort, check, effortMayLower? }`,
  * with its `source`; a bound entry the harness cannot take a part of carries `refused: <reason>` (`bindingGap`'s reason) and cannot
  * start. An entry is one triple: the same model under another provider or effort is another entry. The default is `model: null`.
+ * 178 §8.3: each entry carries `effortPlan`, `planOf(harness, choice)`'s plan of its triple (`{source: 'binding', pass}` for a bound effort).
  */
-function modelsFor({ harness, worker, bindings, catalogue }: any) {
+function modelsFor({ harness, worker, bindings, catalogue, planOf }: any) {
   const out: any[] = [];
   const seen = new Set<string>();
   const listed = catalogue?.harnesses && Object.hasOwn(catalogue.harnesses, harness) ? catalogue.harnesses[harness] : null;
@@ -259,7 +261,7 @@ function modelsFor({ harness, worker, bindings, catalogue }: any) {
     const key = JSON.stringify([choice.model, choice.provider, choice.effort]);
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ ...cellFor(choice, worker, listed, refused), source });
+    out.push({ ...cellFor(choice, worker, listed, refused), source, effortPlan: planOf(harness, choice) });
   };
   // A model reaches argv only through the descriptor's `model` entry (IC-006), so without one only the default is offered.
   if (worker?.model?.status === 'supported' && Array.isArray(worker.model.argv)) {
@@ -272,8 +274,24 @@ function modelsFor({ harness, worker, bindings, catalogue }: any) {
       add({ model: model?.id, provider: byProvider && typeof model?.provider === 'string' ? model.provider : null, effort: null }, 'observed');
     }
   }
-  out.push({ model: null, provider: null, effort: null, source: 'default', check: null });
+  out.push({ model: null, provider: null, effort: null, source: 'default', check: null, effortPlan: planOf(harness, null) });
   return out;
+}
+
+/**
+ * 178 §5 "Where it runs": `(harness, choice) => EffortPlan` for the triples of one start or options read, the session read from the
+ * verb's own environment (the Console's child environment drops the session variables, D9, so a Console start follows none). The
+ * declared main harness and the login modes are read once.
+ */
+function effortPlanner({ reg, env, root }: any) {
+  let declaredHarness: string | null = null;
+  try {
+    declaredHarness = require('../context/primary.ts').resolvePrimary({ env, projectRoot: root, registry: reg })?.declared?.harness ?? null;
+  } catch {
+    declaredHarness = null;
+  }
+  const modeOf = loginModeOf({ registry: reg, env });
+  return (harness: string, choice: any) => effortPlanFor({ registry: reg, env, declaredHarness, workerHarness: harness, choice, loginModeOf: modeOf });
 }
 
 /**
@@ -463,7 +481,7 @@ async function startSession(o: any) {
   if (!facts.startable) return refusal('harness-not-startable', facts.words, { harness, reason: facts.reason });
 
   // Step 7: the model, provider and effort are one triple the options offer, and not a refused one.
-  const offered = modelsFor({ harness, worker, bindings: readBindings({ env, projectRoot: root }), catalogue });
+  const offered = modelsFor({ harness, worker, bindings: readBindings({ env, projectRoot: root }), catalogue, planOf: effortPlanner({ reg, env, root }) });
   const choice = offered.find((m: any) => m.model === model && m.provider === provider && m.effort === effort) ?? null;
   if (!choice || choice.refused) {
     const what = [model, provider === null ? null : `provider ${provider}`, effort === null ? null : `effort ${effort}`].filter((part) => part !== null).join(', ');
@@ -479,6 +497,11 @@ async function startSession(o: any) {
     return refusal('dispatch-running', words, dispatch);
   }
 
+  // 178 §7.1: the chosen triple's effort is its plan's: a bound one, else the session's level, else none. The person's own
+  // `--effort` still needs `--model` (step 2); a resolved effort rides alone when no model is chosen.
+  const plan = choice.effortPlan;
+  const launch = model === null && plan.pass === null ? null : { model, provider, effort: plan.pass };
+
   // Step 9: the record, inserted under the store lock with the limits.
   const runId = newRunId();
   const key = runKeyFor(env, cwd);
@@ -487,9 +510,12 @@ async function startSession(o: any) {
     harness, phase: 'starting', createdAt: clock().toISOString(), timeoutSeconds: TIMEOUT_SECONDS, cliVersion: facts.version,
     caller: { lineageKind: key.identity.lineageKind, runKey: key.runKey },
     startedBy, project: { projectKey, worktreeKey }, execWorktree: checkout.path, entry,
-    binding: { model, provider, effort, flag: model === null ? null : 'supported', source: choice.source },
+    binding: {
+      model, provider, effort: plan.pass, flag: launch === null ? null : 'supported', source: choice.source,
+      ...(validEffortPlan(plan) ? { effortPlan: plan } : {}),
+    },
     prompt: { store: 'session-prompts', name: `${runId}.prompt.txt`, sha256: prepared.sha256, bytes: prepared.bytes },
-    ...mainLaunchRecord(worker, prepared.sent, model === null ? null : { model, provider, effort }, channel !== null),
+    ...mainLaunchRecord(worker, prepared.sent, launch, channel !== null),
     // The detached supervisor launches from the record alone: the binary the version read found (an absolute
     // path, as `run` records), the recipe and the model part.
     // The provider and effort entries ride along only when the choice uses them: the supervisor composes the model part from the record.
@@ -497,7 +523,7 @@ async function startSession(o: any) {
       cli: { binary: facts.found.path }, mainSession: worker.mainSession, ...mapPart(worker), model: worker.model ?? null, ...signsPart(worker),
       // 170 IC-002: the channel the supervisor launches through, and for a session without one its reason.
       ...(worker.controlChannel ? { controlChannel: worker.controlChannel } : {}),
-      ...(provider === null ? {} : { provider: worker.provider }), ...(effort === null ? {} : { effort: worker.effort }),
+      ...(provider === null ? {} : { provider: worker.provider }), ...(plan.pass === null ? {} : { effort: worker.effort }),
     },
   };
   // Liveness is read outside the lock (`ps` is a process); a run inserted after this reading is counted open and live.
@@ -615,9 +641,10 @@ function startOptions(o: any) {
   const catalogue = readCatalogue(root, { env });
   const store = readLoginStore(env);
   const bindings = readBindings({ env, projectRoot: root });
+  const planOf = effortPlanner({ reg, env, root });
   const harnesses = harnessBlocks(reg, descriptors, view).map(({ harness, worker }: any) => {
     const { found, ...facts } = harnessFacts({ harness, worker, reg, view, env, cwd, root, nowMs, platform, store });
-    return { ...facts, models: modelsFor({ harness, worker, bindings, catalogue }) };
+    return { ...facts, models: modelsFor({ harness, worker, bindings, catalogue, planOf }) };
   });
   const dispatch = dispatchRunning(root, platform);
   return {

@@ -39,7 +39,9 @@ const framed = (body: string) => [
   '<output_format>', 'The person who started this session reads this reply; put the conclusion first.', '</output_format>', '',
 ].join('\n');
 /** 169 IC-007: the harness default, the one entry whose model is null (a start-options entry is `{model, provider, effort, source, check}`). */
-const DEFAULT_ENTRY = { model: null, provider: null, effort: null, source: 'default', check: null };
+/** 178 §8.3: the effort plan of an entry with no bound effort when no harness session marks the environment (every fixture env). */
+const NO_SESSION = { pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null } };
+const DEFAULT_ENTRY = { model: null, provider: null, effort: null, source: 'default', check: null, effortPlan: NO_SESSION };
 const STORE = (root: string) => path.join(root, '.doflow', 'state', 'worker-runs', 'started-sessions.json');
 
 const FAKE = `#!/usr/bin/env node
@@ -51,7 +53,7 @@ try { stdin = fs.readFileSync(0, 'utf8'); } catch { stdin = ''; }
 const argv = process.argv.slice(2);
 const pick = (k) => (process.env[k] === undefined ? null : process.env[k]);
 const env = {};
-for (const k of ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', 'DOFLOW_WORKER_RUN', 'DOFLOW_STARTED_RUN', 'DOFLOW_PRIMARY_HARNESS', 'DOFLOW_PRIMARY_MODEL']) env[k] = pick(k);
+for (const k of ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', 'DOFLOW_WORKER_RUN', 'DOFLOW_STARTED_RUN', 'DOFLOW_PRIMARY_HARNESS', 'DOFLOW_PRIMARY_MODEL', 'CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT', 'CLAUDE_CODE_EFFORT_LEVEL']) env[k] = pick(k);
 fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify({ name: path.basename(process.argv[1]), argv, cwd: process.cwd(), stdin, env, pid: process.pid }) + '\\n');
 const o = argv.indexOf('-o');
 if (o !== -1 && argv[o + 1]) fs.writeFileSync(argv[o + 1], 'fake last message\\n');
@@ -478,15 +480,15 @@ test('169 start-options: each binding and observed model is {model, provider, ef
   assert.equal(exit, 0, JSON.stringify(body));
   const by = Object.fromEntries(body.harnesses.map((h: any) => [h.harness, h]));
   assert.deepEqual(by.pi.models, [
-    { model: 'gpt-y', provider: 'openai', effort: 'low', source: 'standard', check: { model: 'listed', effort: 'listed' }, effortMayLower: true },
-    { model: 'gpt-y', provider: null, effort: null, source: 'light', check: { model: 'several-providers', effort: null } },
-    { model: 'gpt-y', provider: 'openai', effort: null, source: 'observed', check: { model: 'listed', effort: null } },
-    { model: 'gpt-y', provider: 'other', effort: null, source: 'observed', check: { model: 'listed', effort: null } },
-    { model: 'gpt-z', provider: 'openai', effort: null, source: 'observed', check: { model: 'listed', effort: null } },
+    { model: 'gpt-y', provider: 'openai', effort: 'low', source: 'standard', check: { model: 'listed', effort: 'listed' }, effortMayLower: true, effortPlan: { pass: 'low', source: 'binding' } },
+    { model: 'gpt-y', provider: null, effort: null, source: 'light', check: { model: 'several-providers', effort: null }, effortPlan: NO_SESSION },
+    { model: 'gpt-y', provider: 'openai', effort: null, source: 'observed', check: { model: 'listed', effort: null }, effortPlan: NO_SESSION },
+    { model: 'gpt-y', provider: 'other', effort: null, source: 'observed', check: { model: 'listed', effort: null }, effortPlan: NO_SESSION },
+    { model: 'gpt-z', provider: 'openai', effort: null, source: 'observed', check: { model: 'listed', effort: null }, effortPlan: NO_SESSION },
     DEFAULT_ENTRY,
   ]);
   assert.deepEqual(by.codex.models, [
-    { model: 'gpt-x', provider: null, effort: 'low', source: 'standard', check: { model: 'unchecked', effort: 'unchecked' }, refused: 'effort:unsupported' },
+    { model: 'gpt-x', provider: null, effort: 'low', source: 'standard', check: { model: 'unchecked', effort: 'unchecked' }, refused: 'effort:unsupported', effortPlan: { pass: 'low', source: 'binding' } },
     DEFAULT_ENTRY,
   ]);
 });
@@ -548,7 +550,7 @@ test('start-options: checkouts, the startable shapes, not-startable reasons, mod
   assert.deepEqual([by.claude.startable, by.claude.reason], [false, 'not-installed']);
   for (const h of ['copilot', 'kiro', 'antigravity']) assert.deepEqual([by[h].startable, by[h].reason], [false, 'no-main-session-shape'], h);
   assert.match(by.copilot.words, /^DoFlow has no recorded headless way to start copilot: /);
-  const plain = (model: string, source: string) => ({ model, provider: null, effort: null, source, check: { model: 'unchecked', effort: null } });
+  const plain = (model: string, source: string) => ({ model, provider: null, effort: null, source, check: { model: 'unchecked', effort: null }, effortPlan: NO_SESSION });
   assert.deepEqual(by.codex.models, [plain('gpt-f', 'frontier'), plain('gpt-l', 'light'), DEFAULT_ENTRY]);
   assert.deepEqual(body.limits, { perCheckout: 1, perActor: 2, machine: 4, perActorPerHour: 6 });
   assert.deepEqual(body.open, { machine: 1 });
@@ -1077,4 +1079,55 @@ test('R-5: the seventh start by one actor within an hour, counting ended runs he
   const other = await start(f, { via: undefined });
   assert.equal(other.exit, 0, JSON.stringify(other.body));
   await ended(f, other.body.run.runId);
+});
+
+// ---- 178 T7: the started session follows the session it is started from; the start form carries each entry's effort plan ----
+
+/** 178 (a)-(c): a Claude Code shell as DoFlow reads it, the marker set and its effort `high`; the level override is the person's own. */
+const CLAUDE_SHELL = { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high', CLAUDE_CODE_EFFORT_LEVEL: 'max' };
+const CLAUDE_SESSION_HIGH = { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' };
+
+test('178 (a): start-options carries effortPlan on every entry: the session level from a marked env, none with no-session-harness without one, binding for a bound effort', POSIX, async (t: any) => {
+  const f = fixture(t);
+  fs.writeFileSync(path.join(f.config, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'workers.models': { claude: { frontier: { model: 'opus-x', effort: 'low' }, standard: 'sonnet-x' } } }));
+  const options = async (env: any) => {
+    const { exit, body } = await executeWorkerCommand({ action: 'start-options', projectKey: f.projectKey, env, cwd: f.main, descriptors: DESCRIPTORS, projects: projectsImpl });
+    assert.equal(exit, 0, JSON.stringify(body));
+    return body.harnesses.find((h: any) => h.harness === 'claude').models.map((m: any) => [m.model, m.effort, m.effortPlan]);
+  };
+  assert.deepEqual(await options({ ...f.env, ...CLAUDE_SHELL }), [
+    ['opus-x', 'low', { pass: 'low', source: 'binding' }],
+    ['sonnet-x', null, CLAUDE_SESSION_HIGH],
+    [null, null, CLAUDE_SESSION_HIGH],
+  ]);
+  assert.deepEqual(await options(f.env), [
+    ['opus-x', 'low', { pass: 'low', source: 'binding' }],
+    ['sonnet-x', null, NO_SESSION],
+    [null, null, NO_SESSION],
+  ]);
+});
+
+test('178 (b): a start of the harness default from a marked env passes the session level, records it with the descriptor effort part and an {effort} shape, and drops the session variables', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const { exit, body } = await start(f, { harness: 'claude', env: { ...f.env, ...CLAUDE_SHELL } });
+  assert.equal(exit, 0, JSON.stringify(body));
+  const run = await ended(f, body.run.runId);
+  assert.deepEqual(run.binding, { model: null, provider: null, effort: 'high', flag: 'supported', source: 'default', effortPlan: CLAUDE_SESSION_HIGH });
+  assert.deepEqual(run.descriptor.effort, DESCRIPTORS.claude.effort);
+  assert.deepEqual(run.recipe.argvShape, ['-p', '--output-format', 'text', '--effort', '{effort}']);
+  const [call] = fakeLog(f);
+  assert.deepEqual(call.argv, ['-p', '--output-format', 'text', '--effort', 'high']);
+  for (const name of Object.keys(CLAUDE_SHELL)) assert.equal(call.env[name], null, `${name} reached the started session`);
+  assert.equal(body.run.model, null);
+});
+
+test('178 (c): --effort (or --provider) without --model is still usage, even when the env carries a session level', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const before = stateSnapshot(f);
+  for (const over of [{ effort: 'high' }, { provider: 'openai' }]) {
+    const { exit, body } = await start(f, { harness: 'claude', env: { ...f.env, ...CLAUDE_SHELL }, ...over });
+    assert.deepEqual([exit, body.error], [2, 'usage'], JSON.stringify(over));
+  }
+  assert.deepEqual(stateSnapshot(f), before);
+  assert.equal(fakeLog(f).length, 0);
 });

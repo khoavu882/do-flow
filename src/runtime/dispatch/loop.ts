@@ -53,9 +53,7 @@ const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { resolveTier, readBindings, resolveTaskModel, usesOrchestratorModel, bindingGap } = require('../worker/models.ts');
 const { effortPlanFor } = require('../worker/effort-resolution.ts');
-const { sessionVariables } = require('../context/session-effort.ts');
 const { loginModeOf } = require('../worker/login.ts');
-const { scrubbed } = require('../worker/launch.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { parserIdOf } = require('../worker/parsers.ts');
 const { protectedPathGap } = require('../worker/protected-paths.ts');
@@ -273,9 +271,6 @@ function effortPlanOf(p: any, { harness, resolved, primary }: any): any {
     choice: resolved.flag === 'supported' ? resolved.choice ?? null : null, loginModeOf: loginModeOf({ registry: reg, env: p.env }),
   });
 }
-
-/** 178 D9: the driver's environment as a worker's launch inherits it: no harness-session variable of the registry. */
-const workerEnvOf = (p: any) => scrubbed(p.env, { sessionVariables: sessionVariables(p.reg()) });
 
 /**
  * IC-022: the mode one attempt of `task` runs in. `held` (a take over) is `manual` under policy
@@ -1045,7 +1040,7 @@ async function launchChildren(p: any) {
         action: 'run', slug: p.slug, harness: granter.harness, task: granter.task, token: granter.token,
         promptFile: path.join(p.stateRoot, req.prompt), timeoutSeconds: remaining,
         childOf: granter.workerRunId, request: req.requestId, execWorktree: wt.worktree,
-        env: workerEnvOf(p), cwd: p.cwd, platform: p.platform, now: p.clock, descriptors: p.descriptors, registry: p.reg(), coverage: p.coverage,
+        env: p.env, cwd: p.cwd, platform: p.platform, now: p.clock, descriptors: p.descriptors, registry: p.reg(), coverage: p.coverage,
       });
     } catch (error: any) {
       outcome = { exit: 2, body: { error: error && error.code ? error.code : 'launch-threw' } };
@@ -1285,9 +1280,9 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   try {
     outcome = await executeWorkerCommand({
       action: 'run', edit: true, slug: p.slug, harness: d.harness, task: d.task, token: d.token,
-      binding,
+      binding, effortPlan,
       promptFile: promptFile.path, timeoutSeconds: seconds + BACKSTOP_SECONDS,
-      env: workerEnvOf(p), cwd: p.cwd, platform: p.platform, now: p.clock, descriptors: p.descriptors, registry: p.reg(), coverage: p.coverage,
+      env: p.env, cwd: p.cwd, platform: p.platform, now: p.clock, descriptors: p.descriptors, registry: p.reg(), coverage: p.coverage,
     });
   } catch (error: any) {
     outcome = { exit: 2, body: { error: error && error.code ? error.code : 'launch-threw' } };
