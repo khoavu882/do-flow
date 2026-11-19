@@ -472,7 +472,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'roadmap': return handleRoadmapVerbCommand(o);
     case 'plan-check': return handlePlanCheckCommand({ positional: o.positional, extraFlags: o.extraFlags, json: o.json, cwd: process.cwd() });
     // One --path only: a second occurrence reaches the handler as a list, which it refuses as usage.
-    case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, preset: o.preset, json: o.json, cwd: process.cwd(), env: process.env });
+    case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, preset: o.preset, seats: o.seats, outFile: o.out, json: o.json, cwd: process.cwd(), env: process.env });
     case 'protocol': return handleProtocolCommand({ action: o.actionGiven ? o.action : undefined, kind: o.kind, taskClass: o.taskClass, risk: o.risk, preset: o.preset, positional: o.positional, json: o.json, cwd: process.cwd() });
     case 'rules': return handleRulesCommand({ taskClass: o.taskClass, json: o.json, global: o.global, positional: o.positional, env: process.env, cwd: process.cwd() });
     case 'primary': return handlePrimaryCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });

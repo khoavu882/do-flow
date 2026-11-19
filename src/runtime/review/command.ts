@@ -82,6 +82,8 @@ function handleReviewCommand({
   path: recordPath,
   base,
   preset,
+  seats,
+  outFile,
   adviceClient,
   json = false,
   cwd = process.cwd(),
@@ -93,8 +95,17 @@ function handleReviewCommand({
   resolve = resolveActiveFeature,
   out = (line: string) => console.log(line),
 }: any = {}): number | Promise<number> {
-  if (action !== 'check' && action !== 'start') return usage('action must be check or start', json, out);
-  if (emptyValue(slug) || emptyValue(recordPath) || emptyValue(base) || emptyValue(preset)) return usage('flag values must not be empty', json, out);
+  if (action !== 'check' && action !== 'start' && action !== 'similar') return usage('action must be check, start or similar', json, out);
+  if ([slug, recordPath, base, preset, seats, outFile].some(emptyValue)) return usage('flag values must not be empty', json, out);
+  if (action === 'similar') {
+    // 176 IC-007: the seats file and --out replace the record path; the slug names the feature.
+    if (hasValue(recordPath) || hasValue(base) || hasValue(preset)) return usage('--path, --base and --preset are not valid with --action similar', json, out);
+    if (hasValue(slug) && !validSlug(slug)) return usage('--slug must be a plain feature name', json, out);
+    if ([seats, outFile].some((value) => hasValue(value) && typeof value !== 'string')) return usage('--seats and --out values must be strings', json, out);
+    // Required here, so `check` and `start` load no decision client.
+    return require('./similar.ts').handleReviewSimilar({ slug: hasValue(slug) ? slug : null, seats: hasValue(seats) ? seats : null, outFile: hasValue(outFile) ? outFile : null, json, cwd, env, resolve, out });
+  }
+  if (hasValue(seats) || hasValue(outFile)) return usage('--seats and --out are valid only with --action similar', json, out);
   if (action === 'start') {
     // 095b IC-001: the start verb reads no record path, and the slug becomes a file name.
     if (hasValue(recordPath)) return usage('--path is not valid with --action start', json, out);

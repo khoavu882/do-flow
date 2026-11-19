@@ -416,6 +416,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--baseline-ref', 'baselineRef'],             // verify: explicit ancestor commit or ref to measure change against (IC-022)
   ['--base', 'base'],                  // review --action start: the commit or ref the changed paths are measured from (095b IC-001)
   ['--preset', 'preset'],              // review --action start: a review preset id to run with, never looser than the decided one (119 IC-005)
+  ['--seats', 'seats'],                // review --action similar: the seats file (default: the feature's review/seats.json; 176 IC-007)
   ['--layer', 'layer'],                // config validate|set|unset: user | project | local, checked in handleConfigCommand (119 IC-008)
   ['--prepared-run', 'preparedRun'],   // config validate: a prepared-run file to check, writes nothing (119 IC-010)
   ['--error', 'errorMessage'],         // recover: the failure text to classify
@@ -639,6 +640,7 @@ Commands:
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage).
                        review --action check [--slug <name> | --path <findings.json>] [--json]
                        review --action start [--slug <name>] [--base <ref>] [--json] [--preset <id>]   verify precondition and review protocol; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
+                       review --action similar [--slug <name>] [--seats <file>] [--out <file>] [--json]   advisory list of possible duplicate seat findings, written only once the model check is shown (exit 0, 1 bad seats or no feature, 2 usage)
   protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing).
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
@@ -745,7 +747,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        slot: run|list|peek|release
                        worktree: cleanup
                        models: sync|list|describe|bind|unbind
-                       review: check|start
+                       review: check|start|similar
                        protocol: list|resolve
                        primary: resolve|observed
                        fleet: projects|tree
@@ -843,6 +845,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --harness, --tier, --model, --provider, --effort, --allow-unlisted   models --action bind (unbind: --harness, --tier); describe: --model [--provider]
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
+      --seats <file>, --out <file>          review --action similar (the seats file, default the feature's review/seats.json; the list's file)
       --path <dir>                          package --action check (exactly one package directory)
       --id <id>                             package --action list (one package), show, update (required unless --plan), enable, disable, trust, exempt, revoke and remove
       --source <spec>                       package --action add (local dir, git:https://<host>/<repo>[#<subdir>]@<ref>, npm:<name>@<version or range>)
