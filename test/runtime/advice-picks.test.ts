@@ -28,7 +28,7 @@ const STORAGE = loadStorageRegistry({ repoRoot: REPO_ROOT });
 const NOW = () => new Date('2026-06-10T12:00:00.000Z');
 const FROM = '2026-03-12';
 const TO = '2026-06-10';
-const REGISTRY_KINDS = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support', 'instructs-reader'];
+const REGISTRY_KINDS = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'claim-support', 'instructs-reader', 'same-issue'];
 const BODY_KEYS = ['v', 'window', 'kind', 'kinds', 'stores', 'days', 'picks', 'limits'];
 const DAY_KEYS = ['day', 'coverage', 'unreadableLines', 'picks'];
 const PICK_KEYS = ['pickId', 'kind', 'at', 'mode', 'pick', 'static', 'agree', 'outcome'];

@@ -25,6 +25,10 @@ const { appendEvents, readFold, byFromChannel, randomChars } = require('./event-
 const { deriveStatuses } = require('./status.ts');
 const { writeIntent, kebabTitle } = require('./intent-writer.ts');
 const reportStore = require('./report-store.ts');
+// Row 176 (design §11): the rule stage only. Nothing this file requires may reach an advice client, the dispatcher, a
+// child process or the network, because `add` must never ask a model (AC-5); the model check is followup-similar.ts.
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { itemText, score, pairKey, candidatePairs } = require('../advice/same-issue/rule.ts');
 
 /** The decision register's stages plus the two lifecycle stages (IC-006). */
 const STAGES = [...CHAIN_STAGES, 'release', 'maintain'];
@@ -92,6 +96,78 @@ function loadFollowups(root: any, { hasBody, fsImpl = nodeFs, statuses, now = ne
   const derived = needsStatus ? (statuses || deriveStatuses({ root, fold })) : null;
   const followups = needsStatus ? withDerivedDone(fold.followups, Object.fromEntries(Object.entries(derived.statuses).map(([slug, s]: [string, any]) => [slug, s.status]))) : fold.followups;
   return { fold, followups };
+}
+
+// ── possible duplicates (row 176, design §10-§11) ──────────────────────────────────────────────
+
+/** The most rule matches one item lists. */
+const SIMILAR_MAX = 3;
+
+/**
+ * The same-issue kind's `params`, read from core/registry/advice.json itself rather than through the advice registry
+ * module, whose require graph costs about 19 ms of the 50 ms `add` may add per created item (measured 2026-11-19; a batch
+ * add has no item cap); null when unreadable, so `add` then lists no matches. The registry's own checks validate the values.
+ */
+function sameIssueParams(repoRoot = REPO_ROOT) {
+  try {
+    const registry = JSON.parse(nodeFs.readFileSync(path.join(repoRoot, 'core', 'registry', 'advice.json'), 'utf8'));
+    return registry.kinds.find((kind: any) => kind.id === 'same-issue')?.params ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The items a new or listed one is compared with: the newest `maxCompare` open and taken follow-ups, as rule items. */
+function comparedItems(followups: any[], params: any) {
+  return followups.filter((item: any) => item.state === 'open' || item.state === 'taken').slice(-params.maxCompare)
+    .map((item: any) => ({ id: item.id, text: itemText(item.statement, params.itemBytes) }));
+}
+
+/** Pairs to at most SIMILAR_MAX `{ id, score }` per id of `ids`, best first (score, then pair key), only `eligible` others. */
+function topMatches(pairs: any[], ids: string[], eligible: Set<string> | null = null) {
+  const out = new Map<string, any[]>(ids.map((id) => [id, []]));
+  const ordered = [...pairs].sort((left, right) => right.score - left.score || (left.key < right.key ? -1 : left.key > right.key ? 1 : 0));
+  for (const pair of ordered) {
+    for (const [self, other] of [[pair.a, pair.b], [pair.b, pair.a]]) {
+      const list = out.get(self);
+      if (list && list.length < SIMILAR_MAX && (!eligible || eligible.has(other))) list.push({ id: other, score: Math.round(pair.score * 100) / 100 });
+    }
+  }
+  return out;
+}
+
+/**
+ * IC-009: per created item (`{ id, statement }`), its rule-yes matches among the newest `maxCompare` open and taken
+ * `followups` and the other created items. Only the created items are scored against the rest, one `score` per pair, so a
+ * batch of k items costs about k x (maxCompare + k) scores (about 3.5 us each, measured 2026-11-19).
+ */
+function ruleMatchesOnAdd({ created, followups, params }: any): Map<string, any[]> {
+  const bar = params.flagAtPct / 100;
+  const pool = comparedItems(followups, params);
+  const fresh = created.map((item: any) => ({ id: item.id, text: itemText(item.statement, params.itemBytes) }));
+  const pairs: any[] = [];
+  fresh.forEach((item: any, index: number) => {
+    for (const other of [...pool, ...fresh.slice(index + 1)]) {
+      const value = score(item, other, params);
+      if (value >= bar) pairs.push({ a: item.id, b: other.id, score: value, key: pairKey(item.id, other.id) });
+    }
+  });
+  return topMatches(pairs, fresh.map((item: any) => item.id));
+}
+
+/**
+ * IC-008: per listed item, its rule-yes matches among the open and taken follow-ups. `candidatePairs` at the flag bar with
+ * no per-item or total cap is every rule-yes pair touching a listed item, scored once each: about 70 ms for a full list
+ * of 400 items, O(n^2) for a full list of the whole store.
+ */
+function similarTo(listed: any[], followups: any[], params: any) {
+  const pool = comparedItems(followups, params);
+  const items = new Map(pool.map((item: any) => [item.id, item]));
+  for (const item of listed) if (!items.has(item.id)) items.set(item.id, { id: item.id, text: itemText(item.statement, params.itemBytes) });
+  const atFlagBar = { ...params, perItem: Infinity, maxPairs: Infinity, candidateAtPct: params.flagAtPct };
+  const ids = listed.map((item: any) => item.id);
+  const matches = topMatches(candidatePairs([...items.values()], atFlagBar, { among: new Set(ids) }), ids, new Set(pool.map((item: any) => item.id)));
+  return ids.map((id) => ({ id, matches: matches.get(id) }));
 }
 
 // ── add ────────────────────────────────────────────────────────────────────────────────────────
@@ -220,14 +296,21 @@ function readBatchFile(file: any, fsImpl = nodeFs) {
 function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel, now = new Date(), fsImpl = nodeFs }: any) {
   const by = channelBy(channel);
   const built = buildItems({ cwd, items, defaults });
-  const taken = new Set(readFold(root, { fsImpl, now }).followups.map((f: any) => f.id));
+  const { followups } = readFold(root, { fsImpl, now });
+  const taken = new Set(followups.map((f: any) => f.id));
   const drafts = built.map(({ statement, source }) => ({ type: 'followup.added', by, data: { id: newFollowupId(taken), statement, source } }));
   const out = appendEvents(root, drafts, { now, fsImpl });
   if (!out.ok) return refusalFrom('add', out);
+  const created = out.written.map(({ event }: any) => ({ id: event.data.id, statement: event.data.statement, source: event.data.source, state: 'open' }));
+  // A hint only, from the fold read above: nothing is refused or merged (IC-009). A taken item whose feature finished is
+  // still `taken` in the fold, so the hint may name it; `list --similar` shows it done (loadFollowups derives that with git,
+  // about 180 ms more per add on 385 follow-ups, measured 2026-11-20).
+  const params = sameIssueParams();
+  const similar = params ? ruleMatchesOnAdd({ created, followups, params }) : new Map();
   return {
     ok: true,
     action: 'add',
-    created: out.written.map(({ event }: any) => ({ id: event.data.id, statement: event.data.statement, source: event.data.source, state: 'open' })),
+    created: created.map((item: any) => ({ ...item, similar: similar.get(item.id) ?? [] })),
     events: out.written.map((w: any) => w.file),
     next: [],
   };
@@ -347,7 +430,7 @@ function followupOrderKey(item: any) {
  * `state`, looks in every state); an id that is no item at all is the `unknown-id` refusal. With `cursor`, `limit` or
  * `defaultLimit` the answer holds one page of `items` plus `shown` and `nextCursor`; with none it is the whole list.
  */
-function listFollowups({ root, state, ids, cursor, limit, defaultLimit = null, hasBody, fsImpl = nodeFs, statuses, now = new Date() }: any) {
+function listFollowups({ root, state, ids, cursor, limit, defaultLimit = null, similar = false, hasBody, fsImpl = nodeFs, statuses, now = new Date() }: any) {
   const wanted = ids === undefined ? null : parseIds(ids);
   const wantedState = state === undefined ? (wanted ? 'all' : 'open') : state;
   if (wantedState !== 'all' && !STATES.includes(wantedState)) throw new FollowupUsageError(`--state must be one of ${[...STATES, 'all'].join(', ')} (got '${wantedState}')`);
@@ -361,9 +444,15 @@ function listFollowups({ root, state, ids, cursor, limit, defaultLimit = null, h
   }
   if (wantedState !== 'all') matched = matched.filter((item: any) => item.state === wantedState);
   const answer: any = { ok: true, action: 'list', state: wantedState, count: matched.length, items: matched, conflicts: fold.conflicts, unreadable: fold.unreadable, unreadableReasons: fold.unreadableReasons, next: [] };
-  if (cursor === undefined && limit === undefined && defaultLimit === null) return answer;
+  // With `similar`, each listed item also names its rule matches (IC-008); with no readable params, none.
+  const withSimilar = (listed: any) => {
+    if (!similar) return listed;
+    const params = sameIssueParams();
+    return { ...listed, similar: params ? similarTo(listed.items, followups, params) : listed.items.map((item: any) => ({ id: item.id, matches: [] })) };
+  };
+  if (cursor === undefined && limit === undefined && defaultLimit === null) return withSimilar(answer);
   const page = pageItems(matched, { cursor, limit, defaultLimit, maxLimit: LIST_MAX_LIMIT, key: followupOrderKey });
-  return { ...answer, items: page.items, shown: page.shown, nextCursor: page.nextCursor };
+  return withSimilar({ ...answer, items: page.items, shown: page.shown, nextCursor: page.nextCursor });
 }
 
 // ── take, settle, promote ──────────────────────────────────────────────────────────────────────
@@ -456,6 +545,6 @@ function promoteFollowups({ root, ids, title, channel, now = new Date(), fsImpl 
 
 module.exports = {
   addFollowups, reportFollowup, listFollowups, followupOrderKey, takeFollowups, settleFollowups, promoteFollowups,
-  loadFollowups, readBatchFile, resolveFeatureSlug, parseIds, oneLine, channelBy,
+  loadFollowups, readBatchFile, resolveFeatureSlug, parseIds, oneLine, channelBy, sameIssueParams, ruleMatchesOnAdd, comparedItems,
   FollowupUsageError, STAGES, STATES, SOURCE_KINDS, STATEMENT_MAX,
 };

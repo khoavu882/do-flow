@@ -283,6 +283,37 @@ function identityFacts(data: any, sameFamily: Sameness, authors: any[] = []): { 
   return facts;
 }
 
+/** The seat rules of a record's `seats` array, shared with `review --action similar` (176 IC-007): each fault as
+ * validateFindings reports it (`seat`, `seat-identity:<id>`, `seat-finding`) with the field it is about, the finding ids
+ * and the seat of each finding. */
+function seatFaults(seats: any[]): { faults: Array<{ error: string; field: string }>; findingIds: Set<string>; seatOf: Map<string, string> } {
+  const faults: Array<{ error: string; field: string }> = [];
+  const seatIds = new Set<string>();
+  const findingIds = new Set<string>();
+  const seatOf = new Map<string, string>();
+  for (let s = 0; s < seats.length; s += 1) {
+    const seat = seats[s];
+    const at = `seats[${s}]`;
+    const seatField = !object(seat) ? at : !nonempty(seat.id) || seatIds.has(seat.id) ? `${at}.id` : !Array.isArray(seat.findings) ? `${at}.findings` : null;
+    if (seatField) { faults.push({ error: 'seat', field: seatField }); continue; }
+    seatIds.add(seat.id);
+    if (!validSeatIdentity(seat)) faults.push({ error: `seat-identity:${seat.id}`, field: at });
+    for (let f = 0; f < seat.findings.length; f += 1) {
+      const finding = seat.findings[f];
+      const where = `${at}.findings[${f}]`;
+      const findingField = !object(finding) ? where
+        : !nonempty(finding.id) || findingIds.has(finding.id) ? `${where}.id`
+        : !SEVERITIES.includes(finding.severity) ? `${where}.severity`
+        : !nonempty(finding.locator) ? `${where}.locator`
+        : !nonempty(finding.summary) ? `${where}.summary` : null;
+      if (findingField) { faults.push({ error: 'seat-finding', field: findingField }); continue; }
+      findingIds.add(finding.id);
+      seatOf.set(finding.id, seat.id);
+    }
+  }
+  return { faults, findingIds, seatOf };
+}
+
 /** Schema checks only. Git ancestry and register-channel backing are separate facts.
  * `sameFamily` (`warn` by default) is the project's `review.sameFamily`: under `refuse` a same-family seat is an error.
  * `preset` (`auto` by default) is the effective `review.preset`: when it is neither `auto` nor the loosest core preset
@@ -315,20 +346,8 @@ function validateFindings(
   const converged = Array.isArray(data.converged) ? data.converged : [];
   if (!Array.isArray(data.seats)) errors.push('seats');
   if (!Array.isArray(data.converged)) errors.push('converged');
-  const seatIds = new Set<string>();
-  const findingIds = new Set<string>();
-  const seatOf = new Map<string, string>();
-  for (const seat of seats) {
-    if (!object(seat) || !nonempty(seat.id) || seatIds.has(seat.id) || !Array.isArray(seat.findings)) { errors.push('seat'); continue; }
-    seatIds.add(seat.id);
-    if (!validSeatIdentity(seat)) errors.push(`seat-identity:${seat.id}`);
-    for (const finding of seat.findings) {
-      if (!object(finding) || !nonempty(finding.id) || findingIds.has(finding.id) || !SEVERITIES.includes(finding.severity)
-        || !nonempty(finding.locator) || !nonempty(finding.summary)) { errors.push('seat-finding'); continue; }
-      findingIds.add(finding.id);
-      seatOf.set(finding.id, seat.id);
-    }
-  }
+  const { faults, findingIds, seatOf } = seatFaults(seats);
+  for (const fault of faults) errors.push(fault.error);
   // C-2: the record is held to its own preset, not only to its shape; a record that omits `protocol` is held to the
   // project's non-auto `review.preset` instead (omitting the field must not skip the check).
   const recorded = Object.hasOwn(data, 'protocol');
@@ -428,5 +447,5 @@ function reviewAdvisories(json: any, { sameFamily = 'warn', authors = [] }: { sa
 
 module.exports = {
   HEX_HEAD, SEVERITIES, DISPOSITIONS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, RECORD_KEYS, FINDING_FIELDS,
-  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate, invalidPresetCandidate, telemetryProtocol,
+  object, nonempty, strings, validPath, evidenceLocator, seatFaults, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate, invalidPresetCandidate, telemetryProtocol,
 };

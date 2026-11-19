@@ -138,18 +138,21 @@ const CALL_LABELS = 'abcdefghijklmnop';
 
 /**
  * A kind with `criteriaFrom: "call"` takes 1 to `params.maxCandidates` (at most 16) questions named `<kind>` or
- * `<kind>-<a to p>` (IC-010); every other kind takes exactly one question named for the kind. Duplicate names
- * are rejected by validateQuestionSet.
+ * `<kind>-<a to p>` (IC-010); a kind with a positive integer `params.questionsPerCall` q takes 1 to q (at most 16)
+ * questions named `<kind>-<a to p>`, or the one question `<kind>` (176 IC-004); every other kind takes exactly one
+ * question named for the kind. Duplicate names are rejected by validateQuestionSet.
  */
 function matchesNamedKind(namedKind: any, questionSet: any): boolean {
   const questions = questionSet?.questions;
   if (!Array.isArray(questions)) return false;
-  if (namedKind.criteriaFrom !== 'call') return questions.length === 1 && questions[0]?.name === namedKind.id;
-  const max = namedKind.params?.maxCandidates;
+  const perCall = namedKind.params?.questionsPerCall;
+  const batched = namedKind.criteriaFrom !== 'call' && Number.isInteger(perCall) && perCall > 0;
+  if (namedKind.criteriaFrom !== 'call' && !batched) return questions.length === 1 && questions[0]?.name === namedKind.id;
+  const max = batched ? perCall : namedKind.params?.maxCandidates;
   const limit = Number.isInteger(max) && max > 0 ? Math.min(max, CALL_LABELS.length) : 1;
   if (questions.length < 1 || questions.length > limit) return false;
   return questions.every((question: any) => typeof question?.name === 'string'
-    && (question.name === namedKind.id
+    && ((question.name === namedKind.id && !(batched && questions.length > 1))
       || (question.name.length === namedKind.id.length + 2
         && question.name.startsWith(`${namedKind.id}-`)
         && CALL_LABELS.includes(question.name.slice(-1)))));

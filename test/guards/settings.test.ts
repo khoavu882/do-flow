@@ -492,7 +492,8 @@ test('G44 S7 control: an unregistered key read by a settings-file reader, a kind
 // ships that nothing reads. A key is live when (1) each of its `consumers` is a shipped src/ file that names the key
 // outside a comment and is reached by `require` from src/cli/index.ts, and (2) for `advice.kinds.<k>` and
 // `advice.models.<k>`, the kind <k> in core/registry/advice.json has a non-empty `askedBy` whose every entry is a live
-// caller of that kind: a runtime caller whose source dispatches it (`interceptDecisionPoint({ kind: '<k>', caller: '<entry>'`),
+// caller of that kind: a runtime caller whose source dispatches it (`interceptDecisionPoint({ kind: '<k>', caller: '<entry>'`;
+// a file holding that adjacency also counts when it directly requires a reached module that dispatches the kind, one hop only),
 // the `advise` verb for a kind with a static question, or a skill directory of that name whose bash block runs
 // `advise --kind <k>`. A kind some caller names but nothing dispatches is how `rerank` and `followup-triage` shipped
 // settings that did nothing.
@@ -545,13 +546,20 @@ function adviceReaderFindings({ settings, advice, sources, skills }: { settings:
   const findings: string[] = [];
   const code = new Map([...sources].map(([file, text]) => [file, stripSourceComments(text)]));
   const reached = reachedFrom(ADVICE_ENTRY, sources);
+  const requiredFrom = (file: string): string[] => [...(code.get(file) as string).matchAll(/require\(\s*['"](\.[^'"]+)['"]\s*\)/g)].flatMap(([, target]) => {
+    const base = path.posix.normalize(path.posix.join(path.posix.dirname(file), target));
+    return [base, `${base}.ts`, `${base}/index.ts`].filter((candidate) => code.has(candidate)).slice(0, 1);
+  });
+  const dispatchesKind = (file: string, kind: any): boolean => reached.has(file) && (code.get(file) as string).includes('interceptDecisionPoint(') && (code.get(file) as string).includes(`'${kind.id}'`);
   const liveCaller = (kind: any, caller: string): boolean => {
     for (const [file, text] of skills) {
       if (file.startsWith(`core/shared/skills/${caller}/`) && skillRunsKind(text, kind.id)) return true;
     }
     for (const [file, text] of code) {
-      if (!reached.has(file) || !text.includes('interceptDecisionPoint(')) continue;
-      if (new RegExp(`kind:\\s*'${kind.id}',\\s*caller:\\s*'${caller}'`).test(text)) return true;
+      if (!reached.has(file)) continue;
+      if (new RegExp(`kind:\\s*'${kind.id}',\\s*caller:\\s*'${caller}'`).test(text)
+        && (text.includes('interceptDecisionPoint(') || requiredFrom(file).some((target) => dispatchesKind(target, kind)))) return true;
+      if (!text.includes('interceptDecisionPoint(')) continue;
       // The verb takes the kind from --kind, so it dispatches every kind that has a static question.
       if (caller === 'advise' && file === 'src/runtime/advice/cli.ts' && /caller:\s*'advise'/.test(text) && kind.criteriaFrom !== 'call') return true;
     }
@@ -627,6 +635,32 @@ test('G44 S8 control: a planted key, a kind nothing asks, a caller that does not
     ['advice.endpoint: consumer src/runtime/advice/config.ts does not read it']);
   assert.deepEqual(stripped('src/runtime/advice/shadow-config.ts', /getSettingValue\(content, `advice\.kinds\.\$\{kind\}`\)/g, 'const unused = `advice.kinds.${kind}`;').filter((line) => line.startsWith('advice.kinds.tier')),
     ['advice.kinds.tier: consumer src/runtime/advice/shadow-config.ts does not read it']);
+});
+
+test('G44 S8 control: a caller literal counts through one required module that dispatches the kind, and through nothing else', () => {
+  const inputs = adviceReaderInputs();
+  const plant = (spec: string) => `require('${spec}');\n`; // built, so G16 does not read it as a real require
+  const adjacency = "checkIt({ kind: 'tier', caller: 'planted' });";
+  const dispatch = (kind: string) => `interceptDecisionPoint({ kind: '${kind}', caller });`;
+  const run = (files: Record<string, string>) => {
+    const sources = new Map(inputs.sources);
+    sources.set(ADVICE_ENTRY, `${sources.get(ADVICE_ENTRY)}\n${plant('./planted-caller.ts')}`);
+    for (const [file, text] of Object.entries(files)) sources.set(file, text);
+    const draft = JSON.parse(JSON.stringify(inputs.advice));
+    draft.kinds.find((kind: any) => kind.id === 'tier').askedBy.push('planted');
+    return adviceReaderFindings({ ...inputs, sources, advice: draft }).filter((line) => line.includes("'planted'"));
+  };
+  const reported = ["advice.kinds.tier: kind tier lists askedBy 'planted', which does not dispatch it", "advice.models.tier: kind tier lists askedBy 'planted', which does not dispatch it"];
+  // No dispatch and no required dispatcher: reported.
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${adjacency}\n` }), reported);
+  // The required module dispatches a different kind: reported.
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-ask.ts')}${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('mcp-need')}\n` }), reported);
+  // The dispatcher is two hops away: reported.
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-mid.ts')}${adjacency}\n`, 'src/cli/planted-mid.ts': plant('./planted-ask.ts'), 'src/cli/planted-ask.ts': `${dispatch('tier')}\n` }), reported);
+  // The dispatcher only names the kind in a comment: reported.
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-ask.ts')}${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('mcp-need')}\n// 'tier'\n` }), reported);
+  // One hop to a module that dispatches the kind: live.
+  assert.deepEqual(run({ 'src/cli/planted-caller.ts': `${plant('./planted-ask.ts')}${adjacency}\n`, 'src/cli/planted-ask.ts': `${dispatch('tier')}\n` }), []);
 });
 
 test('G44 S8 control: the comment-stripping and fence rules ignore a call that only a comment or a shell comment makes', () => {

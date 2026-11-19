@@ -2,8 +2,10 @@
 
 // `doflow advise --action replay --kind <k> [--limit <n>] [--json] [--write] [-g]` (175 IC-005, IC-008). Measures the
 // configured decision model on the kind's own recorded decisions: the kind's case source builds the cases from local
-// stores, each case is asked once, in case-id order, one at a time, with no pick or miss line written, and the replay
-// scorer and judge turn the answers into the figures of design section 5 and a standing against the effective bars.
+// stores, each case is asked once, in case-id order, one call at a time, with no pick or miss line written, and the replay
+// scorer and judge turn the answers into the figures of design section 5 and a standing against the effective bars. A kind
+// with `params.questionsPerCall` q is asked as production asks it (176 IC-006): runs of up to q cases per call, built by
+// `buildBatch` and split back by `splitBatch`; each case takes its call's latency.
 //
 // Nothing is written unless `--write` is given; then one entry goes to the user-level result store. A refused `--write`
 // (design section 10) stops the command before any case is asked. Case text (state, claim, passage) and model replies
@@ -17,6 +19,7 @@ const { REPO_ROOT } = require('../../../helper/repo-root.ts');
 const { resolveSetting } = require('../config.ts');
 const { resolveShadowConfig } = require('../shadow-config.ts');
 const { createAdviceClient } = require('../client.ts');
+const { buildBatch, splitBatch } = require('../batch.ts');
 const { materializeKind } = require('../kinds.ts');
 const { inWorkerSession } = require('../../context/identity.ts');
 const { readSeedSwitch } = require('../../settings/autopilot.ts');
@@ -115,6 +118,7 @@ function renderText(r: any): string {
   if (m.worse === 0) lines.push('Worse ids: none');
   else if (m.worse > r.worseIds.length) lines.push(`Worse ids (first ${r.worseIds.length} of ${m.worse}): ${r.worseIds.join(', ')}`);
   else lines.push(`Worse ids (${m.worse}): ${r.worseIds.join(', ')}`);
+  if (r.calls) lines.push(`Asked in ${r.calls.count} calls of up to ${r.calls.perCall} cases; a case's latency is its call's`);
   lines.push(`Latency ms: first ${ms(m.latencyMs.first)} · p50 ${ms(m.latencyMs.p50)} · p95 ${ms(m.latencyMs.p95)} · max ${ms(m.latencyMs.max)} (budget ${r.budgetMs})`);
   const failed = r.failedChecks.length ? ` (${r.failedChecks.join(', ')})` : '';
   lines.push(`Standing: ${r.standing}: ${STANDING_TEXT[r.standing] || r.standing}${failed}.`);
@@ -198,18 +202,34 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   }
   const cases = eligible.cases.slice(0, limit);
 
-  // 5. One case at a time, in case-id order; no pick or miss line.
+  // 5. One call at a time, in case-id order: one case per call, or runs of `questionsPerCall` for a batched kind; no pick
+  // or miss line.
+  const perCall = registryKind.params?.questionsPerCall;
+  const batched = Number.isInteger(perCall) && perCall > 0;
   const answered: any[] = [];
-  for (const c of cases) {
+  let calls = 0;
+  for (let start = 0; start < cases.length; start += batched ? perCall : 1) {
+    const group = batched ? cases.slice(start, start + perCall) : [cases[start]];
+    const questionSet = batched
+      ? buildBatch({ question, states: group.map((c: any) => c.state), questionsPerCall: perCall })
+      : { state: group[0].state, questions: [question] };
     const startedAt = Date.now();
-    const reply = await client.ask({
-      questionSet: { state: c.state, questions: [question] }, kind, model, caller: 'advise', record: false, timeoutMs: adviceRegistry.timeoutMs,
-    });
+    const reply = await client.ask({ questionSet, kind, model, caller: 'advise', record: false, timeoutMs: adviceRegistry.timeoutMs });
+    calls += 1;
     const latencyMs = Number.isFinite(reply?.durationMs) ? reply.durationMs : Date.now() - startedAt;
-    const answer = reply?.status === 'answered' ? reply.answers?.[0] : null;
-    answered.push(answer
-      ? { id: c.id, label: c.label, rule: c.rule, model: answer.pick, strength: answer.strength?.word, latencyMs }
-      : { id: c.id, label: c.label, rule: c.rule, model: null, failure: FAILURE_OF[reply?.reason] || 'unreachable', latencyMs });
+    // Per case: the reply's answer (its pick and strength word), or the reason there is none. A split answer keeps its pick,
+    // so the scorer counts it valid and gives the case the rule's answer, as for a single question.
+    const perCase = batched
+      ? splitBatch(reply, group.length).map((split: any, i: number) => (split.noAnswer === null || split.noAnswer === 'split'
+        ? { answer: reply.answers.find((a: any) => a?.name === questionSet.questions[i].name), reason: null }
+        : { answer: null, reason: split.noAnswer }))
+      : [{ answer: reply?.status === 'answered' ? reply.answers?.[0] : null, reason: reply?.reason }];
+    group.forEach((c: any, i: number) => {
+      const { answer, reason } = perCase[i];
+      answered.push(answer
+        ? { id: c.id, label: c.label, rule: c.rule, model: answer.pick, strength: answer.strength?.word, latencyMs }
+        : { id: c.id, label: c.label, rule: c.rule, model: null, failure: FAILURE_OF[reason] || 'unreachable', latencyMs });
+    });
   }
 
   // 6. Figures, standing, and the stored entry for this project, kind and model build.
@@ -261,7 +281,9 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   if (json) {
     console.log(JSON.stringify(options.warnings?.length ? { ...result, warnings: options.warnings } : result, null, 2));
   } else {
-    console.log(renderText({ ...result, origin: source.origin, yesno: question.type === 'yesno', budgetMs, resultsFile: resultsFile(roots) }));
+    console.log(renderText({
+      ...result, origin: source.origin, yesno: question.type === 'yesno', budgetMs, resultsFile: resultsFile(roots), calls: batched ? { count: calls, perCall } : null,
+    }));
     if (replaced) console.log(`Replaced the stored result (${replaced.replayed} cases, replayed ${replaced.runAt.slice(0, 10)}) with this one (${cases.length} cases).`);
     if (writeMessage) console.error(`advise: ${writeMessage}`);
   }

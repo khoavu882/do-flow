@@ -57,7 +57,7 @@ test('IC-003: shipped registry loads with the fixed limits, bands, providers and
     minVersion: '0.35.1', capability: 'decision',
   }]);
   assert.deepEqual(registry.kinds.map((kind: any) => kind.id), [
-    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'rerank', 'claim-support', 'instructs-reader',
+    'tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need', 'rerank', 'claim-support', 'instructs-reader', 'same-issue',
   ]);
   assert.deepEqual(Object.keys(registry.kinds[0].criteria), MODELS.dispatchTiers.tiers);
   assert.deepEqual(Object.keys(MODELS.providers).length > 0, true);
@@ -253,6 +253,75 @@ test('the registry refuses passageBytes 2049 and 255', (t) => {
   }
 });
 
+// ── row 176 IC-001: the same-issue kind entry ──
+
+const sameIssueOf = (r: any) => r.kinds.find((kind: any) => kind.id === 'same-issue');
+
+test('176 IC-001: the shipped same-issue kind is a compact yes/no kind asked by review and followup, held at show, read from review findings', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  const kind = sameIssueOf(result.registry);
+  assert.equal(kind.type, 'yesno');
+  assert.equal(kind.maxMode, 'show');
+  assert.deepEqual(kind.askedBy, ['review', 'followup']);
+  assert.deepEqual(kind.replay, { source: 'review-findings' });
+  assert.deepEqual(kind.params, {
+    itemBytes: 512, questionsPerCall: 8, maxPairs: 32, perItem: 2, candidateAtPct: 15, flagAtPct: 40, locatorBonusPct: 15, maxCompare: 2000,
+  });
+  assert.equal(Object.hasOwn(kind, 'criteria') || Object.hasOwn(kind, 'criteriaFrom'), false);
+  assert.ok(JSON.stringify(kind).length < 1300, 'the entry stays compact');
+});
+
+test('176 IC-001: the registry refuses each same-issue bound alone and names the field', (t) => {
+  const refused: Array<[string, any, string]> = [
+    ['itemBytes', 63, 'itemBytes'], ['itemBytes', 4097, 'itemBytes'], ['itemBytes', 512.5, 'itemBytes'],
+    ['questionsPerCall', 0, 'questionsPerCall'], ['questionsPerCall', 17, 'questionsPerCall'],
+    ['candidateAtPct', 41, 'candidateAtPct'], ['candidateAtPct', 0, 'candidateAtPct'],
+    ['flagAtPct', 101, 'flagAtPct'], ['flagAtPct', 10, 'candidateAtPct'],
+    ['locatorBonusPct', 101, 'locatorBonusPct'], ['locatorBonusPct', -1, 'locatorBonusPct'],
+    ['maxPairs', 7, 'maxPairs'], ['perItem', 0, 'perItem'], ['maxCompare', 0, 'maxCompare'],
+    ['extra', 1, 'extra'],
+  ];
+  for (const [field, value, named] of refused) {
+    const result = loadAdviceRegistry(writeFixture(t, (r: any) => { sameIssueOf(r).params[field] = value; }));
+    assert.equal(result.ok, false, `${field} ${value}`);
+    assert.match(result.detail, new RegExp(`kinds\\[\\d+\\]\\.params\\.${named}\\b`), `${field} ${value}: ${result.detail}`);
+  }
+  const missing = loadAdviceRegistry(writeFixture(t, (r: any) => { delete sameIssueOf(r).params.maxCompare; }));
+  assert.match(missing.detail, /params\.maxCompare/);
+  for (const [field, value] of [['itemBytes', 64], ['itemBytes', 4096 / 16], ['questionsPerCall', 1], ['questionsPerCall', 16], ['flagAtPct', 100], ['locatorBonusPct', 0], ['candidateAtPct', 40], ['maxPairs', 8]] as any[]) {
+    const result = loadAdviceRegistry(writeFixture(t, (r: any) => { sameIssueOf(r).params[field] = value; }));
+    assert.equal(result.ok, true, `${field} ${value}: ${result.detail}`);
+  }
+});
+
+test('176 IC-001: a same-issue entry without questionsPerCall is refused, and so is one above limits.maxQuestions', (t) => {
+  const missing = loadAdviceRegistry(writeFixture(t, (r: any) => { delete sameIssueOf(r).params.questionsPerCall; }));
+  assert.equal(missing.ok, false);
+  assert.match(missing.detail, /kinds\[\d+\]\.params\.questionsPerCall\b/);
+  const above = loadAdviceRegistry(writeFixture(t, (r: any) => { r.limits.maxQuestions = 4; sameIssueOf(r).params.questionsPerCall = 5; }));
+  assert.equal(above.ok, false);
+  assert.match(above.detail, /params\.questionsPerCall\b/);
+});
+
+test('176 IC-001: the state-size product questionsPerCall x (2 x itemBytes + 64) + 256 must fit limits.maxStateBytes', (t) => {
+  const over = loadAdviceRegistry(writeFixture(t, (r: any) => { sameIssueOf(r).params.itemBytes = 4096; }));
+  assert.equal(over.ok, false);
+  assert.match(over.detail, /kinds\[\d+\]\.params questionsPerCall \* \(2 \* itemBytes \+ 64\) \+ 256 must be at most limits\.maxStateBytes/);
+  const fits = loadAdviceRegistry(writeFixture(t, (r: any) => { Object.assign(sameIssueOf(r).params, { itemBytes: 2900, questionsPerCall: 8 }); }));
+  assert.equal(fits.ok, true, fits.detail);
+});
+
+test('176 IC-001: questionsPerCall on any kind is a positive integer of at most 16', (t) => {
+  for (const value of [0, 17, 1.5, '4']) {
+    const result = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).params.questionsPerCall = value; }));
+    assert.equal(result.ok, false, String(value));
+    assert.match(result.detail, /kinds\[\d+\]\.params\.questionsPerCall/);
+  }
+  const result = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).params.questionsPerCall = 16; }));
+  assert.equal(result.ok, true, result.detail);
+});
+
 test('141 IC-001: a registry without the claim-support kind still loads (no such call is made)', (t) => {
   const result = loadAdviceRegistry(writeFixture(t, (r: any) => { r.kinds = r.kinds.filter((kind: any) => kind.id !== 'claim-support'); }));
   assert.equal(result.ok, true, result.detail);
@@ -272,7 +341,7 @@ test('row 174 O-3: every shipped kind has its budgetMs as data, and timeoutMs is
   const result = loadAdviceRegistry({ repoRoot: REPO });
   assert.equal(result.ok, true, result.detail);
   assert.deepEqual(Object.fromEntries(result.registry.kinds.map((kind: any) => [kind.id, kind.budgetMs])), {
-    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, rerank: 5000, 'claim-support': 1500, 'instructs-reader': 1500,
+    tier: 1500, 'task-class': 3000, 'verify-risk': 2000, 'review-depth': 1500, 'mcp-need': 1500, rerank: 5000, 'claim-support': 1500, 'instructs-reader': 1500, 'same-issue': 9500,
   });
   assert.equal(result.registry.timeoutMs, 15000);
   assert.match(result.registry.description, /warm measurements with headroom/);

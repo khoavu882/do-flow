@@ -503,6 +503,58 @@ test('141 B.11: an unregistered kind with a lettered name is rejected', async (t
   assert.equal(server.requests.length, 0);
 });
 
+// 176 IC-004: a kind with a positive integer `params.questionsPerCall` q takes 1 to min(q, 16) questions named
+// `<kind>-<a to p>`, or the one question `<kind>`.
+function batchedRegistry(questionsPerCall: unknown): any {
+  const registry = structuredClone(BASE_ADVICE);
+  const kind = {
+    id: 'pairs', type: 'yesno', description: 'Fixture.', instructions: 'Same issue?', no: 'Different', yes: 'Same',
+    staticFrom: 'fixture', askedBy: ['review'], maxMode: 'show', budgetMs: 5000, params: { questionsPerCall },
+  };
+  registry.kinds = [...registry.kinds, kind];
+  return registry;
+}
+
+async function askBatched(t: any, names: string[], questionsPerCall: unknown = 3) {
+  const server = await startFakeServer();
+  onClose(t, server);
+  const { createClient }: any = fixture(t, { endpoint: server.origin, adviceOverrides: { kinds: batchedRegistry(questionsPerCall).kinds } });
+  const questions = names.map((name) => ({ name, type: 'yesno', instructions: 'Same issue?', no: 'Different', yes: 'Same' }));
+  const result = await createClient().ask({ questionSet: { state: 'pairs', questions }, kind: 'pairs', caller: 'review', record: false });
+  return { result, server };
+}
+
+for (const [label, names, perCall] of [
+  ['the one base question', ['pairs'], 3],
+  ['one lettered question', ['pairs-a'], 3],
+  ['questionsPerCall lettered questions', ['pairs-a', 'pairs-b', 'pairs-c'], 3],
+  ['16 questions when questionsPerCall is above 16', 'abcdefghijklmnop'.split('').map((letter) => `pairs-${letter}`), 20],
+] as any[]) {
+  test(`176 IC-004: a questionsPerCall kind accepts ${label}`, async (t) => {
+    const { result, server } = await askBatched(t, names, perCall);
+    assert.equal(result.status, 'answered', result.detail);
+    assert.deepEqual(result.answers.map((answer: any) => answer.name), names);
+    assert.equal(server.requests.length, 1);
+  });
+}
+
+for (const [label, names, perCall] of [
+  ['more than questionsPerCall questions', ['pairs-a', 'pairs-b', 'pairs-c', 'pairs-d'], 3],
+  ['17 questions whatever questionsPerCall says', [...'abcdefghijklmnop'.split('').map((letter) => `pairs-${letter}`), 'pairs-q'], 20],
+  ['the base name beside a lettered one', ['pairs', 'pairs-b'], 3],
+  ['a name outside a to p', ['pairs-a', 'pairs-q'], 3],
+  ['a wrong name', ['pairs-a', 'other-b'], 3],
+  ['two questions when questionsPerCall is not a positive integer', ['pairs-a', 'pairs-b'], 2.5],
+  ['a lettered question when questionsPerCall is zero', ['pairs-a'], 0],
+] as any[]) {
+  test(`176 IC-004: a questionsPerCall kind rejects ${label} before any request`, async (t) => {
+    const { result, server } = await askBatched(t, names, perCall);
+    assert.equal(result.status, 'unavailable');
+    assert.equal(result.reason, 'config-invalid');
+    assert.equal(server.requests.length, 0);
+  });
+}
+
 test('141 B.11: an answer missing one question is a malformed reply and a miss', async (t) => {
   const names = ladderNames(4);
   const server = await startFakeServer({ routes: { 'POST /v1/systemone': { status: 200, body: { answers: ladderReply(names.slice(0, 3)) } } } });

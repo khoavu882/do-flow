@@ -24,10 +24,12 @@ interface CaseSource {
 
 const { source: claimLedger } = require('./claim-ledger.ts');
 const { source: instructsReaderCorpus } = require('./instructs-reader-corpus.ts');
+const { source: reviewFindings } = require('./review-findings.ts');
 
 const SOURCES: Readonly<Record<string, CaseSource>> = Object.freeze({
   'claim-ledger': claimLedger,
   'instructs-reader-corpus': instructsReaderCorpus,
+  'review-findings': reviewFindings,
 });
 
 const SOURCE_IDS: readonly string[] = Object.freeze(Object.keys(SOURCES));

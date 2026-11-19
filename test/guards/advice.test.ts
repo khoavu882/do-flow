@@ -249,6 +249,8 @@ const RUNTIME_ASKED: any = {
   'claim-support': { caller: 'claim', file: 'src/runtime/claims.ts', outcome: null },
   // 177: the detached shadow hook `screenDocuments` asks it per screened document; the rule screen is the static answer, so no outcome line.
   'instructs-reader': { caller: 'brief', file: 'src/runtime/advice/instructs-reader.ts', outcome: null },
+  // 176: the one call site review and follow-up both use; the rule stage's pick is the static answer, so no outcome line.
+  'same-issue': { caller: 'review', file: 'src/runtime/advice/same-issue/ask.ts', outcome: null },
 };
 const ASKS_ADVICE = /\b(?:client\.ask|interceptDecisionPoint)\(/;
 

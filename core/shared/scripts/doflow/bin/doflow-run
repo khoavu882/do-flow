@@ -440,7 +440,7 @@ Workflow and evidence:
   failure          list, settle or switch off the failures DoFlow captured on this machine
   roadmap          autopilot runner: render, status, next, audit, report, init-policy, seed, promote
   plan-check       check a plan's task lines the way the task-attempt ledger reads them
-  review           validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload)
+  review           validate a feature's review/findings.json, print counts and advisories, or list possible duplicate seat findings (--action similar; review-package assembles the payload)
   protocol         print the review and debate protocol presets, or the one a run would use (read-only)
   rules            print the values the runtime owns for this project, each with its source (read-only)
   primary          resolve which harness and model the main session runs (read-only)

@@ -217,8 +217,8 @@ after(() => {
 
 // ---- premises of the world ----------------------------------------------------------------------
 
-test('the world: 44 registry keys, the fail-safe exit, the unparseable local file and the unknown key note reach the projected body', () => {
-  assert.equal(REGISTRY_KEYS.length, 44);
+test('the world: 46 registry keys, the fail-safe exit, the unparseable local file and the unknown key note reach the projected body', () => {
+  assert.equal(REGISTRY_KEYS.length, 46);
   assert.deepEqual(effective.keys.map((k: any) => k.key), REGISTRY_KEYS);
   assert.equal(effective.failSafe, true);
   assert.equal(effective.keys.find((k: any) => k.key === 'advice.enabled').views[0].origin.via, 'fail-safe');
@@ -239,7 +239,7 @@ test('exports renderSettings, rerouteSettings and settingsTitle; the title is Se
 
 // ---- groups and rows (FR-004, FR-005, FR-007) ----------------------------------------------------
 
-test('44 keys in five groups: each a section.sgroup with an h2 and a captioned table.mtable of eight th scope="col" columns', () => {
+test('46 keys in five groups: each a section.sgroup with an h2 and a captioned table.mtable of eight th scope="col" columns', () => {
   const { root } = render();
   const groups = root.querySelectorAll('section.sgroup');
   assert.deepEqual(groups.map((g: any) => textOf(g.querySelector('h2'))), GROUPS);
@@ -262,9 +262,9 @@ test('44 keys in five groups: each a section.sgroup with an h2 and a captioned t
       keys.push(tr.getAttribute('data-key'));
     }
   }
-  assert.equal(keys.length, 45, '44 keys, storage.prune twice');
+  assert.equal(keys.length, 47, '46 keys, storage.prune twice');
   assert.deepEqual([...new Set(keys)].sort(), [...REGISTRY_KEYS].sort(), 'every registry key, none missing or twice');
-  assert.deepEqual(groups.map((g: any) => new Set(g.querySelectorAll('tr').map((tr: any) => tr.getAttribute('data-key')).filter(Boolean)).size), [7, 18, 7, 1, 11]);
+  assert.deepEqual(groups.map((g: any) => new Set(g.querySelectorAll('tr').map((tr: any) => tr.getAttribute('data-key')).filter(Boolean)).size), [7, 20, 7, 1, 11]);
 });
 
 test('the Key cell links to #/settings/<key>; the row reads the body\'s value, type, default, scope, state, layer and source', () => {
@@ -513,7 +513,7 @@ test('a schema section with core-lacks-verb: the not-in-core sentence while effe
   assert.equal(missing.length, 1);
   assert.equal(textOf(missing[0]), 'This DoFlow core does not provide the settings schema.');
   assert.equal(byData(root, 'state', 'error').length, 0);
-  assert.equal(new Set(root.querySelectorAll('tr').map((tr: any) => tr.getAttribute('data-key')).filter(Boolean)).size, 44);
+  assert.equal(new Set(root.querySelectorAll('tr').map((tr: any) => tr.getAttribute('data-key')).filter(Boolean)).size, 46);
   assert.equal(byData(root, 'invariant').length, 0);
   assert.match(spaced(local.inspector.current.body), /Range unknown/, 'the range is unknown without the schema, never invented');
 });

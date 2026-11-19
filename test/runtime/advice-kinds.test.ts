@@ -35,7 +35,7 @@ test('score criteria preserve order and obey distinct nonempty string bounds', (
   const question: any = { type: 'score', criteria: ['Low', 'High'] };
   assert.equal(validateStaticAnswer(question, 'High').ok, true);
   for (const value of [1, '1', 'high', ' High']) assert.equal(validateStaticAnswer(question, value).ok, false);
-  assert.equal(ADVICE.kinds.length, 8);
+  assert.equal(ADVICE.kinds.length, 9);
   assert.equal(materialize('score').ok, false);
 });
 

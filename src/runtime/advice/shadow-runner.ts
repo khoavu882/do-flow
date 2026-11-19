@@ -5,8 +5,9 @@
 // handoff's path as its one argument: the call's context (the state text and question set never travel in argv or
 // env), the effective model, the budget, the pick id, the store roots and the slot taken for this child. The child
 // reads and removes the handoff before anything else, asks the advisor bounded by the budget, records its pick or miss
-// through the dispatcher's recordCall (record.ts: digests and byte counts, never the state text), frees the slot and
-// exits. It never outlives the budget by more than EXIT_GRACE_MS, nor its slot's staleness.
+// through the dispatcher's recordCall (record.ts: digests and byte counts, never the state text; a batch's payload carries
+// its `staticPicks`, and the one recordCall writes a line per question, row 176 IC-004), frees the slot and exits. It
+// never outlives the budget by more than EXIT_GRACE_MS, nor its slot's staleness.
 //
 // Slots (store advice-shadow-slots-user): at most `shadowSlots` (core/registry/advice.json) shadow children run at once
 // across every project of this user, one file each, created with O_EXCL by the parent BEFORE it spawns (row 174 R-04),
@@ -220,7 +221,13 @@ async function askAndRecord(payload: any, fsImpl: any, arrivedAt: number, slot: 
       const { appendMiss } = require('./record.ts');
       const context = payload?.context;
       if (payload?.roots && typeof payload.roots === 'object' && typeof context?.kind === 'string') {
-        appendMiss({ roots: payload.roots, fsImpl, kind: context.kind, caller: context.caller, reason: 'spawn-failed', model: payload.model ?? null, durationMs: 0, mode: 'shadow' });
+        // A batch records one miss per question, any other decision its one miss, as recordCall writes them (176 IC-004;
+        // the dispatcher's isBatch, repeated here because the dispatcher may be what failed to load).
+        const questions = Array.isArray(context.questionSet?.questions) ? context.questionSet.questions.length : 0;
+        const batch = questions >= 1 && Array.isArray(context.staticPicks) && context.staticPicks.length === questions;
+        for (let index = 0; index < (batch ? questions : 1); index += 1) {
+          appendMiss({ roots: payload.roots, fsImpl, kind: context.kind, caller: context.caller, reason: 'spawn-failed', model: payload.model ?? null, durationMs: 0, mode: 'shadow' });
+        }
       }
     } catch { /* record.ts itself cannot load: nothing can be written (shadow-dispatcher.ts spawnShadow) */ }
     return;

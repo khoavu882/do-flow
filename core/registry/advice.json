@@ -164,6 +164,29 @@
       "params": {
         "passageBytes": 2048
       }
+    },
+    {
+      "id": "same-issue",
+      "type": "yesno",
+      "description": "Proposed defaults. Asked per candidate pair the rule stage picks, several pairs per call; shown only, it merges or closes nothing.",
+      "instructions": "Decide whether the two quoted items describe the same issue, so that one fix would settle both.",
+      "no": "The two items describe different issues",
+      "yes": "The two items describe the same issue",
+      "staticFrom": "the rule stage: yes when the pair's score reaches params.flagAtPct",
+      "askedBy": ["review", "followup"],
+      "maxMode": "show",
+      "replay": { "source": "review-findings" },
+      "budgetMs": 9500,
+      "params": {
+        "itemBytes": 512,
+        "questionsPerCall": 8,
+        "maxPairs": 32,
+        "perItem": 2,
+        "candidateAtPct": 15,
+        "flagAtPct": 40,
+        "locatorBonusPct": 15,
+        "maxCompare": 2000
+      }
     }
   ]
 }

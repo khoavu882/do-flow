@@ -30,6 +30,7 @@ require("../helper/harness-free-path.ts").useHarnessFreePath();
 const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['followup --action list --json', 0, 2752], // 2,600 B (brief, the new default)
   ['followup --action list --view full --json', 0, 91904], // 91,329 B
+  ['followup --action list --similar --json', 0, 4160], // 3,930 B (row 176 T6: the brief page with three rule matches per item, every fixture item matching, and modelCheck)
   ['classify --task-class feature --calling-skill do-design --json', 0, 5888], // 5,606 B
   ['classify --task-class feature --calling-skill do-design --view brief --json', 0, 2624], // 2,443 B
   ['classify --task-class nope --calling-skill do-design --json', 1, 832], // 788 B
@@ -43,7 +44,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['capabilities --json', 0, 3840], // 3,651 B
   ['discover --json', 0, 2240], // 2,109 B
   ['paths --json', 0, 896], // 841 B
-  ['config --json', 0, 49536], // 48,988 B (141: five advice keys grew it: a mode and a model key for claim-support, and three keys of the rerank kind that row 174 removed again; 143: team.enforcement)
+  ['config --json', 0, 49536], // 48,003 B (141: five advice keys grew it: a mode and a model key for claim-support, and three keys of the rerank kind that row 174 removed again; 143: team.enforcement; 176: the same-issue mode and model keys, and the mode key's unset rule; was 48,988 B; the ceiling is left as it was)
   ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
   ['storage --json', 0, 15360], // 14,802 B (170 T4: the channel-spool store row)
   ['indicators --json', 0, 704], // 619 B
@@ -229,8 +230,11 @@ const CLASSIFIER = path.join(REPO, 'src', 'runtime', 'task-classifier.ts');
  */
 const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind', '$.goals[].conflicts', '$.omitted', '$.staleRuns'];
 
+/** Keep paths a follow-up list holds only with --similar (row 176), and `model` only when a model check was shown. */
+const SIMILAR_ONLY = ['$.similar[].id', '$.similar[].matches[].id', '$.similar[].matches[].score', '$.similar[].matches[].model', '$.modelCheck.shown', '$.modelCheck.reason'];
+
 const SPECS: any[] = [
-  { name: 'followup list', file: FOLLOWUP_CLI, constant: 'FOLLOWUP_LIST_BRIEF', brief: 'followup --action list --json', full: 'followup --action list --view full --json', offsets: { items: 0 } },
+  { name: 'followup list', file: FOLLOWUP_CLI, constant: 'FOLLOWUP_LIST_BRIEF', brief: 'followup --action list --json', full: 'followup --action list --view full --json', offsets: { items: 0 }, optional: SIMILAR_ONLY },
   { name: 'classify', file: CLASSIFIER, constant: 'CLASSIFY_BRIEF', brief: 'classify --task-class feature --calling-skill do-design --view brief --json', full: 'classify --task-class feature --calling-skill do-design --json' },
   { name: 'lifecycle overview', file: FOLLOWUP_CLI, constant: 'OVERVIEW_BRIEF', brief: 'lifecycle --action overview --view brief --json', full: 'lifecycle --action overview --json', resolveAlso: 'lifecycle --action overview --maintain --json', optional: OVERVIEW_CONDITIONAL, briefPage: true },
   { name: 'lifecycle overview --maintain', file: FOLLOWUP_CLI, constant: 'OVERVIEW_BRIEF', brief: 'lifecycle --action overview --maintain --view brief --json', full: 'lifecycle --action overview --maintain --json', optional: OVERVIEW_CONDITIONAL },
