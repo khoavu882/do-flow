@@ -45,7 +45,7 @@ const handleModelsCommand = (options: any) => require('../runtime/models/command
 const { handleWorkerCommand } = require('../runtime/worker/command.ts');
 const { handleDispatchCommand } = require('../runtime/dispatch/command.ts');
 const { handleRetrieveCommand } = require('../runtime/knowledge/retrieval.ts');
-const { handleModelRoleCommand } = require('../runtime/model-router.ts');
+const { handleModelRoleCommand } = require('../runtime/models/model-router.ts');
 const { handlePromptFrameCommand } = require('../runtime/prompt/command.ts');
 const { handleRouteCommand } = require('../runtime/capability-router.ts');
 const { handleContextPackCommand } = require('../runtime/context-pack.ts');
