@@ -21,9 +21,11 @@ interface CaseSource {
 }
 
 const { source: claimLedger } = require('./claim-ledger.ts');
+const { source: instructsReaderCorpus } = require('./instructs-reader-corpus.ts');
 
 const SOURCES: Readonly<Record<string, CaseSource>> = Object.freeze({
   'claim-ledger': claimLedger,
+  'instructs-reader-corpus': instructsReaderCorpus,
 });
 
 const SOURCE_IDS: readonly string[] = Object.freeze(Object.keys(SOURCES));

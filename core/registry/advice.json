@@ -159,6 +159,7 @@
       "staticFrom": "the rule screen (a fixed list of patterns)",
       "askedBy": ["brief"],
       "maxMode": "show",
+      "replay": { "source": "instructs-reader-corpus" },
       "budgetMs": 1500,
       "params": {
         "passageBytes": 2048

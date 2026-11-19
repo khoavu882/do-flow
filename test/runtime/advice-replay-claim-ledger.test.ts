@@ -55,8 +55,8 @@ function snapshot(dir: string): Record<string, string> {
 }
 
 describe('the case-source seam', () => {
-  test('the map is closed and lists claim-ledger', () => {
-    assert.deepEqual(SOURCE_IDS, ['claim-ledger']);
+  test('the map is closed and lists its two sources', () => {
+    assert.deepEqual(SOURCE_IDS, ['claim-ledger', 'instructs-reader-corpus']);
     assert.equal(getSource('claim-ledger'), claimLedger.source);
     assert.equal(SOURCES['claim-ledger'], claimLedger.source);
     assert.equal(getSource('not-a-source'), null);

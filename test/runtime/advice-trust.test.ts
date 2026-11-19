@@ -243,3 +243,27 @@ test('175 T5: the digest helpers are sha256 over canonical JSON, independent of 
   assert.notEqual(caseSetDigest([a, b]), caseSetDigest([a, { ...b, state: 'one!' }]), 'the state is part of the digest');
   assert.match(projectKey(REPO_ROOT), /^sha256:[0-9a-f]{64}$/);
 });
+
+test('177 T4: a stored result goes stale when builderVersion rises', async (t) => {
+  const f = setup(t);
+  const reg = registry();
+  const irKind = reg.kinds.find((entry: any) => entry.id === 'instructs-reader');
+  const irQuestion = materializeKind('instructs-reader', { adviceRegistry: reg }).question;
+  const v1 = getSource('instructs-reader-corpus');
+  assert.equal(v1.builderVersion, 1);
+  const bars = effectiveBars({ registry: reg, kind: 'instructs-reader', roots: f.roots });
+  writeResult({ roots: f.roots, entry: {
+    kind: 'instructs-reader', provider: 'local', model: 'decider:4b', modelDigest: MODEL_DIGEST,
+    questionDigest: questionDigest(irQuestion), builderDigest: builderDigest(v1, irKind), barsDigest: barsDigest(bars.bars, irKind.budgetMs),
+    caseSet: { source: v1.id, origin: v1.origin, projectKey: projectKey(f.project), digest: caseSetDigest([]), eligible: 120, replayed: 120 },
+    metrics: PASSING, runAt: '2026-11-19T08:00:00.000Z', doflowVersion: '2.4.0',
+  } });
+  const standing = (source: any) => evaluateTrust({
+    kind: 'instructs-reader', model: 'decider:4b', provider: 'local', endpoint: 'http://127.0.0.1:1', question: irQuestion,
+    registry: reg, roots: f.roots, client: f.client, projectRoot: f.project, sourceOf: () => source,
+  });
+  const fresh = await standing(v1);
+  assert.deepEqual([fresh.standing, fresh.staleDigest], ['act', null]);
+  const raised = await standing({ ...v1, builderVersion: v1.builderVersion + 1 });
+  assert.deepEqual([raised.standing, raised.staleDigest], ['stale', 'builder']);
+});
