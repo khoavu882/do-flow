@@ -221,6 +221,8 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   let written = false;
   let refused: string | null = null;
   let writeMessage: string | null = null;
+  // The stored result this write replaced, read before the write (informational: another writer could land in between).
+  let replaced: { replayed: number; runAt: string } | null = null;
   if (options.write === true) {
     const { worseIds, perClass, labelCounts, ...figures } = metrics;
     try {
@@ -234,6 +236,7 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
         },
       });
       written = true;
+      if (entry) replaced = { replayed: entry.caseSet.replayed, runAt: entry.runAt };
     } catch (error: any) {
       refused = error?.code === 'results-locked' || error?.code === 'results-lock-lost' ? error.code : 'store-invalid';
       writeMessage = error?.message || 'result not stored';
@@ -245,12 +248,13 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
     schema: 1, kind, provider: provider.id, model, modelDigest, source: source.id,
     caseSet: { eligible: eligible.cases.length, replayed: cases.length, digest: setDigest, skipped: eligible.skipped },
     metrics: shown, standing: judged.standing, failedChecks: judged.failedChecks, worseIds: worseIds.slice(0, MAX_WORSE_IDS),
-    stored, written, refused,
+    stored, written, refused, replaced,
   };
   if (json) {
     console.log(JSON.stringify(options.warnings?.length ? { ...result, warnings: options.warnings } : result, null, 2));
   } else {
     console.log(renderText({ ...result, origin: source.origin, yesno: question.type === 'yesno', budgetMs, resultsFile: resultsFile(roots) }));
+    if (replaced) console.log(`Replaced the stored result (${replaced.replayed} cases, replayed ${replaced.runAt.slice(0, 10)}) with this one (${cases.length} cases).`);
     if (writeMessage) console.error(`advise: ${writeMessage}`);
   }
   return finishRuntime(options.write === true && !written ? 1 : 0);

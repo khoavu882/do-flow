@@ -153,7 +153,7 @@ test('(a) every figure of design section 5 is in the --json body and the text fo
   const json = await f.run(['--kind', KIND, '--json']);
   assert.equal(json.status, 0, json.stderr);
   const body = JSON.parse(json.stdout);
-  assert.deepEqual(Object.keys(body), ['schema', 'kind', 'provider', 'model', 'modelDigest', 'source', 'caseSet', 'metrics', 'standing', 'failedChecks', 'worseIds', 'stored', 'written', 'refused']);
+  assert.deepEqual(Object.keys(body), ['schema', 'kind', 'provider', 'model', 'modelDigest', 'source', 'caseSet', 'metrics', 'standing', 'failedChecks', 'worseIds', 'stored', 'written', 'refused', 'replaced']);
   assert.equal(body.schema, 1);
   assert.equal(body.kind, KIND);
   assert.equal(body.provider, 'ollama');
@@ -373,6 +373,28 @@ test('(f) with no terminal and no run, --write stores one entry; a replay after 
   assert.match(again.stdout, /^Stored: case set changed · written to /m);
   assert.equal(JSON.parse(fs.readFileSync(f.resultsFile, 'utf8')).results.length, 1);
   assertNoCaseText(f, r.stdout, r.stderr, same.stdout, changed.stdout, again.stdout, again.stderr);
+});
+
+test('(f) a --write that replaces a stored result names what it replaced; the first write and a replay without --write name nothing', async (t) => {
+  const f = await fixture(t);
+  writeLedger(f.project, mainSpecs(20));
+  const first = await f.run(['--kind', KIND, '--write', '--json']);
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(JSON.parse(first.stdout).replaced, null, 'nothing was stored before');
+  const stored = JSON.parse(fs.readFileSync(f.resultsFile, 'utf8')).results[0];
+  assert.equal(stored.caseSet.replayed, 20);
+
+  const text = await f.run(['--kind', KIND, '--limit', '10', '--write']);
+  assert.equal(text.status, 0, text.stderr);
+  const day = stored.runAt.slice(0, 10);
+  assert.ok(text.stdout.split('\n').includes(`Replaced the stored result (20 cases, replayed ${day}) with this one (10 cases).`), text.stdout);
+  assert.equal(JSON.parse(fs.readFileSync(f.resultsFile, 'utf8')).results[0].caseSet.replayed, 10);
+
+  const secondRunAt = JSON.parse(fs.readFileSync(f.resultsFile, 'utf8')).results[0].runAt;
+  const json = await f.run(['--kind', KIND, '--limit', '5', '--write', '--json']);
+  assert.deepEqual(JSON.parse(json.stdout).replaced, { replayed: 10, runAt: secondRunAt });
+  const plain = await f.run(['--kind', KIND, '--limit', '5']);
+  assert.doesNotMatch(plain.stdout, /Replaced the stored result/, 'without --write nothing is replaced');
 });
 
 test('(g) a 200-case replay: the --json body stays under its measured ceiling and the text form is at most 30 lines', async (t) => {

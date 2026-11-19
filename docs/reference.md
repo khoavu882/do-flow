@@ -885,7 +885,7 @@ A case's answer is the model's pick when the reply is valid (one of the question
 | `Standing` | The standing against the effective bars, with each failed check |
 | `Stored` | Whether this project already holds a result for this kind and model build: `none`, `same case set` or `case set changed`; and whether this run wrote one |
 
-`--json` prints `schema` (1), `kind`, `provider`, `model`, `modelDigest`, `source`, `caseSet` (`eligible`, `replayed`, `digest`, `skipped`), `metrics` (every figure above), `standing`, `failedChecks`, `worseIds` (at most 20), `stored`, `written` and `refused`.
+`--json` prints `schema` (1), `kind`, `provider`, `model`, `modelDigest`, `source`, `caseSet` (`eligible`, `replayed`, `digest`, `skipped`), `metrics` (every figure above), `standing`, `failedChecks`, `worseIds` (at most 20), `stored`, `written`, `refused` and `replaced` (the stored result this write replaced, `{replayed, runAt}`, or null). A write that replaces a stored result also prints a `Replaced the stored result (...)` line naming the replaced entry's case count and date.
 
 Agreement with a recorded label is not accuracy: a recorded link or decision is an assertion, not ground truth. At the show bar's minimum of 30 cases the kappa interval is wide, so a passing show bar ranks the model against the rule on your records; it does not settle how accurate the model is.
 
