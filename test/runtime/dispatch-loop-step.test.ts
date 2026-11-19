@@ -25,6 +25,11 @@ const readiness = require(path.join(SRC, 'worker', 'readiness.ts'));
 const store = require(path.join(SRC, 'dispatch', 'store.ts'));
 const { createIntegrationWorktree } = require(path.join(SRC, 'dispatch', 'integrate.ts'));
 const loop = require(path.join(SRC, 'dispatch', 'loop.ts'));
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
+const { renderBriefTools } = require(path.join(SRC, 'brief-tools.ts'));
+const { resolvePrimary } = require(path.join(SRC, 'context', 'primary.ts'));
 const { readRuns, storeFileFor: runStoreFileFor } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const ENVELOPE_STORE = require('../../core/registry/storage.json').stores.find((x: any) => x.id === 'dispatch-envelopes');
 
@@ -314,6 +319,19 @@ test('178 (g): a driver with no session marker passes no --thinking, records why
   assert.deepEqual(run.env, { CLAUDE_CODE_CHILD_SESSION: null, CLAUDE_EFFORT: null, CLAUDE_CODE_EFFORT_LEVEL: null });
   const stored = readRuns(p.runStore)[d.workerRunId];
   assert.equal(JSON.stringify(stored.recipe.argvShape).includes('--thinking'), false);
+});
+
+test('178 A-01: a non-orchestrator task still reads the declared main harness, so a declaration that contradicts the marker passes no --thinking and the brief shows the same plan', POSIX, async (t) => {
+  const { d, run, p } = await piRun(t, { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high', DOFLOW_PRIMARY_HARNESS: 'codex' });
+  assert.equal(run.argv.some((item: string) => item.startsWith('--thinking')), false);
+  assert.deepEqual(d.model.effortPlan, { pass: null, source: 'none', reason: 'session-unknown', session: { harness: 'claude', reason: 'contradicted', level: null, origin: null } });
+  const registry = loadRegistry({ repoRoot: REPO_ROOT });
+  const router = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: p.root });
+  const probes: any = {};
+  for (const capability of Object.values(router.capabilities) as any[]) for (const provider of capability.providers) probes[provider.id] = { id: provider.id, status: 'HEALTHY' };
+  const primary = resolvePrimary({ env: p.env, projectRoot: p.root, registry });
+  const brief: any = renderBriefTools({ registry, router, probes, reach: null, owner: 'core-implementer', stage: null, harness: 'pi', primary, env: p.env, loginModeOf: () => null });
+  assert.deepEqual(brief.record.effortPlan, d.model.effortPlan, 'the brief and the launch give one plan');
 });
 
 test('row 173 T5 (g): sequential and manual modes yield the envelope and write no handoff prompt', POSIX, async (t) => {

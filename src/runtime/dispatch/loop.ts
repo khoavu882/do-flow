@@ -264,10 +264,13 @@ function primaryFor(p: any, { owner, resolvedTier, always = false }: any): any {
  * lower name the worker has), else none. The session is read from the driver's environment now, once per launch. A model the
  * launch cannot pass is no bound choice, so an effort that would ride in its id is never asked for.
  */
-function effortPlanOf(p: any, { harness, resolved, primary }: any): any {
+function effortPlanOf(p: any, { harness, resolved, primary, owner, resolvedTier }: any): any {
   const reg = p.reg();
+  // The declared main harness is read for every task, whatever the owner: it is the guard against a nested session that inherits
+  // the marker (the brief and the session start read it the same way), so it does not depend on the model rule's owner gate.
+  const declared = primary ?? primaryFor(p, { owner, resolvedTier, always: true });
   return effortPlanFor({
-    registry: reg, env: p.env, declaredHarness: primary?.declared?.harness ?? null, workerHarness: harness,
+    registry: reg, env: p.env, declaredHarness: declared?.declared?.harness ?? null, workerHarness: harness,
     choice: resolved.flag === 'supported' ? resolved.choice ?? null : null, loginModeOf: loginModeOf({ registry: reg, env: p.env }),
   });
 }
@@ -1225,7 +1228,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
       return;
     }
     // 178 §7.1: the launch passes the model when its flag is evidenced, and the effort the plan resolved; neither, no binding.
-    effortPlan = effortPlanOf(p, { harness: d.harness, resolved, primary });
+    effortPlan = effortPlanOf(p, { harness: d.harness, resolved, primary, owner, resolvedTier });
     const modelPassed = resolved.flag === 'supported';
     if (modelPassed || effortPlan.pass !== null) {
       binding = { model: modelPassed ? resolved.model : null, provider: modelPassed ? resolved.choice?.provider ?? null : null, effort: effortPlan.pass, flag: 'supported' };
