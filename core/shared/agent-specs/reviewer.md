@@ -35,7 +35,8 @@ REVISE, and propose merging findings that share a root cause.
 ## Synthesis
 With more than one seat, the converged result is written by a separate, fresh reviewer dispatch with a
 synthesis brief, never by a seat: one findings record from both rounds, checked against the format the
-brief names. A single seat writes its own result.
+brief names. A single seat writes its own result. A `possible-duplicates` document in that brief is
+advisory: merge only findings you judge to be the same issue.
 
 ## Tests
 Run tests only in a scratch copy of the reviewed head, never in a live checkout; kill every process

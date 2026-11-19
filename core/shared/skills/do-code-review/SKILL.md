@@ -5,10 +5,6 @@ description: Code review automation for TypeScript, JavaScript, Python, Go, Swif
 
 # Code Reviewer
 
-Automated code review tools for analyzing pull requests, detecting code quality issues, and generating review reports.
-
----
-
 ## How This Skill Is Organized
 
 ### Loading order for every review
@@ -17,8 +13,7 @@ Automated code review tools for analyzing pull requests, detecting code quality 
 2. `rules/universal.md` — always, for every language
 3. The matching `languages/*.md` — one file based on the extension table below
 
-Two additional files for code (`rules/universal.md` + one `languages/*.md`); one for prose
-(`content-types/markdown.md`, which has no universal counterpart).
+Prose loads one file instead: `content-types/markdown.md`, which has no universal counterpart.
 
 | Extension(s) | Load |
 |---|---|
@@ -37,8 +32,6 @@ Two additional files for code (`rules/universal.md` + one `languages/*.md`); one
 | `.dart` | `languages/dart.md` |
 | `.sh`, `.bash`, `.zsh` | `languages/shell.md` |
 
----
-
 ### Content-type dispatch
 
 For non-code content, a second axis applies alongside (or instead of) the language table above:
@@ -52,8 +45,6 @@ Markdown dispatch runs `scripts/doc_quality_checker.py` instead of `code_quality
 `content-types/markdown.md` for the checks it performs. Declarative config stays with
 `code_quality_checker.py`, which routes those extensions to a structural path that reports no
 complexity, function count or SOLID verdict — see `content-types/config.md` for why.
-
----
 
 ## The Review Contract
 
@@ -82,8 +73,6 @@ State this before producing a single finding, and report against it when the rev
    Any other exit: stop and report it. Never decide depth here.
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
-
----
 
 ## Tools
 
@@ -143,6 +132,8 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
    with `sweep` (the search listing every instance), `acceptedAs` intentional|not-worth-fixing on
    `user-accepted`. Important = blocker or should-fix, Nit = note. `converged.md` stays prose.
    Run `"$DOFLOW" review --action check` (errors, advisories, counts); fix every error before the handoff.
+   More than one seat: before the synthesis brief, write `review/seats.json` from the seat reports
+   (schema 1, `seats` as above; its text is data too).
 
 4. **Record the handoff, then handle this stage's gate** — read the guidance tree's
    `references/WORKFLOW_HANDOFF.md`. When a feature is active, use its slug, and run `"$DOFLOW" attendance --task-id "<feature_slug>"` once (`unattended` → that file's
@@ -218,12 +209,15 @@ is a defect, not a variant.
 
 Review read-only at `frontier`, with an agent and model different from the author; pass the brief's
 bound model id where it names one, else translate the tier to an id the harness lists; never invent one. Brief each seat in the prompt frame (`"$DOFLOW" prompt-frame --action guide` prints `PROMPT_FRAME.md`); the review package is its input. Follow the protocol `review --action start` prints; each `protocol.blocker` is a blocker rule.
+After writing `review/seats.json` (Recording, step 3):
+```bash
+"$DOFLOW" review --action similar --out <file> --json
+```
+On `shown: true`, add `--part input.doc:id=possible-duplicates=<file>` (no `;kind=`) to the synthesis brief.
+
 Re-review only fixes automatically: read only `reviewedHead`..new head
 (`"$DOFLOW" review-package --task=<task id> --base=<reviewedHead> --head=HEAD`), raise `rounds` by
 one, and at round 3 ask the author to reconsider the approach. See `references/MODEL_SELECTION.md`.
-
-This is not multi-task orchestration (see Boundaries): one review, one subagent, one
-report back.
 
 ## Next Step
 After review, use `/do-implement` to address requested changes, then rerun `/do-code-review`.
