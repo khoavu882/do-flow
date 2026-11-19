@@ -19,7 +19,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 
-const LEAKED_FILE = path.resolve(__dirname, 'context-pack-mandatory.test.ts');
+const LEAKED_FILE = path.resolve(__dirname, 'context/context-pack-mandatory.test.ts');
 
 /** Every file under `dir`, relative path -> sha256 of its content. */
 function filesUnder(dir: any) {
