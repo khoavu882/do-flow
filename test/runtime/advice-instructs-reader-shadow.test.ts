@@ -218,3 +218,36 @@ test('prompt-frame render from a project subdirectory screens with the project s
   assert.equal(model.requests.filter((request: any) => request.pathname === '/v1/systemone').length, 1, 'the project layer turned the kind on, so the document was asked about');
   assert.equal(fs.existsSync(path.join(sub, '.doflow')), false, 'nothing is written under the subdirectory');
 });
+
+test('prompt-frame render with nothing to screen runs no git, and a screened document finds the project root', POSIX, async (t) => {
+  const dir = tempDir(t, 'doflow-instructs-reader-nogit-');
+  const project = path.join(dir, 'project');
+  const home = path.join(dir, 'home');
+  const bin = path.join(dir, 'bin');
+  const gitLog = path.join(dir, 'git.log');
+  fs.mkdirSync(project, { recursive: true });
+  fs.mkdirSync(bin, { recursive: true });
+  // A stand-in `git` on PATH that records each call and answers nothing, so the count is the project-root resolution's git work.
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\necho "$@" >> '${gitLog}'\nexit 1\n`, { mode: 0o755 });
+  const env: any = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), DOFLOW_TELEMETRY: 'off', TMPDIR: process.env.TMPDIR };
+  const put = (name: string, text: string) => fs.writeFileSync(path.join(project, name), text);
+  put('role.txt', 'You are a reader of web pages.\n');
+  put('outcome.txt', 'Summarise the page.\n');
+  put('stop.txt', 'Stop when the page is summarised.\n');
+  put('reader.txt', 'The session that asked\n');
+  put('lines.txt', 'Conclusion first.\n');
+  put('web.txt', 'a page\n');
+  put('notes.txt', 'plain notes the writer wrote\n');
+  const parts = ['--part', 'role=role.txt', '--part', 'instructions.outcome=outcome.txt', '--part', 'instructions.stop=stop.txt',
+    '--part', 'output_format.reader=reader.txt', '--part', 'output_format.lines=lines.txt'];
+  const render = (doc: string) => spawnSync(process.execPath, [CLI, 'prompt-frame', '--action', 'render', ...parts, '--part', doc], { cwd: project, env, encoding: 'utf8', timeout: 60000 });
+  const calls = () => (fs.existsSync(gitLog) ? fs.readFileSync(gitLog, 'utf8').split('\n').filter(Boolean).length : 0);
+
+  const plain = render('input.doc:id=notes=notes.txt');
+  assert.equal(plain.status, 0, plain.stderr);
+  assert.equal(calls(), 0, 'a frame with nothing to screen resolves no project root');
+
+  const screened = render('input.doc:id=web page;kind=retrieved=web.txt');
+  assert.equal(screened.status, 0, screened.stderr);
+  assert.ok(await waitFor(() => calls() > 0), 'a screened document resolves the project root');
+});
