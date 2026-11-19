@@ -945,7 +945,7 @@ An entry holds ids from data, digests, counts and figures: the kind, the provide
 |---|---|---|---|
 | model | The build digest the provider's model listing gives for the configured model | Every replay and every show or act decision | Another build has no entry, so the standing is `none` until you replay it |
 | question | The question as the kind asks it (name, type, instructions, options or yes/no texts) | Every decision and every report | `stale`: the question changed |
-| builder | The source id, the source's builder version and the kind's params | Every decision and every report | `stale`: the way cases are built changed |
+| builder | The source id, the source's builder version, the source's own params when it has any (the `instructs-reader-corpus` pins) and the kind's params | Every decision and every report | `stale`: the way cases are built changed |
 | bars | The effective bars and the kind's `budgetMs` | Every decision and every report | `stale`: the bars changed |
 | case set | Every eligible case (id, a hash of its state, label, rule), not only the replayed sample | The next replay (`Stored: case set changed`) and the report (`case set changed: replay again`) | Shown, not enforced: decisions do not rebuild the cases |
 
@@ -1046,7 +1046,7 @@ For each screened document, after the text is printed or written:
 - No source, test, guard or command prints a decoded passage; a failure names case ids only.
 - The file ships under `src/`, outside the guidance and skills DoFlow projects into a harness, so no harness loads it as context.
 
-**Pins.** `src/runtime/advice/replay/sources/instructs-reader-corpus.ts` holds `CORPUS_DIGEST` (sha256 of the corpus file) and `RULE_DIGEST` (sha256 of the rule patterns), with `builderVersion` 1. A change to the corpus or to the rule list fails guard G88 until `builderVersion` and both pins rise together. That moves the builder digest, so every stored result of the kind goes stale (see [Why a result goes stale](#why-a-result-goes-stale)). G88 also checks the corpus shape and class sizes, that the rule screen answers `no` on every string as stored, that no decoded passage names a URL, address, path, vendor, harness or DoFlow, and that the pick line holds no text.
+**Pins.** `src/runtime/advice/replay/sources/instructs-reader-corpus.ts` holds `CORPUS_DIGEST` (sha256 of the corpus file) and `RULE_DIGEST` (sha256 of the rule patterns), with `builderVersion` 1. A change to the corpus or to the rule list fails guard G88 until the matching pin equals the new digest. The case source carries both pins in its `params`, which the builder digest holds, so a moved pin makes every stored result of the kind stale at decision time and in the report (see [Why a result goes stale](#why-a-result-goes-stale)). G88 also checks the corpus shape and class sizes, that the rule screen answers `no` on every string as stored, that no decoded passage names a URL, address, path, vendor, harness or DoFlow, and that the pick line holds no text.
 
 **Limits.** A replay over this corpus measures agreement with its authors' labels on 120 invented passages, not accuracy on your own documents. Steps for an operator and a recommendation inside a report are where another reader may label differently.
 

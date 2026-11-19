@@ -10,9 +10,9 @@
 // `state`, which the replay verb never shows.
 //
 // Pins: `CORPUS_DIGEST` and `RULE_DIGEST` fix the corpus bytes and the rule it was written against. A change to either is
-// not a runtime skip: the guard compares them with `computeDigests()` and fails until `builderVersion` and both pins rise
-// together, which moves the builder digest and makes a stored result stale at decision time.
-// The source carries both pins as its `params`, which is how `builderDigest` sees them.
+// not a runtime skip: guard G88 compares each pin with `computeDigests()` and fails until the pin equals the new digest.
+// The source carries both pins as its `params`, which `builderDigest` folds in, so a moved pin moves the builder digest
+// and every stored result of the kind judges stale at decision time and in the report.
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
