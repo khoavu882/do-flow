@@ -3,7 +3,18 @@
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+
+/** The digest the fake listing gives a model: the bare 64-hex form a real listing carries, one per model name. */
+function digestOf(name: string): string {
+  return crypto.createHash('sha256').update(name, 'utf8').digest('hex');
+}
+
+/** The body of a `GET /api/tags` listing: every model with its capabilities and digest; `omitDigest` drops the digest. */
+function tagsListing({ models = ['clef-flash:latest'], omitDigest = false }: { models?: string[]; omitDigest?: boolean } = {}) {
+  return { models: models.map((name) => ({ name, capabilities: ['decision'], ...(omitDigest ? {} : { digest: digestOf(name) }) })) };
+}
 
 function defaultResponse({ method, pathname, body }: any) {
   if (method === 'POST' && pathname === '/v1/systemone') {
@@ -20,7 +31,7 @@ function defaultResponse({ method, pathname, body }: any) {
     return { status: 200, body: { answers } };
   }
   if (method === 'GET' && pathname === '/api/version') return { status: 200, body: { version: '0.40.2' } };
-  if (method === 'GET' && pathname === '/api/tags') return { status: 200, body: { models: [{ name: 'clef-flash:latest', capabilities: ['decision'] }] } };
+  if (method === 'GET' && pathname === '/api/tags') return { status: 200, body: tagsListing() };
   if (method === 'POST' && pathname === '/api/show') return { status: 200, body: { capabilities: ['decision'] } };
   return { status: 404, body: { error: 'not found' } };
 }
@@ -180,4 +191,4 @@ async function closedEndpoint(): Promise<string> {
   return `http://127.0.0.1:${port}`;
 }
 
-module.exports = { startFakeServer, spawnFakeServer, answering, closedEndpoint };
+module.exports = { startFakeServer, spawnFakeServer, answering, closedEndpoint, digestOf, tagsListing };
