@@ -8,8 +8,8 @@
 //   G88.2  inert at rest: the rule screen answers `no` on every at-rest string and the note; every decoded passage holds no
 //          URL, e-mail, path with an extension, backtick, `$ ` prompt, vendor name (`vendorNames`), provider word, harness
 //          id or `doflow`. Decoded in memory only; a failure names case ids and the class of finding, never a passage.
-//   G88.3  pins: `CORPUS_DIGEST` and `RULE_DIGEST` of the case source equal the computed digests; the message says to raise
-//          `builderVersion` together with both pins.
+//   G88.3  pins: `CORPUS_DIGEST` and `RULE_DIGEST` of the case source equal the computed digests; the message says to set the pin to the
+//          computed digest (moving a pin moves the builder digest, so stored results go stale).
 //   G88.4  docs: the section "Decision model: the instructs-reader flag" of docs/reference.md exists, holds "a filter, not a
 //          defence against prompt injection" and names no vendor; PROMPT_FRAME.md holds "a filter, not a defence".
 //   G88.5  no text on the line: a pick of this kind keeps only the design §10 keys under `instructsReader`; a planted
@@ -25,7 +25,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { effectiveBars } = require('../../src/runtime/advice/replay/bars.ts');
 const { ruleScreen } = require('../../src/runtime/advice/instructs-reader.ts');
-const { source, CORPUS_DIGEST, RULE_DIGEST, computeDigests } = require('../../src/runtime/advice/replay/sources/instructs-reader-corpus.ts');
+const { CORPUS_DIGEST, RULE_DIGEST, computeDigests } = require('../../src/runtime/advice/replay/sources/instructs-reader-corpus.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { appendPick } = require('../../src/runtime/advice/record.ts');
@@ -213,12 +213,11 @@ test('G88.2 control: one planted word of each design §7.3.2 class is found by i
 
 // ---------------------------------------------------------------- G88.3
 
-/** What is wrong with the `computed` digests against the pins; the message says what to raise. */
+/** What is wrong with the `computed` digests against the pins; each message says to set that pin to the computed digest. */
 function pinFindings(computed: { corpus: string | null; rule: string }, pins: { corpus: string; rule: string }): string[] {
   const found: string[] = [];
-  const raise = `raise builderVersion (now ${source.builderVersion}) together with both pins CORPUS_DIGEST and RULE_DIGEST`;
-  if (computed.corpus !== pins.corpus) found.push(`the corpus digest differs from CORPUS_DIGEST: ${raise}`);
-  if (computed.rule !== pins.rule) found.push(`the rule digest differs from RULE_DIGEST: ${raise}`);
+  if (computed.corpus !== pins.corpus) found.push(`the corpus digest differs from CORPUS_DIGEST: set CORPUS_DIGEST to ${computed.corpus}`);
+  if (computed.rule !== pins.rule) found.push(`the rule digest differs from RULE_DIGEST: set RULE_DIGEST to ${computed.rule}`);
   return found;
 }
 
@@ -237,14 +236,16 @@ test('G88.3 control: a one-byte change to a copy of the corpus and a changed rul
   const changed = Buffer.from(original);
   changed[changed.length - 2] ^= 0x01;
   fs.writeFileSync(copy, changed);
-  const corpusFindings = pinFindings(computeDigests(undefined, reading(copy)), pins);
+  const changedDigests = computeDigests(undefined, reading(copy));
+  const corpusFindings = pinFindings(changedDigests, pins);
   assert.equal(corpusFindings.length, 1);
-  assert.match(corpusFindings[0], /corpus digest differs from CORPUS_DIGEST: raise builderVersion .* together with both pins/);
+  assert.equal(corpusFindings[0], `the corpus digest differs from CORPUS_DIGEST: set CORPUS_DIGEST to ${changedDigests.corpus}`);
 
   const { RULE_PATTERNS } = require('../../src/runtime/advice/instructs-reader.ts');
-  const ruleFindings = pinFindings(computeDigests([...RULE_PATTERNS, /planted/]), pins);
+  const plantedDigests = computeDigests([...RULE_PATTERNS, /planted/]);
+  const ruleFindings = pinFindings(plantedDigests, pins);
   assert.equal(ruleFindings.length, 1);
-  assert.match(ruleFindings[0], /rule digest differs from RULE_DIGEST/);
+  assert.equal(ruleFindings[0], `the rule digest differs from RULE_DIGEST: set RULE_DIGEST to ${plantedDigests.rule}`);
 });
 
 // ---------------------------------------------------------------- G88.4
