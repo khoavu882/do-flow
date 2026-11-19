@@ -9,6 +9,9 @@ const context = require('../../bench/perf/lib/context.ts');
 const { alwaysLoaded } = require('../helper/always-loaded.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
+// No test reaches a real harness CLI: the product probes `<harness> --version` through PATH, so this file runs on a PATH without one.
+require("../helper/harness-free-path.ts").useHarnessFreePath();
+
 test('computeStartupContext returns a record for every active harness with IC-019 schema', () => {
   const result = context.computeStartupContext();
   assert.equal(Array.isArray(result), true);

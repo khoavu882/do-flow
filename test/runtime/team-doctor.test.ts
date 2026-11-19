@@ -13,6 +13,9 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { handleDoctorCommand } = require('../../src/runtime/health.ts');
 const evaluateModule = require('../../src/runtime/team/evaluate.ts');
 
+// No test reaches a real harness CLI: the product probes `<harness> --version` through PATH, so this file runs on a PATH without one.
+require("../helper/harness-free-path.ts").useHarnessFreePath();
+
 const NO_TMP = path.join(path.parse(__dirname).root, 'doflow-no-such-system-tmp');
 const HEADER = '[Agent Teams & Coordination]';
 const stubExec = () => { const error: any = new Error('not found'); error.code = 'ENOENT'; throw error; };
