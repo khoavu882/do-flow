@@ -1,8 +1,8 @@
 'use strict';
 
 // 175 D14/O-5: the advice-gate runner is a print-only scorer. It asks the configured decision model every heldout case of
-// one choice or yes/no kind, scores the answers with replay/score.ts and prints the figures and the standing against the
-// package bars. It stores nothing. Driven through its injected collaborators with a fake client: no model, no network,
+// one choice or yes/no kind, scores the answers with replay/score.ts and prints the figures. It carries no bar and no
+// standing, and it stores nothing. Driven through its injected collaborators with a fake client: no model, no network,
 // and no write to the repository (the corpus directory is a temp copy).
 
 const { test } = require('node:test');
@@ -20,7 +20,6 @@ const ADVICE = loadAdviceRegistry({ repoRoot: REPO_ROOT });
 assert.equal(ADVICE.ok, true);
 const REGISTRY = ADVICE.registry;
 const SETTING = { state: 'on', model: 'fake-model', endpoint: 'http://127.0.0.1:1', provider: 'ollama', decidedBy: {} };
-const STANDINGS = ['measure-only', 'below-minimum', 'below-show', 'show', 'act'];
 
 function readJson(file: string) { return JSON.parse(fs.readFileSync(file, 'utf8')); }
 
@@ -78,7 +77,7 @@ function run(ws: any, extra: any = {}) {
   }).then((result: any) => ({ ...result, out, err }));
 }
 
-test('--json prints the figures and the standing; 2 of 30 failing cases stay in the denominator; nothing is written', async (t) => {
+test('--json prints the figures and no bar; 2 of 30 failing cases stay in the denominator; nothing is written', async (t) => {
   const ws = workspace(t);
   const heldout = readJson(ws.tierFile).cases.filter((item: any) => item.split === 'heldout');
   assert.equal(heldout.length, 30);
@@ -92,8 +91,9 @@ test('--json prints the figures and the standing; 2 of 30 failing cases stay in 
   const printed = JSON.parse(out[0]);
   assert.equal(printed.kind, 'tier');
   assert.equal(printed.model, 'fake-model');
-  assert.ok(STANDINGS.includes(printed.standing), printed.standing);
-  assert.ok(Array.isArray(printed.failedChecks));
+  assert.equal('standing' in printed, false, 'no standing is printed');
+  assert.equal('failedChecks' in printed, false, 'no failed checks are printed');
+  assert.equal(printed.budgetMs, 1500);
   const m = printed.metrics;
   assert.equal(m.n, 30);
   assert.equal(m.valid, 28);
@@ -112,26 +112,27 @@ test('--json prints the figures and the standing; 2 of 30 failing cases stay in 
   assert.deepEqual(snapshot(ws.root), before, 'a print-only run writes nothing');
 });
 
-test('the text form names the figures, the standing and that nothing is stored', async (t) => {
+test('the text form names the figures and that nothing is stored, with no standing line', async (t) => {
   const ws = workspace(t);
   const { code, out } = await run(ws);
   assert.equal(code, 0);
   assert.equal(out.length, 1);
-  assert.match(out[0], /^advice-gate tier \(fake-model\): standing (measure-only|below-minimum|below-show|show|act)/);
+  assert.match(out[0], /^advice-gate tier \(fake-model\)$/m);
+  assert.doesNotMatch(out[0], /standing/i);
   assert.match(out[0], /cases: 30, valid 30/);
   assert.match(out[0], /kappa: model .*rule .*lower .*gain/);
   assert.match(out[0], /latency ms: p50 .*p95 .*budget 1500/);
   assert.match(out[0], /print-only: nothing is stored/);
 });
 
-test('fewer heldout cases than the show bar minimum is below-minimum, not a pass', async (t) => {
+test('fewer heldout cases than the old show minimum still print figures and no standing', async (t) => {
   const ws = workspace(t, { heldout: 29 });
   const { code, out } = await run(ws, { json: true });
   assert.equal(code, 0);
   const printed = JSON.parse(out[0]);
   assert.equal(printed.metrics.n, 29);
-  assert.equal(printed.standing, 'below-minimum');
-  assert.ok(printed.failedChecks.includes('min-cases'));
+  assert.equal('standing' in printed, false);
+  assert.equal('failedChecks' in printed, false);
 });
 
 test('setup failures exit 1 and usage errors exit 2 without asking the model', async (t) => {

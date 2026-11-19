@@ -321,7 +321,7 @@ test('084 D3: advice.kinds.task-class act with a passing bench file in the proje
   assert.equal(records.some((record: any) => record.type === 'outcome'), false, 'no pick was shown, so no outcome is joined');
 });
 
-test('084 H2: advice.kinds.task-class act without a passed bench bar falls back to shadow', async (t) => {
+test('084 H2: advice.kinds.task-class act without a local result (LOCAL_RESULT_UNMET) falls back to shadow', async (t) => {
   const f = fixture(t);
   const result = await runCounted(t, f, ACCEPTED_ARGS, { settings: { advice: { kinds: { 'task-class': 'act' } } } });
   assert.equal(result.status, 0, result.stderr);

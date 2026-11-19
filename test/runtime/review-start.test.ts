@@ -804,7 +804,7 @@ test('N-6: every error refusal prints applicable null; a precondition refusal st
 // ---- IC-001 step 6: advice raises, never lowers ---------------------------------------------------
 
 /**
- * An awaited act answer cannot be reached by a real run (the shipped bench verdicts are empty, so act degrades to shadow):
+ * An awaited act answer cannot be reached by a real run (no local result is stored, so act degrades to shadow):
  * the dispatcher's reply is stood in for. `resolution` is what interceptDecisionPoint returns; `during` runs while the
  * "call" is in flight. The contexts the verb handed over are returned. The real function is restored after the test.
  */
@@ -1250,7 +1250,7 @@ test('084 H2: advice.kinds.review-depth shadow writes exactly one advice line an
   assert.deepEqual(stateEntries(r).filter((e: string) => !before.includes(e)), ['advice'], 'no review or telemetry file');
 });
 
-test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth and says why', async (t) => {
+test('084 H2: advice.kinds.review-depth act without a local result (LOCAL_RESULT_UNMET) keeps the decided depth and says why', async (t) => {
   const r = kindsRepo(t, 'act');
   const advice = await serveAdvice(t, r, 'deep');
   const { json } = await start(r, { base: r.base });

@@ -2,8 +2,8 @@
 
 // `advice-gate` (175 D14, O-5): a maintainer's print-only scorer. It asks the configured decision model every heldout case
 // of one choice or yes/no kind of the synthetic corpus, scores the answers with the replay scorer
-// (src/runtime/advice/replay/score.ts) and prints the figures and the standing against the package bars. It stores
-// nothing: a bar and a local result come from `doflow advise --action replay` over the project's own recorded decisions.
+// (src/runtime/advice/replay/score.ts) and prints the figures. It carries no bar and no standing and stores nothing: a
+// local result comes from `doflow advise --action replay` over the project's own recorded decisions.
 // Per-case outcomes (id, pick, latency) go to stdout under --json and are never persisted.
 //
 // `--kind rerank [--arm choice|ladder|both]` prints nDCG@5 of the model order against the first-stage order on the
@@ -19,7 +19,7 @@ const { resolveRoots } = require('../src/runtime/storage/roots.ts');
 const { resolveSetting } = require('../src/runtime/advice/config.ts');
 const { createAdviceClient } = require('../src/runtime/advice/client.ts');
 const { materializeKind } = require('../src/runtime/advice/kinds.ts');
-const { score, judge } = require('../src/runtime/advice/replay/score.ts');
+const { score } = require('../src/runtime/advice/replay/score.ts');
 const { resolveRerankCriteria } = require('../src/runtime/advice/criteria.ts');
 const { adviceCoverage } = require('./advice.ts');
 const rerankLib = require('./retrieval/lib/adapters-rerank.ts');
@@ -71,9 +71,9 @@ function fmtCi(ci: any): string {
   return ci ? `[${fmt(ci[0])}, ${fmt(ci[1])}]` : 'n/a';
 }
 
-function renderText({ kind, model, standing, failedChecks, metrics: m, budgetMs }: any): string {
+function renderText({ kind, model, metrics: m, budgetMs }: any): string {
   return [
-    `advice-gate ${kind} (${model}): standing ${standing}${failedChecks.length ? ` (${failedChecks.join(', ')})` : ''}`,
+    `advice-gate ${kind} (${model})`,
     `  cases: ${m.n}, valid ${m.valid} (share ${fmt(m.validShare)}), no answer ${m.noAnswer.count}`,
     `  accuracy: model ${fmt(m.accuracy.model)}, rule ${fmt(m.accuracy.rule)}`,
     `  kappa: model ${fmt(m.kappa.model)}, rule ${fmt(m.kappa.rule)}, lower ${fmt(m.kappa.lower)}, gain ${fmt(m.kappa.gain)}, gain lower ${fmt(m.kappa.gainLower)}`,
@@ -190,7 +190,7 @@ async function rerankGate(options: any) {
 /**
  * Runs the scorer. Every collaborator is injectable so a test needs no network, no model and no repository file:
  * `client` ({ ask, inspect }), `setting`, `adviceRegistry`, `sources`, `corpusDir`, `log`, `error`.
- * Returns `{ code, standing, failedChecks, metrics, outcomes }` (a rerank run returns `{ code, arms, outcomes }`); `code`
+ * Returns `{ code, kind, model, budgetMs, metrics, outcomes }` (a rerank run returns `{ code, arms, outcomes }`); `code`
  * is 0 when figures were printed, 1 for a setup failure, 2 for a usage error.
  */
 async function adviceGate(options: any = {}) {
@@ -250,12 +250,11 @@ async function adviceGate(options: any = {}) {
     });
   }
 
-  // The package bars, never a user override: this is the maintainer's reading of the synthetic corpus.
+  // The package bars supply only the bootstrap settings (`statistics`); no bar is applied to the figures.
   const bars = kindEntry.bars ?? adviceRegistry.bars;
   const budgetMs = kindEntry.budgetMs;
   const metrics = score(cases, { options: optionNames, bars, budgetMs });
-  const judged = judge(metrics, bars, budgetMs, null);
-  const printed = { kind, model: effectiveModel, standing: judged.standing, failedChecks: judged.failedChecks, budgetMs, metrics };
+  const printed = { kind, model: effectiveModel, budgetMs, metrics };
   log(json ? JSON.stringify({ ...printed, cases: outcomes }, null, 2) : renderText(printed));
   return { code: 0, ...printed, outcomes };
 }
