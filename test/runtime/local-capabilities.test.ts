@@ -8,6 +8,9 @@ const { LocalCapabilityExecutor } = require('../../src/runtime/capabilities/exec
 const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
 const { probeLocalProvider, handleDoctorCommand } = require('../../src/runtime/health.ts');
 
+// No test reaches a real harness CLI: the product probes `<harness> --version` through PATH, so this file runs on a PATH without one.
+require("../helper/harness-free-path.ts").useHarnessFreePath();
+
 describe('validateLoopbackUrl', () => {
   test('accepts valid loopback endpoints (127.0.0.1, localhost, [::1])', () => {
     const validUrls = [

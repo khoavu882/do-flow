@@ -15,6 +15,9 @@ const { select } = require('../../src/runtime/worker/readiness.ts');
 const { POINT_VALIDATORS } = require('../../src/runtime/packages/points.ts');
 const { PARSERS } = require('../../src/runtime/worker/parsers.ts');
 
+// No test reaches a real harness CLI: the product probes `<harness> --version` through PATH, so this file runs on a PATH without one.
+require("../helper/harness-free-path.ts").useHarnessFreePath();
+
 const AT = '2026-10-24T09:12:03Z';
 const NO_TMP = '/nonexistent-doflow-tmp';
 
