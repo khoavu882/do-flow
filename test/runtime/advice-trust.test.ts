@@ -158,6 +158,14 @@ test('175 T5 (d): no model digest, or an invalid bars override, is unknown; the 
   assert.deepEqual([trust.standing, /timeout/.test(trust.reason)], ['unknown', true]);
 });
 
+test('175 T5 (d): a kind with no replay source is none and makes no digest listing call', async (t) => {
+  const f = setup(t);
+  const trust = await evaluate(f, { sourceOf: () => null });
+  assert.equal(trust.standing, 'none');
+  assert.match(trust.reason, new RegExp(`kind '${KIND}' has no replay source`));
+  assert.equal(f.calls.length, 0);
+});
+
 test('175 T5 (d): no store, or an unreadable one, is none', async (t) => {
   const f = setup(t);
   assert.equal((await evaluate(f)).standing, 'none');

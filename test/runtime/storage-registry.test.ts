@@ -125,6 +125,7 @@ test('IC-002: every shipped declaration has its approved id, root, path, rule, a
     ["console-tls", "config-home", "console/tls", "existing", {"value": 4, "text": "one private key (mode 0600) kept until it is missing or unreadable, and at most 4 certificate files, one per LAN address; a certificate is issued again when fewer than 30 days remain and the oldest file is deleted when a fifth is issued"}],
     ["console-action-log", "config-home", "console", "existing", {"value": 1048576, "text": "two NDJSON generations of the Console's action attempts, each at most 1 MiB: actions.ndjson is renamed over actions.1.ndjson when it reaches 1 MiB; a line is at most 2 KiB and holds no free text; actions.lock exists only during a rotation"}],
     ['advice-bars-user', 'config-home', 'advice-bars.json', 'existing', { text: 'a file the person edits: DoFlow only reads it and never writes, prunes or removes it' }],
+    ['advice-results-user', 'user-state', 'advice/results.json', 'existing', { value: 256, text: 'one JSON file of local replay results, one entry per (project key, kind, model digest), at most 256 entries, the oldest runAt dropped first; written whole through a temp file and a rename while results.json.lock is held; it holds digests, counts and figures, never a standing, a case id or case text' }],
   ].map(([id, root, storePath, rule, bound]) => ({ id, root, path: storePath, rule, bound }));
   assert.deepEqual(actual, expected);
   const reuse = stores.find((s: any) => s.id === 'verification-reuse');

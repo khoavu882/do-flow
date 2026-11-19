@@ -6,9 +6,10 @@
 // The evaluator reads two places only: the result store under `roots['user-state']` and the user's bars override under
 // `roots['config-home']` (through `effectiveBars`). The deciding project's root is only hashed into the project key, never
 // read below, so a file planted in a project cannot certify anything. Order (design section 8): no model digest ->
-// unknown; an invalid bars override -> unknown; no store or no entry for (project key, kind, model digest) -> none; a
-// question, builder or bars digest that moved -> stale, naming the first; then `judge` on the stored numbers against the
-// current effective bars. A stored standing does not exist, so nothing stored is ever taken as the answer.
+// unknown; a kind with no replay source -> none, before any network call; no model digest from the listing -> unknown; an
+// invalid bars override -> unknown; no store or no entry for (project key, kind, model digest) -> none; a question,
+// builder or bars digest that moved -> stale, naming the first; then `judge` on the stored numbers against the current
+// effective bars. A stored standing does not exist, so nothing stored is ever taken as the answer.
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -102,7 +103,8 @@ function rejudge({ entry, kind, registry, question, bars, sourceOf = getSource }
 
 /**
  * The standing of `kind` answered by `model` in the project at `projectRoot`. `client.modelDigest` is the one network call
- * (the listing, capped by `timeoutMs` and ended by `signal`); everything else is two local reads. Never throws.
+ * (the listing, capped by `timeoutMs` and ended by `signal`), made only for a kind that has a replay source; everything
+ * else is two local reads. Never throws.
  */
 async function evaluateTrust({
   kind, model, provider, endpoint, question, registry, roots, client, projectRoot, timeoutMs, signal, fsImpl = fs, sourceOf = getSource,
@@ -111,6 +113,8 @@ async function evaluateTrust({
   client: any; projectRoot: string; timeoutMs?: number; signal?: any; fsImpl?: any; sourceOf?: (id: unknown) => any;
 }): Promise<Trust> {
   if (typeof model !== 'string' || !model) return answer('unknown', 'model digest unknown: no model is named', null);
+  const registryKind = (registry?.kinds || []).find((item: any) => item?.id === kind) ?? null;
+  if (!sourceOf(registryKind?.replay?.source)) return answer('none', `kind '${kind}' has no replay source`, null);
   let read: any;
   try { read = await client.modelDigest({ endpoint, model, provider, timeoutMs, signal }); } catch { read = null; }
   const modelDigest = typeof read?.digest === 'string' ? read.digest : null;
@@ -119,9 +123,6 @@ async function evaluateTrust({
   try {
     const bars = effectiveBars({ registry, kind, roots, fsImpl });
     if (!bars.ok) return answer('unknown', `bars-override-invalid: ${bars.errors[0]}`, modelDigest);
-
-    const registryKind = (registry?.kinds || []).find((item: any) => item?.id === kind) ?? null;
-    if (!sourceOf(registryKind?.replay?.source)) return answer('none', `kind '${kind}' has no replay source`, modelDigest);
 
     const key = projectKey(projectRoot, fsImpl);
     const entry = readResults({ roots, fsImpl })
