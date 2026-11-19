@@ -480,6 +480,9 @@
             "high",
             "xhigh",
             "max"
+          ],
+          "overrideEnv": [
+            "CLAUDE_CODE_EFFORT_LEVEL"
           ]
         },
         "modelList": {
@@ -487,6 +490,29 @@
           "reason": "`claude --help` lists no command that prints the available models; type the id"
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "supported",
+        "marker": {
+          "env": "CLAUDE_CODE_CHILD_SESSION",
+          "equals": "1"
+        },
+        "sources": [
+          {
+            "kind": "env",
+            "name": "CLAUDE_EFFORT",
+            "modes": [
+              "subscription",
+              "api-key"
+            ]
+          }
+        ],
+        "note": "effortLevel is not read: CLAUDE_EFFORT is unset exactly when the model takes no effort",
+        "evidence": [
+          "https://code.claude.com/docs/en/env-vars"
+        ],
+        "verification": "Read the env-vars page for CLAUDE_EFFORT and CLAUDE_CODE_CHILD_SESSION; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
+        "verifiedOn": "2026-11-19"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -1245,13 +1271,22 @@
           ],
           "verification": "Read codex's CLI documentation and `codex --help` for the `-c model_reasoning_effort=<level>` form and its levels; add a check to core/worker-evidence/codex/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>`",
           "verifiedOn": "2026-11-16",
-          "reason": "`model_reasoning_effort` (low, medium, high, xhigh, max or ultra, by model and client) is documented for the config file at https://learn.chatgpt.com/docs/config-file/config-reference (read 2026-11-16), but no recorded help or doc read shows `-c, --config <key=value>` taking it; the effort is not sent"
+          "reason": "the help gives `-c, --config <key=value>` overrides and the config docs give `model_reasoning_effort` (low, medium, high, xhigh, max or ultra, by model and client), but no source states they combine for `codex exec`; a live check is due when Codex is back; the effort is not sent"
         },
         "modelList": {
           "status": "none-recorded",
           "reason": "`codex --help` lists no command that prints the available models; type the id"
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "evidence": [
+          "https://learn.chatgpt.com/docs/config-file/config-reference"
+        ],
+        "verification": "In a Codex tool shell run `env` once and read it for a variable that marks the session; record it with its source in this entry. `model_reasoning_effort` is the config-file source once a marker exists (https://learn.chatgpt.com/docs/config-file/config-reference).",
+        "verifiedOn": "2026-11-19",
+        "reason": "no recorded variable marks a Codex tool shell; `model_reasoning_effort` in `$CODEX_HOME/config.toml` is the source once one is recorded"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -1832,6 +1867,12 @@
           "providerInId": true
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In an opencode tool shell run `env` once and read the opencode docs for a variable that marks the session and one that holds its effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no evidence of a marker or a session level for opencode"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -2505,7 +2546,7 @@
           "evidence": [
             "core/worker-evidence/pi/2026-11-16-cli-check-model-parts.json"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched `--thinking <level>` line (check help-thinking). Recorded 2026-11-16 on pi 1.5.2: `pi --help` lists the levels off, minimal, low, medium, high, xhigh, max; the matched line was copied by hand from an earlier record (the record's handAdded says so; no CLI was run for it). The one-shot argv with a bound effort (`--thinking <level>` in place of the fixed `--thinking off`) has not been verified on a live run: the live-run records hold the argv without a bound effort. Pi clamps a level the model cannot run to a lower one, so the harness may run a lower level than bound.",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness pi --checks core/worker-evidence/pi/checks.json --out <new cli-check path>` against the installed pi and read the matched `--thinking <level>` line (check help-thinking). Recorded 2026-11-16 on pi 1.5.2: `pi --help` lists the levels off, minimal, low, medium, high, xhigh, max; the matched line was copied by hand from an earlier record (the record's handAdded says so; no CLI was run for it). The one-shot argv is `-p --no-session --no-skills --no-context-files --offline {prompt}` with no effort flag, so Pi runs its own default level; a bound or forwarded effort adds `--thinking <level>` from this transport. That argv has not been verified on a live run, with or without an effort: the live-run records of 2026-11-07 hold an older one-shot argv that carried a fixed `--thinking off`. Pi clamps a level the model cannot run to a lower one, so the harness may run a lower level than bound.",
           "verifiedOn": "2026-11-16",
           "via": "flag",
           "argv": [
@@ -2543,6 +2584,12 @@
           }
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In a Pi tool shell run `env` once for a variable that marks the session and one that holds its thinking level; DoFlow's own Pi extension could export a marker. Record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no recorded variable marks a Pi tool shell; `defaultThinkingLevel` is the startup level, not the running one"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -3113,6 +3160,12 @@
         },
         "modelChecks": []
       },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In a copilot tool shell run `env` once and read the copilot docs for a variable that marks the session and one that holds its reasoning effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no evidence of a marker or a session level for copilot"
+      },
       "contextProfile": {
         "capacityTokens": {
           "value": 128000,
@@ -3598,6 +3651,12 @@
           "reason": "`kiro-cli chat --help` lists `--list-models`, but running it on 2026-11-15 opened a login portal and gave no list within 20 s; its output shape is not verified"
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "When `kiro-cli` may be run, run `env` once in one of its tool shells and read its docs for a variable that marks the session and one that holds its effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "`kiro-cli` is not run, so no marker or session level is recorded for kiro"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -4106,6 +4165,12 @@
           ]
         },
         "modelChecks": []
+      },
+      "sessionEffort": {
+        "status": "unknown",
+        "verification": "In an `agy` tool shell run `env` once and read its docs for a variable that marks the session and one that holds its effort; record both in this entry.",
+        "verifiedOn": "2026-11-19",
+        "reason": "no evidence of a marker or a session level for antigravity"
       },
       "contextProfile": {
         "capacityTokens": {
