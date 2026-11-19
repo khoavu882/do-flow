@@ -30,6 +30,7 @@ require("../helper/harness-free-path.ts").useHarnessFreePath();
 const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['followup --action list --json', 0, 2752], // 2,600 B (brief, the new default)
   ['followup --action list --view full --json', 0, 91904], // 91,329 B
+  ['followup --action list --similar --json', 0, 4160], // 3,930 B (row 176 T6: the brief page with three rule matches per item, every fixture item matching, and modelCheck)
   ['classify --task-class feature --calling-skill do-design --json', 0, 5888], // 5,606 B
   ['classify --task-class feature --calling-skill do-design --view brief --json', 0, 2624], // 2,443 B
   ['classify --task-class nope --calling-skill do-design --json', 1, 832], // 788 B
@@ -229,8 +230,11 @@ const CLASSIFIER = path.join(REPO, 'src', 'runtime', 'task-classifier.ts');
  */
 const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind', '$.goals[].conflicts', '$.omitted', '$.staleRuns'];
 
+/** Keep paths a follow-up list holds only with --similar (row 176), and `model` only when a model check was shown. */
+const SIMILAR_ONLY = ['$.similar[].id', '$.similar[].matches[].id', '$.similar[].matches[].score', '$.similar[].matches[].model', '$.modelCheck.shown', '$.modelCheck.reason'];
+
 const SPECS: any[] = [
-  { name: 'followup list', file: FOLLOWUP_CLI, constant: 'FOLLOWUP_LIST_BRIEF', brief: 'followup --action list --json', full: 'followup --action list --view full --json', offsets: { items: 0 } },
+  { name: 'followup list', file: FOLLOWUP_CLI, constant: 'FOLLOWUP_LIST_BRIEF', brief: 'followup --action list --json', full: 'followup --action list --view full --json', offsets: { items: 0 }, optional: SIMILAR_ONLY },
   { name: 'classify', file: CLASSIFIER, constant: 'CLASSIFY_BRIEF', brief: 'classify --task-class feature --calling-skill do-design --view brief --json', full: 'classify --task-class feature --calling-skill do-design --json' },
   { name: 'lifecycle overview', file: FOLLOWUP_CLI, constant: 'OVERVIEW_BRIEF', brief: 'lifecycle --action overview --view brief --json', full: 'lifecycle --action overview --json', resolveAlso: 'lifecycle --action overview --maintain --json', optional: OVERVIEW_CONDITIONAL, briefPage: true },
   { name: 'lifecycle overview --maintain', file: FOLLOWUP_CLI, constant: 'OVERVIEW_BRIEF', brief: 'lifecycle --action overview --maintain --view brief --json', full: 'lifecycle --action overview --maintain --json', optional: OVERVIEW_CONDITIONAL },

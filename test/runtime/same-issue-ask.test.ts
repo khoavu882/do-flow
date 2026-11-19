@@ -152,7 +152,7 @@ test('(a) an unset kind runs in shadow: nothing shown, one call per batch of the
   const registry = registryWith();
   const a = await advised(t, p, answering((name: string) => YES[name]));
   const { items, pairs } = fixturePairs(RULES);
-  const res = await checkPairs({ pairs, items, caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registry });
+  const res = await checkPairs({ kind: KIND, pairs, items, caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registry });
   assert.deepEqual([res.shown, res.mode, res.reason, res.batches], [false, 'shadow', 'shadow', 2]);
   assert.deepEqual(res.pairs, pairs.map(({ a: first, b, score, rule }: any) => ({ a: first, b, score, rule, model: null, noAnswer: null })));
   const lines = await settledLines(p, 4);
@@ -168,7 +168,7 @@ test('(b) show at a passing local result: every batch shown, the model answer pe
   const a = await advised(t, p, answering((name: string) => YES[name]), 'show');
   storeResult(p, registry, SHOW_ONLY, `sha256:${digestOf('clef-flash:latest')}`);
   const { items, pairs } = fixturePairs(RULES);
-  const res = await checkPairs({ pairs, items, caller: 'followup', cwd: p.root, env: p.env, adviceRegistry: registry });
+  const res = await checkPairs({ kind: KIND, pairs, items, caller: 'followup', cwd: p.root, env: p.env, adviceRegistry: registry });
   assert.equal(res.reason, null);
   assert.deepEqual([res.shown, res.mode, res.batches], [true, 'show', 2]);
   // Batch one asks blocks a, b, c; batch two, the one-pair batch, asks block a.
@@ -190,7 +190,7 @@ test('(c) show at a failing local result runs as (a), the reason naming the unme
   const a = await advised(t, p, answering((name: string) => YES[name]), 'show');
   storeResult(p, registry, BELOW_SHOW, `sha256:${digestOf('clef-flash:latest')}`);
   const { items, pairs } = fixturePairs(RULES);
-  const res = await checkPairs({ pairs, items, caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registry });
+  const res = await checkPairs({ kind: KIND, pairs, items, caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registry });
   assert.deepEqual([res.shown, res.mode, res.batches], [false, 'shadow', 2]);
   assert.match(res.reason, /^LOCAL_RESULT_UNMET: below-show: /);
   assert.ok(res.pairs.every((pair: any) => pair.model === null && pair.noAnswer === null));
@@ -227,7 +227,7 @@ test('(d) 17 pairs at 8 per call make 3 batches (8, 8, 1) in pair order, all ask
   const client = barrierClient(3);
   const services = { adviceClient: client, trust: trustShow([]), shadowConfig: { kind: KIND, mode: 'show', model: 'm' } };
   const started = Date.now();
-  const res = await checkPairs({ pairs, items, caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registry, services });
+  const res = await checkPairs({ kind: KIND, pairs, items, caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registry, services });
   assert.ok(Date.now() - started < 2000, 'the batches were in flight together');
   assert.deepEqual([res.shown, res.batches], [true, 3]);
   assert.deepEqual(client.asks.map((ask: any) => ask.questionSet.questions.length), [8, 8, 1]);
@@ -248,7 +248,7 @@ test('(e) from a linked worktree the dispatcher gets the main checkout as the de
   const requests: any[] = [];
   const services = { adviceClient: barrierClient(1), trust: trustShow(requests), shadowConfig: { kind: KIND, mode: 'show', model: 'm' } };
   const { items, pairs } = fixturePairs(['yes']);
-  const res = await checkPairs({ pairs, items, caller: 'review', cwd: linked, env, adviceRegistry: registryWith(), services });
+  const res = await checkPairs({ kind: KIND, pairs, items, caller: 'review', cwd: linked, env, adviceRegistry: registryWith(), services });
   assert.equal(res.shown, true);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].projectRoot, fs.realpathSync(repo.dir));
@@ -258,9 +258,14 @@ test('(e) from a linked worktree the dispatcher gets the main checkout as the de
 test('(f) zero pairs make no call and record nothing', async (t) => {
   const p = project(t);
   const a = await advised(t, p, answering(() => 0.9), 'show');
-  const res = await checkPairs({ pairs: [], items: new Map(), caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registryWith() });
+  const res = await checkPairs({ kind: KIND, pairs: [], items: new Map(), caller: 'review', cwd: p.root, env: p.env, adviceRegistry: registryWith() });
   assert.deepEqual([res.shown, res.batches, res.pairs], [false, 0, []]);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(a.server.requests.length, 0);
   assert.deepEqual(p.lines(), []);
+});
+
+test('(g) a call that names another kind is refused before anything is asked', async () => {
+  const { items, pairs } = fixturePairs(['yes']);
+  await assert.rejects(checkPairs({ kind: 'claim-support', pairs, items, caller: 'review', cwd: process.cwd(), adviceRegistry: registryWith() }), /same-issue kind only \(got 'claim-support'\)/);
 });

@@ -26,12 +26,18 @@ const GOAL_ACTIONS = ['add', 'item', 'check', 'link', 'list', 'done'];
 const FOLLOWUP_LIST_BRIEF = Object.freeze({
   verb: 'followup',
   action: 'list',
-  carry: Object.freeze(['state', 'ids', 'limit']),
+  carry: Object.freeze(['state', 'ids', 'limit', 'similar']),
   keep: Object.freeze([
     '$.ok', '$.action', '$.state', '$.count', '$.items[].id', '$.items[].state', '$.items[].statement',
     '$.conflicts', '$.unreadable', '$.unreadableReasons',
+    // Row 176 (design §10): present with --similar only.
+    '$.similar[].id', '$.similar[].matches[].id', '$.similar[].matches[].score', '$.similar[].matches[].model', '$.modelCheck.shown',
+    '$.modelCheck.reason',
   ]),
 });
+/** The `list --similar` text footer, and the line a shown model check adds (owner ruling O-4: follow-ups carry no label). */
+const SIMILAR_FOOTER = 'Possible duplicates by shared words; nothing is merged or closed.';
+const MODEL_BASIS = 'The model check rests on a result measured on review findings, not on follow-ups.';
 /** The brief `lifecycle --action overview` answer (feature 137, IC-006): keep paths, so a new full field is dropped until named here. */
 const OVERVIEW_BRIEF = Object.freeze({
   verb: 'lifecycle',
@@ -60,12 +66,20 @@ function sourceText(source: any) {
 function followupLines(result: any) {
   const lines = [];
   switch (result.action) {
-    case 'add': for (const c of result.created) lines.push(`added ${c.id} (${sourceText(c.source)}): ${c.statement}`); break;
-    case 'list':
+    case 'add':
+      for (const c of result.created) lines.push(`added ${c.id} (${sourceText(c.source)}): ${c.statement}`, ...c.similar.map((m: any) => `  possible duplicate (rule): ${m.id}`));
+      break;
+    case 'list': {
       if (result.items.length === 0) lines.push(`No ${result.state === 'all' ? '' : `${result.state} `}follow-ups.`);
-      for (const i of result.items) lines.push(`${i.id}  ${i.state}${i.takenBy ? ` by ${i.takenBy}` : ''}${i.intent ? ` -> ${i.intent}` : ''}  (${sourceText(i.source)}, ${i.added})  ${i.statement}`);
+      const similar = new Map((result.similar || []).map((entry: any) => [entry.id, entry.matches]));
+      for (const i of result.items) {
+        lines.push(`${i.id}  ${i.state}${i.takenBy ? ` by ${i.takenBy}` : ''}${i.intent ? ` -> ${i.intent}` : ''}  (${sourceText(i.source)}, ${i.added})  ${i.statement}`);
+        for (const m of (similar.get(i.id) || []) as any[]) lines.push(`  ~ ${m.id} ${m.score.toFixed(2)}${m.model ? `  model: ${m.model.replace('-', ' ')}` : ''}`);
+      }
+      if (result.similar) lines.push(SIMILAR_FOOTER, ...(result.modelCheck?.shown ? [MODEL_BASIS] : []));
       for (const line of result.next) lines.push(`next: ${line}`);
       break;
+    }
     case 'take': lines.push(`${result.feature} took ${result.ids.join(', ')}`); break;
     case 'settle': lines.push(`settled ${result.ids.join(', ')} as ${result.as}`); break;
     case 'promote': lines.push(`created ${result.intent} from ${result.ids.join(', ')}`); break;
@@ -166,12 +180,17 @@ function emit(result: any, json: any, lines: any) {
 
 /** Runs `fn`, turning a caller mistake into the exit-2 usage result and a lock that never came into the `store-locked` refusal. */
 function guarded(verb: any, action: any, json: any, fn: any) {
-  try {
-    return fn();
-  } catch (error: any) {
+  const caught = (error: any) => {
     if (error instanceof followup.FollowupUsageError || error instanceof ViewUsageError || error instanceof StoreUnsafeError) return usageError(verb, error.message, json);
     if (error instanceof StoreLockedError) return emit({ ok: false, action, finding: 'store-locked', message: error.message }, json, () => []);
     throw error;
+  };
+  try {
+    const result = fn();
+    // `followup --action list --similar` answers a promise (its model check may wait on a decision); it is caught alike.
+    return result instanceof Promise ? result.catch(caught) : result;
+  } catch (error: any) {
+    return caught(error);
   }
 }
 
@@ -195,7 +214,7 @@ function refuseGlobal(verb: any, global: any, json: any) {
 function emitList(result: any, view: any, flags: any, json: any) {
   if (result.ok === false) return emit(result, json, followupLines);
   const paged = result.shown !== undefined;
-  const carried = { state: flags.state, ids: flags.ids, limit: flags.limit };
+  const carried = { state: flags.state, ids: flags.ids, limit: flags.limit, similar: flags.similar };
   const lines = !paged ? [] : [
     ...viewLines('page', { spec: FOLLOWUP_LIST_BRIEF, carried, nextCursor: result.nextCursor, view, json: Boolean(json) }),
     ...(view === 'brief' ? viewLines('page-full', { spec: FOLLOWUP_LIST_BRIEF, carried, cursor: flags.cursor, shown: result.shown, json: Boolean(json) }) : []),
@@ -215,7 +234,8 @@ function emitList(result: any, view: any, flags: any, json: any) {
  * @param {string} [options.action] absent when --action was not given
  * @param {string} options.cwd directory the verb runs from (the project, or a subfolder of it)
  * @param {Object} options.flags parsed flag values: statement, stage, source, taskClass, taskId, release,
- *   batch, channel, state, ids, as, reason, evidence, title; for report also file, stdin, text, feature
+ *   batch, channel, state, ids, as, reason, evidence, title; for report also file, stdin, text, feature; for list also
+ *   view, cursor, limit, similar (then the answer is a promise)
  */
 function handleFollowupCommand({ action, cwd, global = false, slug = null, json = false, flags = {} }: any = {}) {
   const refused = refuseGlobal('followup', global, json);
@@ -228,7 +248,7 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
       }
     }
     if (action !== 'list') {
-      for (const name of ['view', 'cursor', 'limit']) {
+      for (const name of ['view', 'cursor', 'limit', 'similar']) {
         if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action list only`);
       }
     }
@@ -256,9 +276,13 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
         defaults: { stage: flags.stage, slug, source: flags.source, taskClass: flags.taskClass, taskId: flags.taskId, release: flags.release, batch },
       });
     } else if (action === 'list') {
-      return emitList(followup.listFollowups({
-        root, state: flags.state, ids: flags.ids, cursor: flags.cursor, limit: flags.limit, defaultLimit: view === 'brief' ? BRIEF_PAGE : null,
-      }), view, flags, json);
+      const listed = followup.listFollowups({
+        root, state: flags.state, ids: flags.ids, cursor: flags.cursor, limit: flags.limit, defaultLimit: view === 'brief' ? BRIEF_PAGE : null, similar: Boolean(flags.similar),
+      });
+      if (!flags.similar || listed.ok === false) return emitList(listed, view, flags, json);
+      // Required here only, so no other follow-up action loads the advice modules (row 176, AC-5).
+      return require('./followup-similar.ts').withModelCheck({ answer: listed, root, cwd: cwd || process.cwd() })
+        .then((answer: any) => emitList(answer, view, flags, json));
     } else if (action === 'take') {
       result = followup.takeFollowups({ root, ids: flags.ids, slug, channel: flags.channel });
     } else if (action === 'settle') {

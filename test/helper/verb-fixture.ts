@@ -25,6 +25,7 @@ const MAX_MARGIN = 512;
 const IC009_ROWS: readonly (readonly string[])[] = Object.freeze([
   ['followup', '--action', 'list', '--json'],
   ['followup', '--action', 'list', '--view', 'full', '--json'],
+  ['followup', '--action', 'list', '--similar', '--json'],
   ['classify', '--task-class', 'feature', '--calling-skill', 'do-design', '--json'],
   ['classify', '--task-class', 'feature', '--calling-skill', 'do-design', '--view', 'brief', '--json'],
   ['classify', '--task-class', 'nope', '--calling-skill', 'do-design', '--json'],

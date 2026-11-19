@@ -38,10 +38,12 @@ function sameIssueKind(adviceRegistry: any): { ok: true; registry: any; params: 
  * only when every batch resolved `show`; then each pair carries the model's yes or no, or the reason it gave none. Otherwise
  * every `model` is null and `reason` is the first batch not shown's warning or its mode. No pairs: no call.
  */
-async function checkPairs({ pairs, items, caller, cwd, env, adviceRegistry, services }: {
-  pairs: Pair[]; items: Map<string, { text: string; locator?: string | null }>; caller: 'review' | 'followup'; cwd: string;
+async function checkPairs({ kind: kindAsked, pairs, items, caller, cwd, env, adviceRegistry, services }: {
+  kind: 'same-issue'; pairs: Pair[]; items: Map<string, { text: string; locator?: string | null }>; caller: 'review' | 'followup'; cwd: string;
   env?: Record<string, string | undefined>; adviceRegistry?: any; services?: any;
 }): Promise<CheckResult> {
+  // Each caller names the kind at its call (`kind: 'same-issue', caller: '<caller>'`), so the call site shows what it dispatches.
+  if (kindAsked !== 'same-issue') throw new TypeError(`checkPairs asks the same-issue kind only (got '${kindAsked}')`);
   const unasked = pairs.map(({ a, b, score, rule }) => ({ a, b, score, rule, model: null, noAnswer: null }));
   if (pairs.length === 0) return { shown: false, mode: 'off', reason: 'no candidate pairs', batches: 0, pairs: [] };
   const kind = sameIssueKind(adviceRegistry);

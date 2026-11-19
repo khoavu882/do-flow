@@ -137,6 +137,8 @@ function parseArgs(argv: string[]): any {
       case '--confirm': o.confirm = true; break;
       // followup --action report: the report body comes from stdin instead of --file or --text.
       case '--stdin': o.stdin = true; break;
+      // followup --action list: each item names its possible duplicates (row 176 IC-008); any other action refuses it.
+      case '--similar': o.similar = true; break;
       // advise --action configure: these are deliberately presence-only switches.
       case '--off': o.off = true; break;
       // advise --action replay: store the replay's figures in the user-level result store (175 IC-005).
@@ -855,7 +857,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --layer user|project|local            config validate, set, unset (which settings file; project and local are the current project's .doflow/settings.json and settings.local.json)
       --kind review|debate, --risk <level>  protocol (--kind filters list and selects what resolve decides; --risk is the change's risk level)
       --ids, --as, --evidence, --title,
-      --release, --source, --channel        followup (add, list, take, settle, promote)
+      --release, --source, --channel        followup (add, list, take, settle, promote; --similar: list)
       --file <path|->, --stdin, --text,
       --feature                             followup --action report (the body comes from exactly one; - is stdin)
       --take, --goal, --intent, --since,
