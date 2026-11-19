@@ -5,7 +5,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { effectiveAnswers, score, judge, mulberry32, percentile } = require('../../src/runtime/advice/replay/score.ts');
+const { effectiveAnswers, confusion, score, judge, mulberry32, percentile } = require('../../src/runtime/advice/replay/score.ts');
 
 const YESNO = ['yes', 'no'];
 const BARS = {
@@ -112,6 +112,36 @@ describe('score: agreement figures', () => {
     assert.equal(m.kappa.lower, null);
     assert.equal(m.latencyMs.p95, null);
     assert.equal(judge(m, BARS, BUDGET, NOT_RULE).standing, 'below-minimum');
+  });
+});
+
+describe('confusion: misses and false alarms', () => {
+  test('confusion counts misses and false alarms with a no-answer read as the rule', () => {
+    // Four labelled yes, five labelled no (nYes 4, nNo 5). The effective answer is the model's pick, or the rule's when
+    // there is no answer. Misses are label yes answered no; false alarms are label no answered yes.
+    const cases = [
+      c('yes', 'yes', 'no'), // model miss
+      c('yes', 'no', 'yes'), // rule miss
+      c('yes', 'no', 'yes', { failure: 'timeout' }), // no-answer takes the rule's no: miss for both
+      c('yes', 'yes', 'yes'),
+      c('no', 'yes', 'no'), // rule false alarm
+      c('no', 'no', 'yes'), // model false alarm
+      c('no', 'yes', 'yes', { strength: 'split' }), // no-answer takes the rule's yes: false alarm for both
+      c('no', 'yes', 'no'), // rule false alarm
+      c('no', 'no', 'no'),
+    ];
+    const eff = effectiveAnswers(cases, { options: YESNO, budgetMs: BUDGET });
+    assert.deepEqual(confusion(eff, YESNO), {
+      model: { misses: 2, falseAlarms: 2, nYes: 4, nNo: 5 },
+      rule: { misses: 2, falseAlarms: 3, nYes: 4, nNo: 5 },
+    });
+    assert.deepEqual(confusion([], YESNO), { model: { misses: 0, falseAlarms: 0, nYes: 0, nNo: 0 }, rule: { misses: 0, falseAlarms: 0, nYes: 0, nNo: 0 } });
+  });
+
+  test('a choice kind has no confusion', () => {
+    const cases = [c('a', 'a', 'b'), c('b', 'b', 'b')];
+    const eff = effectiveAnswers(cases, { options: ['a', 'b', 'c'], budgetMs: BUDGET });
+    assert.equal(confusion(eff, ['a', 'b', 'c']), null);
   });
 });
 

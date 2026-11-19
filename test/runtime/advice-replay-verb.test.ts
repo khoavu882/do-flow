@@ -14,14 +14,15 @@ const { spawn } = require('node:child_process');
 const { createScratch, childEnv } = require('../helper/scratch-env.ts');
 const { startFakeServer, closedEndpoint, tagsListing } = require('../helper/fake-decision-server.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { renderText } = require('../../src/runtime/advice/replay/run.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 const SENTINEL = 'SENTINEL-c4f1e2';
 const KIND = 'claim-support';
 
 const roundUp64 = (n: number) => Math.ceil(n / 64) * 64;
-/** The --json body of the 200-case fixture measured 1999 bytes when T6 landed; the ceiling is roundUp64(measured + 512). */
-const JSON_CEILING = roundUp64(1999 + 512);
+/** The --json body of the 200-case fixture measured 2242 bytes with the confusion figure (1999 before 177 T5); the ceiling is roundUp64(measured + 512). */
+const JSON_CEILING = roundUp64(2242 + 512);
 
 function writeJson(file: string, value: any) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -153,7 +154,7 @@ test('(a) every figure of design section 5 is in the --json body and the text fo
   const json = await f.run(['--kind', KIND, '--json']);
   assert.equal(json.status, 0, json.stderr);
   const body = JSON.parse(json.stdout);
-  assert.deepEqual(Object.keys(body), ['schema', 'kind', 'provider', 'model', 'modelDigest', 'source', 'caseSet', 'metrics', 'standing', 'failedChecks', 'worseIds', 'stored', 'written', 'refused', 'replaced']);
+  assert.deepEqual(Object.keys(body), ['schema', 'kind', 'provider', 'model', 'modelDigest', 'source', 'caseSet', 'metrics', 'standing', 'failedChecks', 'worseIds', 'confusion', 'stored', 'written', 'refused', 'replaced']);
   assert.equal(body.schema, 1);
   assert.equal(body.kind, KIND);
   assert.equal(body.provider, 'ollama');
@@ -208,6 +209,54 @@ test('(a) every figure of design section 5 is in the --json body and the text fo
     /^Stored: none · not written \(a person adds --write from their own session to store these figures\)\.$/m,
   ]) assert.match(out, pattern);
   assertNoCaseText(f, json.stdout, json.stderr, text.stdout, text.stderr);
+});
+
+const MISSES = 'Misses (labelled yes, answered no): model 2 of 30 · rule 0 of 30';
+const FALSE_ALARMS = 'False alarms (labelled no, answered yes): model 0 of 10 · rule 0 of 10';
+
+test('replay text prints the misses line and the false-alarms line for a yes/no kind and neither for a choice kind', async (t) => {
+  const f = await fixture(t);
+  writeLedger(f.project, mainSpecs());
+  const text = await f.run(['--kind', KIND]);
+  assert.equal(text.status, 0, text.stderr);
+  const lines = text.stdout.trimEnd().split('\n');
+  const perClass = lines.findIndex((line) => line.startsWith('Per class, precision/recall'));
+  assert.ok(perClass >= 0);
+  assert.equal(lines[perClass + 1], MISSES);
+  assert.equal(lines[perClass + 2], FALSE_ALARMS);
+
+  // No registered kind with a case source is a choice kind yet, so the text form is rendered directly.
+  const shown = (yesno: boolean, confusion?: any) => renderText({
+    kind: 'k', model: 'm', provider: 'p', modelDigest: null, source: 's', origin: 'project', yesno, budgetMs: 1000, resultsFile: 'r', confusion,
+    caseSet: { eligible: 2, replayed: 2, skipped: {} },
+    metrics: {
+      n: 2, valid: 2, validShare: 1, noAnswer: { count: 0, share: 0, byReason: {} }, accuracy: { model: 1, rule: 1 }, kappa: { model: 1, rule: 1, lower: 1, gain: 0, gainLower: 0 },
+      perClass: { a: { model: { precision: 1, recall: 1 }, rule: { precision: 1, recall: 1 } } }, labelCounts: { a: 2 }, worse: 0, better: 0, worseShare: 0, minority: 0,
+      latencyMs: { first: 1, p50: 1, p95: 1, max: 1 },
+    },
+    worseIds: [], standing: 'below-minimum', failedChecks: [], stored: 'none', written: false, refused: null,
+  });
+  const choice = shown(false);
+  assert.doesNotMatch(choice, /Misses \(|False alarms \(/);
+  assert.match(choice, /^Per class, precision\/recall/m);
+  const yesno = shown(true, { model: { misses: 1, falseAlarms: 2, nYes: 3, nNo: 4 }, rule: { misses: 5, falseAlarms: 6, nYes: 3, nNo: 4 } });
+  assert.match(yesno, /^Misses \(labelled yes, answered no\): model 1 of 3 · rule 5 of 3$/m);
+  assert.match(yesno, /^False alarms \(labelled no, answered yes\): model 2 of 4 · rule 6 of 4$/m);
+});
+
+test('--json carries confusion and the stored entry does not', async (t) => {
+  const f = await fixture(t);
+  writeLedger(f.project, mainSpecs());
+  const r = await f.run(['--kind', KIND, '--write', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.deepEqual(body.confusion, {
+    model: { misses: 2, falseAlarms: 0, nYes: 30, nNo: 10 },
+    rule: { misses: 0, falseAlarms: 0, nYes: 30, nNo: 10 },
+  });
+  assert.ok(!('confusion' in body.metrics), 'confusion is top-level, like worseIds');
+  const stored = fs.readFileSync(f.resultsFile, 'utf8');
+  assert.ok(!stored.includes('confusion') && !stored.includes('falseAlarms'), 'the store is unchanged');
 });
 
 test('(b) the server sees only the configured model, one request at a time, n requests, in case-id order', async (t) => {
