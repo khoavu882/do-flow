@@ -42,7 +42,7 @@ const FREE_CHECK_RECIPES: any = {
     runnableProbe: { argv: ['run', '--help'] },
   },
   pi: {
-    oneShot: { argv: ['-p', '--no-session', '--thinking', 'off', '--no-skills', '--no-context-files', '--offline', '{prompt}'], promptVia: 'argv' },
+    oneShot: { argv: ['-p', '--no-session', '--no-skills', '--no-context-files', '--offline', '{prompt}'], promptVia: 'argv' },
     structuredOutput: { argv: ['--mode', 'json'], parser: 'pi-json-v1' },
     readOnly: { argv: ['--tools', 'read,grep,find,ls'] },
     spawnDenial: { argv: ['--no-extensions', '--no-mcp'] },

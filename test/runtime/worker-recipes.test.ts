@@ -33,7 +33,7 @@ const IC009: any = {
   // 147: the tool allowlist removes every tool but the readers from the model's set; the two deny rules stay as a second layer.
   pi: ['--tools', 'read,grep,find,ls', '--no-extensions', '--no-mcp',
     '--mode', 'json',
-    '-p', '--no-session', '--thinking', 'off', '--no-skills', '--no-context-files', '--offline', '{prompt}'],
+    '-p', '--no-session', '--no-skills', '--no-context-files', '--offline', '{prompt}'],
   copilot: ['--available-tools', 'view', 'glob', 'grep', '--deny-tool', 'write', '--deny-tool', 'shell',
     '--excluded-tools', 'task',
     '--output-format', 'json',

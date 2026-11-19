@@ -2179,8 +2179,6 @@
           "argv": [
             "-p",
             "--no-session",
-            "--thinking",
-            "off",
             "--no-skills",
             "--no-context-files",
             "--offline",

@@ -718,7 +718,8 @@ const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required
   // 169 design §4.1, §4.2: how a tier's provider and effort reach the harness; the transport rules live in model-parts.ts.
   // `mayLower` (L-3) says the harness may run a lower level than bound when the model cannot run it.
   provider: { allowed: ['via', 'argv', 'separator'], required: ['via'] },
-  effort: { allowed: ['via', 'argv', 'separator', 'levels', 'offLevel', 'mayLower'], required: ['via', 'levels'] },
+  // 178 §3.2: `overrideEnv` names the variables the harness lets beat its effort argument.
+  effort: { allowed: ['via', 'argv', 'separator', 'levels', 'offLevel', 'mayLower', 'overrideEnv'], required: ['via', 'levels'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
@@ -731,7 +732,7 @@ const BARE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const WORKER_RECIPE_FIELDS = new Set([
   'binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'fieldMap', 'marker', 'quotaSignals', 'protectedPaths',
   'output', 'providers', 'answers', 'billing', 'expiry', 'expirySigns', 'hint', 'caveat',
-  'via', 'separator', 'levels', 'offLevel', 'mayLower',
+  'via', 'separator', 'levels', 'offLevel', 'mayLower', 'overrideEnv',
   'framing', 'messages', 'turn', 'answer', 'close', 'unverified', 'commandPrefix',
 ]);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'unverifiedSignals', 'basis', 'evidence']);
@@ -749,7 +750,9 @@ const { validateLoginProbe } = require('./login-recipe.ts');
 // 170 design §4.2: the control-channel grammar's own checks (C0-C7), argv widening and secret checks included.
 const { validateControlChannel } = require('./control-channel.ts');
 // 169 design §4.4: the provider, effort and listing-column grammar (rules 1 to 7).
-const { validateModelParts, validateModelListColumns } = require('./model-parts.ts');
+const { validateModelParts, validateModelListColumns, levelOrderProblem } = require('./model-parts.ts');
+// 178 design §3.1: the `sessionEffort` key (environment sources only).
+const { validateSessionEffort } = require('./session-effort.ts');
 const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
@@ -1261,8 +1264,13 @@ function validateRegistry(
     }
     validateContextProfile(harness.contextProfile, at, errors);
     validatePrimaryProbe(harness.primaryProbe, typeof harness.id === 'string' ? harness.id : '?', at, errors);
+    // Absent is `unknown` for the reader (178 §3.1); only a present key is checked here.
+    if (Object.hasOwn(harness, 'sessionEffort')) validateSessionEffort(harness.sessionEffort, at, errors, { effortStatus: harness.worker?.effort?.status });
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }
+
+  const levelOrder = levelOrderProblem(harnesses || []);
+  if (levelOrder) issue(errors, 'harnesses', levelOrder);
 
   validateRetired(registry?.retired, harnessIds, errors);
 
