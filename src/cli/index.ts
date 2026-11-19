@@ -822,7 +822,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --spec-file <json> | --part <key>=<file> (repeatable; --budget-lines <n>)
                                             prompt-frame render. Keys: header, role, context, example,
                                             instructions.outcome|success|steps|stop|constraint:<Heading>,
-                                            output_format.reader|lines, input.doc:path=<rel>|id=<id>[;kind=hand-back].
+                                            output_format.reader|lines, input.doc:path=<rel>|id=<id>[;kind=source|hand-back|retrieved|tool].
                                             The file follows the key's first '=' (for input.doc: the '=' after
                                             its path or id), so a file path may hold '='.
       --max-bytes <n>, --out <file>         prompt-frame render: exit 3 over n bytes; write the frame to a file
