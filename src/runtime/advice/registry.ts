@@ -229,10 +229,8 @@ function validateSameIssueParams(params: any, limits: any, base: string, errors:
   const candidateOk = inRange('candidateAtPct', 1, 100);
   if (flagOk && candidateOk && params.candidateAtPct > params.flagAtPct) addError(errors, `${base}.params.candidateAtPct`, 'must not exceed params.flagAtPct');
   const perCall = params.questionsPerCall;
-  if (Number.isInteger(perCall) && Number.isInteger(limits?.maxQuestions) && perCall > limits.maxQuestions) {
-    addError(errors, `${base}.params.questionsPerCall`, 'must be at most limits.maxQuestions');
-  }
-  if (Number.isInteger(perCall) && perCall >= 1 && inRange('maxPairs', perCall, Number.MAX_SAFE_INTEGER)
+  const perCallOk = inRange('questionsPerCall', 1, Number.isInteger(limits?.maxQuestions) ? Math.min(16, limits.maxQuestions) : 16);
+  if (perCallOk && inRange('maxPairs', perCall, Number.MAX_SAFE_INTEGER)
     && itemOk && isPositiveInteger(limits?.maxStateBytes)
     && perCall * (2 * params.itemBytes + SAME_ISSUE_CASE_OVERHEAD) + SAME_ISSUE_STATE_OVERHEAD > limits.maxStateBytes) {
     addError(errors, `${base}.params`, `questionsPerCall * (2 * itemBytes + ${SAME_ISSUE_CASE_OVERHEAD}) + ${SAME_ISSUE_STATE_OVERHEAD} must be at most limits.maxStateBytes`);

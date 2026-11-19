@@ -295,6 +295,15 @@ test('176 IC-001: the registry refuses each same-issue bound alone and names the
   }
 });
 
+test('176 IC-001: a same-issue entry without questionsPerCall is refused, and so is one above limits.maxQuestions', (t) => {
+  const missing = loadAdviceRegistry(writeFixture(t, (r: any) => { delete sameIssueOf(r).params.questionsPerCall; }));
+  assert.equal(missing.ok, false);
+  assert.match(missing.detail, /kinds\[\d+\]\.params\.questionsPerCall\b/);
+  const above = loadAdviceRegistry(writeFixture(t, (r: any) => { r.limits.maxQuestions = 4; sameIssueOf(r).params.questionsPerCall = 5; }));
+  assert.equal(above.ok, false);
+  assert.match(above.detail, /params\.questionsPerCall\b/);
+});
+
 test('176 IC-001: the state-size product questionsPerCall x (2 x itemBytes + 64) + 256 must fit limits.maxStateBytes', (t) => {
   const over = loadAdviceRegistry(writeFixture(t, (r: any) => { sameIssueOf(r).params.itemBytes = 4096; }));
   assert.equal(over.ok, false);
