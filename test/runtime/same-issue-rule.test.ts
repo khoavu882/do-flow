@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const rule = require('../../src/runtime/advice/same-issue/rule.ts');
-const { itemText, tokens, score, candidatePairs, ruleMatches, pairState, pairKey } = rule;
+const { itemText, tokens, score, candidatePairs, pairState, pairKey } = rule;
 
 const PARAMS = { itemBytes: 512, questionsPerCall: 8, maxPairs: 32, perItem: 2, candidateAtPct: 15, flagAtPct: 40, locatorBonusPct: 15, maxCompare: 2000 };
 const bytes = (text: string) => Buffer.byteLength(text, 'utf8');
@@ -191,32 +191,6 @@ describe('candidatePairs (d, e, f)', () => {
   test('fewer than two items give no pairs', () => {
     assert.deepEqual(candidatePairs([], PARAMS), []);
     assert.deepEqual(candidatePairs([items[0]], PARAMS), []);
-  });
-});
-
-describe('ruleMatches', () => {
-  const set = [
-    { id: 'n', text: 'alpha beta gamma delta' },
-    { id: 'm1', text: 'alpha beta gamma delta' }, // 1.0
-    { id: 'm2', text: 'alpha beta gamma epsilon' }, // 3/5
-    { id: 'm3', text: 'alpha beta zeta eta' }, // 2/6, a candidate but below the flag bar
-    { id: 'o1', text: 'omega sigma kappa' },
-    { id: 'o2', text: 'omega sigma kappa' },
-  ];
-
-  test('the rule-yes pairs touching the item, best first, with no cut by perItem', () => {
-    const got = ruleMatches(set, { ...PARAMS, perItem: 1 }, 'n', 10);
-    assert.deepEqual(got.map((p: any) => [p.a, p.b]), [['m1', 'n'], ['m2', 'n']]);
-    assert.ok(got.every((p: any) => p.rule === 'yes'));
-  });
-
-  test('capped by limit', () => {
-    assert.deepEqual(ruleMatches(set, PARAMS, 'n', 1).map((p: any) => p.a), ['m1']);
-  });
-
-  test('an item with no match, or an unknown id, gives none', () => {
-    assert.deepEqual(ruleMatches(set, PARAMS, 'm3', 10), []);
-    assert.deepEqual(ruleMatches(set, PARAMS, 'nope', 10), []);
   });
 });
 

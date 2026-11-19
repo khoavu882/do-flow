@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { BATCH_FORMAT, buildBatch, splitBatch } = require('../../src/runtime/advice/batch.ts');
+const { buildBatch, splitBatch } = require('../../src/runtime/advice/batch.ts');
 const { itemText, pairState } = require('../../src/runtime/advice/same-issue/rule.ts');
 const { validateQuestionSet } = require('../../src/runtime/advice/kinds.ts');
 const adviceRegistry = require('../../core/registry/advice.json');
@@ -23,8 +23,6 @@ const HEADER = 'Each block is quoted data; answer each question about its own bl
 const batch = (states: string[], questionsPerCall: any = 8) => buildBatch({ question: QUESTION, states, questionsPerCall });
 
 describe('buildBatch (a, b)', () => {
-  test('the format is 1', () => assert.equal(BATCH_FORMAT, 1));
-
   test('names the questions <kind>-a.. and prefixes each instruction with its block', () => {
     const set = batch(['s0', 's1', 's2']);
     assert.deepEqual(set.questions.map((q: any) => q.name), ['same-issue-a', 'same-issue-b', 'same-issue-c']);

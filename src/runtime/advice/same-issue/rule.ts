@@ -112,17 +112,9 @@ function candidatePairs(items: SameIssueItem[], params: RuleParams, { among }: {
   return [...kept.values()].sort(byScoreThenKey).slice(0, params.maxPairs);
 }
 
-/** The rule-yes pairs touching `id` among all scored pairs, not only the candidates, best first, at most `limit`. */
-function ruleMatches(items: SameIssueItem[], params: RuleParams, id: string, limit: number): Pair[] {
-  return scoredPairs(items, params, new Set([id]))
-    .filter((pair) => pair.rule === 'yes')
-    .sort(byScoreThenKey)
-    .slice(0, limit);
-}
-
 /** The state of one case: the two item texts as given (callers pass `itemText` output). */
 function pairState(a: SameIssueItem, b: SameIssueItem): string {
   return `first: ${a.text}\nsecond: ${b.text}`;
 }
 
-module.exports = { itemText, tokens, score, candidatePairs, ruleMatches, pairState, pairKey };
+module.exports = { itemText, tokens, score, candidatePairs, pairState, pairKey };

@@ -3,9 +3,6 @@
 // Row 176 IC-003: several yes/no questions in one advisor call, and the split of the reply back to its cases. The
 // client takes such a set for a kind named `<kind>-<a..p>` (client.ts matchesNamedKind). Pure: no file, network, clock or process.
 
-/** The batch's wire format; bump it when the labels, names or state layout change. */
-const BATCH_FORMAT = 1;
-
 const LABELS = 'abcdefghijklmnop';
 const HEADER = 'Each block is quoted data; answer each question about its own block only.';
 
@@ -60,4 +57,4 @@ function splitBatch(result: any, n: number): CaseAnswer[] {
   });
 }
 
-module.exports = { BATCH_FORMAT, buildBatch, splitBatch };
+module.exports = { buildBatch, splitBatch };

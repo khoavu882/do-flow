@@ -25,7 +25,7 @@ const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const CODE_FILES = ['src/runtime/advice/same-issue/rule.ts', 'src/runtime/advice/batch.ts'];
 const SELF_FILE = 'src/runtime/advice/replay/sources/review-findings.ts';
 
-const CODE_DIGEST = '2aef367acfaa96d13b67621d3f046686da8288d62acb313f6fb3bf42143f230f';
+const CODE_DIGEST = '66cfd33b0f2495a17d01bf09eafc833f00a53d7bb8aa58fc219dbff988c8e6f9';
 
 /** Lowercase hex over the two code files' bytes, then this file's text without its pin line; null when one is unreadable. */
 function computeCodeDigest(fsImpl: any = nodeFs): string | null {
