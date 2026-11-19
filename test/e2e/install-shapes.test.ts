@@ -30,6 +30,9 @@ const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const ALL_HARNESSES: any = ACTIVE_HARNESS_IDS;
 const { IS_WIN, interpreterSpawn, samePath } = require('../helper-platform.ts');
 
+// No test reaches a real harness CLI: the product probes `<harness> --version` through PATH, so this file runs on a PATH without one.
+require("../helper/harness-free-path.ts").useHarnessFreePath();
+
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
 

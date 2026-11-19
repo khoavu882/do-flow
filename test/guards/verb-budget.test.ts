@@ -20,6 +20,9 @@ const { cliVerbs } = require('./_shared.ts');
 const { REPO, IC009_ROWS, FOLLOWUP_COUNT, buildFixture, measureVerb } = require('../helper/verb-fixture.ts');
 const { keepPathsOf, resolvesPath, subsetViolations } = require('../helper/view-subset.ts');
 
+// No test reaches a real harness CLI: the product probes `<harness> --version` through PATH, so this file runs on a PATH without one.
+require("../helper/harness-free-path.ts").useHarnessFreePath();
+
 /**
  * The measured table: [argv after `doflow-run`, expected exit, ceiling in bytes]. The comment on each row is the
  * measurement the ceiling was set from (built output at commit 68114aaf, compact for the verbs this feature changed).
