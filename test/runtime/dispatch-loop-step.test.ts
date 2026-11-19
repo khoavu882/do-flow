@@ -30,6 +30,8 @@ const { loadRegistry } = require('../../src/registry/index.ts');
 const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
 const { renderBriefTools } = require(path.join(SRC, 'brief-tools.ts'));
 const { resolvePrimary } = require(path.join(SRC, 'context', 'primary.ts'));
+const { recordRecipeAnswer } = require(path.join(SRC, 'worker', 'login-store.ts'));
+const { recipeDigest } = require(path.join(SRC, 'worker', 'login.ts'));
 const { readRuns, storeFileFor: runStoreFileFor } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const ENVELOPE_STORE = require('../../core/registry/storage.json').stores.find((x: any) => x.id === 'dispatch-envelopes');
 
@@ -285,13 +287,15 @@ function fakePi(p: any, effort: any = PI_EFFORT) {
   return { descriptors: { pi: descriptor }, runs: () => fs.readFileSync(log, 'utf8').trim().split('\n').map((l: any) => JSON.parse(l)).filter((l: any) => l.argv.includes('--edit-in-cwd')) };
 }
 
-async function piRun(t: any, sessionEnv: any, effort: any = PI_EFFORT) {
+async function piRun(t: any, sessionEnv: any, effort: any = PI_EFFORT, { options = {}, setup = () => {} }: any = {}) {
   const scenario: any = { run: [{ write: { path: 'src/retry.js', content: '// retried\n' } }, { emit: { type: 'usage', tokens: 30 } }, { emit: SUCCESS }] };
   const p = await project(t, { plan: 'budget', mode: 'auto', scenario, identity: { DOFLOW_ATTEMPT: undefined } });
   Object.assign(p.env, sessionEnv);
   const worker = fakePi(p, effort);
-  assert.equal((await readiness.probe({ descriptors: worker.descriptors, env: p.env, cwd: p.root })).disposition, 'probed');
-  const r = await loop.run(p.options({ maxSeconds: 60, descriptors: worker.descriptors }));
+  setup(p);
+  const probeNow = options.now ? { now: () => options.now().getTime() } : {};
+  assert.equal((await readiness.probe({ descriptors: worker.descriptors, env: p.env, cwd: p.root, ...probeNow })).disposition, 'probed');
+  const r = await loop.run(p.options({ maxSeconds: 60, descriptors: worker.descriptors, ...options }));
   assert.equal(r.outcome, 'completed', JSON.stringify(r.last.blocked || r.last.actions));
   const [d] = Object.values(p.read().dispatches) as any[];
   assert.deepEqual([d.mode, d.harness, d.disposition], ['subagent', 'pi', 'completed']);
@@ -339,6 +343,21 @@ test('178 A-02: the effort is resolved against the descriptor the loop launches,
   const at = run.argv.indexOf('--thinking');
   assert.deepEqual(run.argv.slice(at, at + 2), ['--thinking', 'high']);
   assert.deepEqual(d.model.effortPlan, { pass: 'high', source: 'session', harness: 'claude', level: 'max', origin: 'CLAUDE_EFFORT', mapped: { from: 'max', to: 'high' }, check: 'listed' });
+});
+
+test('178 A-05: the login answer is read on the driver\'s clock, so a stored answer fresh by that clock gives the mode though the wall clock calls it stale', POSIX, async (t) => {
+  const registry = loadRegistry({ repoRoot: REPO_ROOT });
+  const claude = registry.harnesses.find((h: any) => h.id === 'claude');
+  const onlySubscription = structuredClone(registry);
+  onlySubscription.harnesses.find((h: any) => h.id === 'claude').sessionEffort.sources[0].modes = ['subscription'];
+  const answeredAt = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const fixed = new Date(answeredAt.getTime() + 60 * 60 * 1000);
+  const setup = (p: any) => recordRecipeAnswer(p.env, 'claude',
+    { state: 'logged-in', reason: null, at: answeredAt.toISOString(), billing: { mode: 'subscription' }, providers: [], checked: 1, listed: 1 }, recipeDigest(claude.worker), { known: ['claude'] });
+  const { d, run } = await piRun(t, { CLAUDE_CODE_CHILD_SESSION: '1', CLAUDE_EFFORT: 'high' }, PI_EFFORT, { options: { registry: onlySubscription, now: () => fixed }, setup });
+  const at = run.argv.indexOf('--thinking');
+  assert.deepEqual(run.argv.slice(at, at + 2), ['--thinking', 'high']);
+  assert.deepEqual(d.model.effortPlan, { pass: 'high', source: 'session', harness: 'claude', level: 'high', origin: 'CLAUDE_EFFORT', mapped: null, check: 'listed' });
 });
 
 test('row 173 T5 (g): sequential and manual modes yield the envelope and write no handoff prompt', POSIX, async (t) => {

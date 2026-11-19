@@ -271,7 +271,7 @@ function effortPlanOf(p: any, { harness, descriptor, resolved, primary, owner, r
   const declared = primary ?? primaryFor(p, { owner, resolvedTier, always: true });
   return effortPlanFor({
     registry: reg, env: p.env, declaredHarness: declared?.declared?.harness ?? null, workerHarness: harness, worker: descriptor,
-    choice: resolved.flag === 'supported' ? resolved.choice ?? null : null, loginModeOf: loginModeOf({ registry: reg, env: p.env }),
+    choice: resolved.flag === 'supported' ? resolved.choice ?? null : null, loginModeOf: loginModeOf({ registry: reg, env: p.env, now: () => p.clock().getTime() }),
   });
 }
 
