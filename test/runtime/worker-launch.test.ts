@@ -365,7 +365,7 @@ const harnessWorker = (id: string) => structuredClone(loadRegistry({ repoRoot: p
 const piWithReadOnly = () => withPiReadOnly(harnessWorker('pi'));
 const EFFORT_ONLY = { model: null, provider: null, effort: 'high', flag: 'supported' };
 
-test('178 (a): the shipped Pi block with no binding and no effort assembles a one-shot argv with no --thinking', () => {
+test('178 (a): the restored Pi read-only fixture with no binding and no effort assembles a one-shot argv with no --thinking', () => {
   const argv = assembleArgv(piWithReadOnly(), 'p', false);
   assert.equal(argv.some((item: string) => item.startsWith('--thinking')), false);
   const w = piWithReadOnly();
