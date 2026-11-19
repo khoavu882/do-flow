@@ -91,7 +91,7 @@ const V1 = {
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: 'off',
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/advice/shadow-config.ts'],
-    description: "Advice mode for the same-issue kind: unset records in shadow, show needs a passing local result, act is held at show." },
+    description: "Advice mode for the same-issue kind: unset records in shadow when a decision model is configured and makes no call otherwise, show needs a passing local result, act is held at show." },
   'advice.models.tier': { type: 'string', default: null,
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: { gate: 'advice.enabled' },
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
