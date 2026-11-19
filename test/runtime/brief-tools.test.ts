@@ -329,7 +329,7 @@ test('IC-017: a binding is shown for a valid explicit harness and resolved tier'
     harness: id, tier: 'frontier',
     bindings: { state: 'set', map: { [id]: { frontier: 'gpt-6-luna' } }, reason: null },
   });
-  assert.ok(markdown.includes(`Tier: \`frontier\` (task line), per \`references/MODEL_SELECTION.md\`.\nModel: \`gpt-6-luna\` [model unchecked] on \`${id}\` (binding, user layer).\n\n`));
+  assert.ok(markdown.includes(`Tier: \`frontier\` (task line), per \`references/MODEL_SELECTION.md\`.\nModel: \`gpt-6-luna\` [model unchecked] on \`${id}\` (binding, user layer).\nEffort: `));
   assert.deepEqual(record.model, { harness: id, model: 'gpt-6-luna', provider: null, effort: null, check: { model: 'unchecked', effort: null }, source: 'binding' });
 });
 
@@ -572,7 +572,7 @@ test('173 T2: parts holds the header pairs, the rules, the tools text and the re
   const id = CLAUDE.id;
   const { markdown, record, parts }: any = render(t, { harness: id, tier: 'frontier', bindings: { state: 'absent', map: {}, reason: null } });
   assert.deepEqual(Object.keys(parts).sort(), ['header', 'report', 'rules', 'tools']);
-  assert.deepEqual(parts.header.map(([key]: any) => key), ['Tier', 'Model']);
+  assert.deepEqual(parts.header.map(([key]: any) => key), ['Tier', 'Model', 'Effort']);
   assert.match(parts.header[0][1], /^`frontier` \(task line\), per `references\/MODEL_SELECTION\.md`\.$/);
   assert.equal(parts.header[1][1], `harness default on \`${id}\`.`);
   assert.ok(parts.rules.length >= 3 && parts.rules.every((line: any) => typeof line === 'string' && !line.startsWith('- ')));
@@ -646,4 +646,77 @@ test('173 T2: --json prints markdown, record and parts; the text mode prints the
   const text = cli(t, ['--owner', 'core-implementer']);
   assert.equal(text.status, 0, text.stderr);
   assert.equal(text.stdout, parsed.markdown);
+});
+
+// --- row 178 T6: the Effort header line and the record's effortPlan, from a fake registry and a fake env ---------------
+
+/** Two fake harnesses: `main-h` declares a session marker and one env source; `work-h` takes a flag effort with no `ultra`. */
+const FAKE_MAIN = {
+  id: 'main-h', displayName: 'Main Fake Harness', capabilities: { mcp: { status: 'unknown' } },
+  sessionEffort: { status: 'supported', marker: { env: 'MAIN_H_SESSION', equals: '1' }, sources: [{ kind: 'env', name: 'MAIN_H_EFFORT', modes: ['subscription', 'api-key'] }] },
+  worker: { effort: { status: 'supported', via: 'flag', argv: ['--effort', '{effort}'], levels: ['low', 'medium', 'high', 'ultra'] } },
+};
+const FAKE_WORK = {
+  id: 'work-h', displayName: 'Work Fake Harness', capabilities: { mcp: { status: 'unknown' } },
+  worker: { effort: { status: 'supported', via: 'flag', argv: ['--level', '{effort}'], levels: ['low', 'medium', 'high'] } },
+};
+const effortRegistry = { ...registry, harnesses: [FAKE_MAIN, FAKE_WORK] };
+const renderEffort = (t: any, env: any, overrides: any = {}) =>
+  render(t, { registry: effortRegistry, harness: FAKE_WORK.id, tier: 'frontier', env, loginModeOf: () => null, ...overrides });
+const effortLine = (markdown: string) => markdown.split('\n').find((line) => line.startsWith('Effort: '));
+
+test('178 T6 (d): a known session gives the session level, its harness and its variable, on the worker', (t) => {
+  const { markdown, parts }: any = renderEffort(t, { MAIN_H_SESSION: '1', MAIN_H_EFFORT: 'high' });
+  assert.equal(effortLine(markdown), "Effort: `high`, the `main-h` session's level (`MAIN_H_EFFORT`) on `work-h`.");
+  assert.deepEqual(parts.header.map(([key]: any) => key), ['Tier', 'Model', 'Effort']);
+});
+
+test('178 T6 (e): a level the worker lacks is mapped down, naming from, to and the origin', (t) => {
+  const { markdown }: any = renderEffort(t, { MAIN_H_SESSION: '1', MAIN_H_EFFORT: 'ultra' });
+  assert.equal(effortLine(markdown), "Effort: `high`, mapped down from the `main-h` session's `ultra` (`MAIN_H_EFFORT`; `work-h` has no `ultra`) on `work-h`.");
+});
+
+test('178 T6 (f): no marker gives the harness default with its reason; no line harness, no Effort line', (t) => {
+  const { markdown }: any = renderEffort(t, { MAIN_H_EFFORT: 'high' });
+  assert.equal(effortLine(markdown), 'Effort: harness default (no harness session to follow) on `work-h`.');
+  const bare: any = render(t, { registry: effortRegistry, env: { MAIN_H_SESSION: '1', MAIN_H_EFFORT: 'high' } });
+  assert.doesNotMatch(bare.markdown, /^Effort:/m);
+  assert.equal(bare.record.effortPlan, null);
+});
+
+test('178 T6 (g): the record carries the effortPlan the line renders, a bound effort included', (t) => {
+  const known: any = renderEffort(t, { MAIN_H_SESSION: '1', MAIN_H_EFFORT: 'ultra' });
+  assert.deepEqual(known.record.effortPlan, {
+    pass: 'high', source: 'session', harness: 'main-h', level: 'ultra', origin: 'MAIN_H_EFFORT', mapped: { from: 'ultra', to: 'high' }, check: 'listed',
+  });
+  const unknown: any = renderEffort(t, {});
+  assert.deepEqual(unknown.record.effortPlan, {
+    pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null },
+  });
+  const bound: any = renderEffort(t, { MAIN_H_SESSION: '1', MAIN_H_EFFORT: 'ultra' }, {
+    bindings: { state: 'set', map: { [FAKE_WORK.id]: { frontier: { model: 'm-1', effort: 'medium' } } }, reason: null },
+  });
+  assert.deepEqual(bound.record.effortPlan, { pass: 'medium', source: 'binding' });
+  assert.equal(effortLine(bound.markdown), 'Effort: `medium` (tier binding) on `work-h`.');
+});
+
+test('178 T6 (g): the verb reads the environment it runs in and prints the plan under --json', (t) => {
+  const { proj, env } = cleanEnv(t);
+  const result = spawnSync(process.execPath, [CLI, 'brief-tools', '--owner', 'core-implementer', '--tier', 'frontier', '--harness', CLAUDE.id, '--json'],
+    { cwd: proj, env: { ...env, DOFLOW_SESSION_ROLE: 'worker' }, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const parsed = JSON.parse(result.stdout);
+  assert.deepEqual(parsed.record.effortPlan, {
+    pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'worker-role', level: null, origin: null },
+  });
+  assert.equal(effortLine(parsed.markdown), `Effort: harness default (this is a worker session, which forwards no effort) on \`${CLAUDE.id}\`.`);
+});
+
+test('178 T6 (h): with the Effort line the markdown still parses as one frame (173)', (t) => {
+  const { markdown }: any = renderEffort(t, { MAIN_H_SESSION: '1', MAIN_H_EFFORT: 'high' });
+  const head = markdown.match(/^((?:[A-Z][A-Za-z ]{0,31}: .*\n)+)\n<instructions>\n/);
+  assert.ok(head, markdown);
+  assert.deepEqual(head[1].trimEnd().split('\n').map((line: string) => line.slice(0, line.indexOf(':'))), ['Tier', 'Model', 'Effort']);
+  assert.equal(count(markdown, '<instructions>'), 1);
+  assert.ok(markdown.trimEnd().endsWith('</output_format>'));
 });

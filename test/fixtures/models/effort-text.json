@@ -1,0 +1,285 @@
+{
+ "schema": 1,
+ "//": "178 IC-005 (design §8.1): one case per plan kind, per NoneReason and per SessionReason; read by test/runtime/models/effort-text.test.ts and console/test/effort-text.test.ts. Harness ids, levels and variable names here are data.",
+ "cases": [
+  {
+   "name": "binding",
+   "worker": "pi",
+   "plan": {
+    "pass": "high",
+    "source": "binding"
+   },
+   "text": "high (tier binding)",
+   "code": "`high` (tier binding)"
+  },
+  {
+   "name": "session, listed",
+   "worker": "pi",
+   "plan": {
+    "pass": "high",
+    "source": "session",
+    "harness": "claude",
+    "level": "high",
+    "origin": "CLAUDE_EFFORT",
+    "mapped": null,
+    "check": "listed"
+   },
+   "text": "high, the claude session's level (CLAUDE_EFFORT)",
+   "code": "`high`, the `claude` session's level (`CLAUDE_EFFORT`)"
+  },
+  {
+   "name": "session, unchecked",
+   "worker": "opencode",
+   "plan": {
+    "pass": "high",
+    "source": "session",
+    "harness": "claude",
+    "level": "high",
+    "origin": "CLAUDE_EFFORT",
+    "mapped": null,
+    "check": "unchecked"
+   },
+   "text": "high, the claude session's level (CLAUDE_EFFORT) [effort unchecked]",
+   "code": "`high`, the `claude` session's level (`CLAUDE_EFFORT`) [effort unchecked]"
+  },
+  {
+   "name": "session, mapped",
+   "worker": "pi",
+   "plan": {
+    "pass": "high",
+    "source": "session",
+    "harness": "claude",
+    "level": "xhigh",
+    "origin": "CLAUDE_EFFORT",
+    "mapped": {
+     "from": "xhigh",
+     "to": "high"
+    },
+    "check": "listed"
+   },
+   "text": "high, mapped down from the claude session's xhigh (CLAUDE_EFFORT; pi has no xhigh)",
+   "code": "`high`, mapped down from the `claude` session's `xhigh` (`CLAUDE_EFFORT`; `pi` has no `xhigh`)"
+  },
+  {
+   "name": "none, session-unknown, worker-role",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": null,
+     "reason": "worker-role",
+     "level": null,
+     "origin": null
+    }
+   },
+   "text": "harness default (this is a worker session, which forwards no effort)",
+   "code": "harness default (this is a worker session, which forwards no effort)"
+  },
+  {
+   "name": "none, session-unknown, no-session-harness",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": null,
+     "reason": "no-session-harness",
+     "level": null,
+     "origin": null
+    }
+   },
+   "text": "harness default (no harness session to follow)",
+   "code": "harness default (no harness session to follow)"
+  },
+  {
+   "name": "none, session-unknown, several-markers",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": null,
+     "reason": "several-markers",
+     "level": null,
+     "origin": null
+    }
+   },
+   "text": "harness default (more than one harness session is marked)",
+   "code": "harness default (more than one harness session is marked)"
+  },
+  {
+   "name": "none, session-unknown, contradicted",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": "claude",
+     "reason": "contradicted",
+     "level": null,
+     "origin": null
+    }
+   },
+   "text": "harness default (the marked session is claude, not the declared main harness)",
+   "code": "harness default (the marked session is `claude`, not the declared main harness)"
+  },
+  {
+   "name": "none, session-unknown, no-source",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": "codex",
+     "reason": "no-source",
+     "level": null,
+     "origin": null
+    }
+   },
+   "text": "harness default (codex declares no source for its session's effort)",
+   "code": "harness default (`codex` declares no source for its session's effort)"
+  },
+  {
+   "name": "none, session-unknown, mode-unknown",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": "claude",
+     "reason": "mode-unknown",
+     "level": null,
+     "origin": "CLAUDE_EFFORT"
+    }
+   },
+   "text": "harness default (the login mode of claude is unknown, and CLAUDE_EFFORT is evidenced for one login mode only)",
+   "code": "harness default (the login mode of `claude` is unknown, and `CLAUDE_EFFORT` is evidenced for one login mode only)"
+  },
+  {
+   "name": "none, session-unknown, mode-not-evidenced",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": "claude",
+     "reason": "mode-not-evidenced",
+     "level": null,
+     "origin": "CLAUDE_EFFORT"
+    }
+   },
+   "text": "harness default (CLAUDE_EFFORT is not evidenced for the login mode of claude)",
+   "code": "harness default (`CLAUDE_EFFORT` is not evidenced for the login mode of `claude`)"
+  },
+  {
+   "name": "none, session-unknown, not-set",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": "claude",
+     "reason": "not-set",
+     "level": null,
+     "origin": "CLAUDE_EFFORT"
+    }
+   },
+   "text": "harness default (CLAUDE_EFFORT is not set in the claude session)",
+   "code": "harness default (`CLAUDE_EFFORT` is not set in the `claude` session)"
+  },
+  {
+   "name": "none, session-unknown, level-not-declared",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "session-unknown",
+    "session": {
+     "harness": "claude",
+     "reason": "level-not-declared",
+     "level": null,
+     "origin": "CLAUDE_EFFORT"
+    }
+   },
+   "text": "harness default (CLAUDE_EFFORT in the claude session is not a level claude declares)",
+   "code": "harness default (`CLAUDE_EFFORT` in the `claude` session is not a level `claude` declares)"
+  },
+  {
+   "name": "none, worker-takes-no-effort",
+   "worker": "codex",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "worker-takes-no-effort",
+    "session": {
+     "harness": "claude",
+     "reason": null,
+     "level": "high",
+     "origin": "CLAUDE_EFFORT"
+    }
+   },
+   "text": "harness default (codex takes no effort argument)",
+   "code": "harness default (`codex` takes no effort argument)"
+  },
+  {
+   "name": "none, needs-model",
+   "worker": "opencode",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "needs-model",
+    "session": {
+     "harness": "claude",
+     "reason": null,
+     "level": "high",
+     "origin": "CLAUDE_EFFORT"
+    }
+   },
+   "text": "harness default (opencode takes an effort only with a model, and none is bound)",
+   "code": "harness default (`opencode` takes an effort only with a model, and none is bound)"
+  },
+  {
+   "name": "none, no-lower-level",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "no-lower-level",
+    "session": {
+     "harness": "claude",
+     "reason": null,
+     "level": "low",
+     "origin": "CLAUDE_EFFORT"
+    }
+   },
+   "text": "harness default (pi has no level at or below the claude session's low)",
+   "code": "harness default (`pi` has no level at or below the `claude` session's `low`)"
+  },
+  {
+   "name": "none, no-ordered-list",
+   "worker": "pi",
+   "plan": {
+    "pass": null,
+    "source": "none",
+    "reason": "no-ordered-list",
+    "session": {
+     "harness": "opencode",
+     "reason": null,
+     "level": "ultra",
+     "origin": "OPENCODE_EFFORT"
+    }
+   },
+   "text": "harness default (pi has no ultra, and opencode lists its levels per model, so no lower level is known)",
+   "code": "harness default (`pi` has no `ultra`, and `opencode` lists its levels per model, so no lower level is known)"
+  }
+ ]
+}
