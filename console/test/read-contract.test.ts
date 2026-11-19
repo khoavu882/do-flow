@@ -39,6 +39,8 @@
 // removed by a test-only preload (helpers/drop-upkeep-switch.ts) given on the Console's own node command
 // line; the shipped code has no way to turn it off, and no HTTP request can load a preload.
 
+require('./helpers/harness-free-path.ts').useHarnessFreePath();
+
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

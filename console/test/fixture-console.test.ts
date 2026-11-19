@@ -10,6 +10,8 @@
 // T8) read the live stream (/api/live) the way the page does: the machine channel, `layers:<pk>`, a `transcript:` lane and the
 // `file:` lane of `--layers`.
 
+require('./helpers/harness-free-path.ts').useHarnessFreePath();
+
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
