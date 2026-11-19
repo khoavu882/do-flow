@@ -1144,6 +1144,7 @@ The kind's local result is measured on review findings only: follow-ups carry no
 - A project's reviews give few merged pairs, so the kappa interval is wide. Passing the show bar ranks the model against the rule on these cases; it does not prove how often the model's yes is right.
 - Once a list has been shown, later merges are no longer made apart from the model, and a replay still reads those records as labels.
 - A synthesizer merges findings that share a root cause, which is broader than one issue, and it can miss a merge; both make the model's measured precision look lower, never higher.
+- The kind's `budgetMs` (9500 ms) was measured on a replay, which asks one call at a time. A command starts up to 4 batches together (32 pairs in calls of 8), so a server that answers one request at a time can push the last batch past `budgetMs`; that batch's pairs then get no answer and keep the rule's.
 
 ## Storage and retention
 
