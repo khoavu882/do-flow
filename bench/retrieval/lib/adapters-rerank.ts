@@ -13,7 +13,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildRerankQuestionSet, interpretRerankAnswers } = require('../../../src/runtime/advice/rerank.ts');
-const { summarizeCases } = require('../../../src/runtime/advice/gate-score.ts');
+const { mulberry32, percentile } = require('../../../src/runtime/advice/replay/score.ts');
 const { ndcgAt5Of, hits } = require('./metrics.ts');
 
 const RERANK_KIND = 'rerank';
@@ -48,7 +48,7 @@ function isRelevant(corpus: string, candidate: any, qrels: any[]): boolean {
 /**
  * Scores one arm over `items` (`[{ id, corpus, class, query, qrels, candidates }]`, candidates in first-stage order).
  * `ask(request)` is the advice client's `ask`. Returns `{ cases, outcomes, skipped, ladderRows }`:
- * `cases` feed `summarizeCases(…, 'rerank')`; a task with fewer than `params.minCandidates` candidates gets no call
+ * `cases` feed `summarizeCases`; a task with fewer than `params.minCandidates` candidates gets no call
  * (the runtime sends none either) and is listed in `skipped` instead of being counted for or against the model.
  */
 async function scoreArm({ arm, items, ask, model, criteria, kindEntry, limits }: any) {
@@ -102,14 +102,79 @@ async function scoreArm({ arm, items, ask, model, criteria, kindEntry, limits }:
   return { cases, outcomes, skipped, ladderRows };
 }
 
+function isNumber(x: unknown): x is number {
+  return typeof x === 'number' && Number.isFinite(x);
+}
+
+function mean(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  let sum = 0;
+  for (const x of xs) sum += x;
+  return sum / xs.length;
+}
+
+/** Two-sided bootstrap interval of the mean: `resamples` resamples with replacement, nearest-rank end points. */
+function bootstrapCI(values: number[], { seed, resamples, confidence }: any): [number, number] | null {
+  const n = values.length;
+  if (n === 0) return null;
+  const rng = mulberry32(seed);
+  const means = new Array<number>(resamples);
+  for (let r = 0; r < resamples; r++) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += values[Math.floor(rng() * n)];
+    means[r] = sum / n;
+  }
+  const tail = (1 - confidence) / 2;
+  return [percentile(means, tail) as number, percentile(means, 1 - tail) as number];
+}
+
+/**
+ * The figures of one rerank arm: nDCG@5 of the model order against the first-stage order, over `cases`
+ * (`{ valid, ndcgModel, ndcgStatic, latencyMs }`). A case with an invalid reply takes the first-stage score and stays in the
+ * denominator; a case whose first-stage score is null (no judged positive) is excluded from the quality figure. `statistics`
+ * is the package bars' `statistics` block (confidence, resamples, seed). There is no bar: nothing here passes or fails.
+ */
+function summarizeCases(cases: any[], statistics: any) {
+  const modelScores: number[] = [];
+  const staticScores: number[] = [];
+  const diffs: number[] = [];
+  const latencies: number[] = [];
+  let valid = 0;
+  let excluded = 0;
+  for (const c of cases) {
+    if (typeof c.valid !== 'boolean') throw new TypeError('case.valid must be a boolean');
+    if (!isNumber(c.latencyMs) || c.latencyMs < 0) throw new TypeError('case.latencyMs must be a non-negative number');
+    if (c.valid) valid++;
+    latencies.push(c.latencyMs);
+    const stat = c.ndcgStatic;
+    const model = c.valid === true ? c.ndcgModel : stat;
+    if (stat === null || model === null) { excluded++; continue; }
+    if (!isNumber(stat) || !isNumber(model)) throw new TypeError('ndcgModel and ndcgStatic must be numbers or null');
+    modelScores.push(model);
+    staticScores.push(stat);
+    diffs.push(model - stat);
+  }
+  const n = cases.length;
+  return {
+    n,
+    valid,
+    validShare: n === 0 ? null : valid / n,
+    quality: {
+      metric: 'ndcg@5', model: mean(modelScores), static: mean(staticScores), delta: mean(diffs),
+      ci: bootstrapCI(diffs, statistics), excluded,
+    },
+    latencyMs: { p50: percentile(latencies, 0.5), p95: percentile(latencies, 0.95) },
+  };
+}
+
 /**
  * Paired nDCG@5 difference ladder minus choice over the tasks both arms scored (IC-004 `armDelta`): the same seeded
- * bootstrap as the gate, run over per-task effective scores. Returns `{ versus, delta, ci, n }`; `n` is printed, not stored.
+ * bootstrap as the arm figures, run over per-task effective scores. Returns `{ versus, delta, ci, n }`; `n` is printed, not stored.
  */
-function armDifference(choiceCases: any[], ladderCases: any[], gate: any) {
+function armDifference(choiceCases: any[], ladderCases: any[], statistics: any) {
   const effective = (c: any) => (c.valid ? c.ndcgModel : c.ndcgStatic);
   const paired = choiceCases.map((c, i) => ({ valid: true, ndcgModel: c.ndcgStatic === null ? null : effective(ladderCases[i]), ndcgStatic: c.ndcgStatic === null ? null : effective(c), latencyMs: 0 }));
-  const summary = summarizeCases(paired, gate, RERANK_KIND);
+  const summary = summarizeCases(paired, statistics);
   return { versus: 'choice', delta: summary.quality.delta, ci: summary.quality.ci, n: paired.length - summary.quality.excluded };
 }
 
@@ -184,5 +249,5 @@ function collectFirstStage({ repoRoot, snapshotPath, tmp, deps = {} }: any) {
 
 module.exports = {
   RERANK_KIND, ARMS, RERANK_CORPUS_VERSION,
-  assertNotHoldout, toBuilderCandidate, reorder, scoreArm, armDifference, wouldDrop, collectFirstStage,
+  assertNotHoldout, toBuilderCandidate, reorder, scoreArm, summarizeCases, armDifference, wouldDrop, collectFirstStage,
 };

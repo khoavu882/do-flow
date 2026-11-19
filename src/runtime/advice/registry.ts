@@ -40,41 +40,6 @@ function isNumber(value: any): boolean {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-// The pass bar (141 IC-001). Optional: a registry without it loads, and every verdict then reads as stale.
-function validateGate(gate: any, errors: string[]): void {
-  if (!isObject(gate)) { addError(errors, 'gate', 'must be an object'); return; }
-  if (!Number.isInteger(gate.version) || gate.version < 1) addError(errors, 'gate.version', 'must be an integer of at least 1');
-  if (gate.illustrative !== true) addError(errors, 'gate.illustrative', 'must be true');
-  if (!Number.isInteger(gate.minCases) || gate.minCases < 1) addError(errors, 'gate.minCases', 'must be an integer of at least 1');
-  if (!isNumber(gate.validShareMin) || gate.validShareMin <= 0 || gate.validShareMin > 1) {
-    addError(errors, 'gate.validShareMin', 'must be a number above 0 and at most 1');
-  }
-  const quality = gate.quality;
-  if (!isObject(quality)) {
-    addError(errors, 'gate.quality', 'must be an object');
-  } else {
-    if (!isNumber(quality.lowerBoundAbove)) addError(errors, 'gate.quality.lowerBoundAbove', 'must be a finite number');
-    if (!isNumber(quality.confidence) || quality.confidence <= 0 || quality.confidence > 1) {
-      addError(errors, 'gate.quality.confidence', 'must be a number above 0 and at most 1');
-    }
-    if (!Number.isInteger(quality.resamples) || quality.resamples < 1000) addError(errors, 'gate.quality.resamples', 'must be an integer of at least 1000');
-    if (!Number.isInteger(quality.seed)) addError(errors, 'gate.quality.seed', 'must be an integer');
-  }
-  const latency = gate.latency;
-  if (!isObject(latency)) {
-    addError(errors, 'gate.latency', 'must be an object');
-  } else {
-    const caps = latency.p95CapMs;
-    if (!isObject(caps) || !Number.isInteger(caps.default)) {
-      addError(errors, 'gate.latency.p95CapMs', 'must be an object with an integer default');
-    } else {
-      for (const [id, cap] of Object.entries(caps)) {
-        if (!Number.isInteger(cap) || (cap as number) <= 0) addError(errors, 'gate.latency.p95CapMs', `${id} must be a positive integer`);
-      }
-    }
-  }
-}
-
 // The replay bars (175 IC-001): one full block shape, used for the package `bars`, a kind's `bars`, and every block of the
 // user override file (replay/bars.ts), so there is one set of rules. A block is complete (a missing key is refused) and
 // closed (an unknown key is refused).
@@ -345,7 +310,6 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, s
     }
   }
 
-  if (Object.hasOwn(registry, 'gate')) validateGate(registry.gate, errors);
   validateBars(registry.bars, 'bars', errors);
 
   if (!settings) {

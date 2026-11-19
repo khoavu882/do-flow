@@ -2,7 +2,7 @@
 const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 084 — advisor shadowing: IC-001 (shadow-config), IC-002 (shadow-dispatcher, recording through
-// record.ts) and IC-004 (elevation). The bench gate has its own file (advice-bench-gate.test.ts).
+// record.ts) and IC-004 (elevation).
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');

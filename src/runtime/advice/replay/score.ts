@@ -6,7 +6,7 @@
 // A case where the model gave no usable answer takes the rule's answer and stays in the denominator, so a model is never
 // judged only on the cases it answered. Agreement beyond chance is Cohen's kappa; its bounds come from a seeded paired
 // bootstrap over case indices, so the model's and the rule's kappa (and their difference) share every resample.
-// `mulberry32` and `percentile` are copies of the ones in gate-score.ts (which keeps its own until the old gate is removed).
+// `mulberry32` and `percentile` match bench/retrieval/lib/stats.ts (the runtime may not import from bench/).
 
 type Reason = 'timeout' | 'over-budget' | 'unreachable' | 'malformed-reply' | 'split';
 

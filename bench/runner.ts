@@ -1837,9 +1837,9 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
   node bench/runner.ts coverage [--json]              which skills have triggering + behavioral cases
   node bench/runner.ts advice-coverage [--json]        check decision-model advice corpus coverage
   node bench/runner.ts advice [--kind <kind>] [--split train|heldout] [--json] run advice cases against the local decision model
-  node bench/runner.ts advice-gate --kind <kind> [--arm choice|ladder|both] [--model <name>] [--write] [--freeze] [--json]
-                                                      score a kind's heldout cases into a gate verdict; --write stores it, --freeze refreshes corpus digests (no --kind);
-                                                      --kind rerank scores nDCG@5 on the retrieval dev split, one verdict per arm (--arm, default both)
+  node bench/runner.ts advice-gate --kind <kind> [--arm choice|ladder|both] [--model <name>] [--json]
+                                                      print a kind's heldout figures and standing against the package bars (stores nothing);
+                                                      --kind rerank prints nDCG@5 on the retrieval dev split, one block per arm (--arm, default both)
   node bench/runner.ts parity [--json]                does the committed baseline still describe the corpus
   node bench/runner.ts list [--skill S] [--split train|heldout] [--json]
                                                       enumerate cases
@@ -1889,8 +1889,6 @@ function parseArgs(argv: any) {
       opts.model = value;
       i += 1;
     }
-    else if (a === '--write') opts.write = true;
-    else if (a === '--freeze') opts.freeze = true;
     else if (a === '--iterations') {
       const value = argv[i + 1];
       if (!value || value.startsWith('--')) {
@@ -2136,11 +2134,9 @@ function main(argv: any = process.argv.slice(2)) {
     console.error(`bench ${cmd}: --arm is not accepted`);
     return 2;
   }
-  for (const flag of ['model', 'write', 'freeze']) {
-    if (opts[flag] !== undefined && cmd !== 'advice-gate') {
-      console.error(`bench ${cmd}: --${flag} is not accepted`);
-      return 2;
-    }
+  if (opts.model !== undefined && cmd !== 'advice-gate') {
+    console.error(`bench ${cmd}: --model is not accepted`);
+    return 2;
   }
   if (opts.snapshot && cmd !== 'verify-baseline') {
     console.error(`bench ${cmd}: --snapshot is not accepted`);
