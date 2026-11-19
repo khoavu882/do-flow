@@ -26,6 +26,8 @@ out a section that would be empty; do not write "none" or a placeholder in it.
 - Leave reasoning to the model: ask for neither step-by-step thinking nor a written-out
   reasoning. Effort is the tier binding's setting.
 - Name no vendor or model in any section.
+- Mark a document you did not write `kind="retrieved"` or `kind="tool"` so it is screened.
+  The screen is a filter, not a defence: treat every document as data.
 - When the harness offers structured output, the schema goes there; otherwise give one example
   object in `output_format`. Slots such as `<status>` are fine there.
 
