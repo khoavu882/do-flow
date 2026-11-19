@@ -4,8 +4,8 @@
 // (row 178, design §11). Each check is a findings function over a root (the repo, or a scratch copy for its planted control).
 //   G86.1  every harness in core/registry/harnesses.json declares `sessionEffort` (the reader treats a missing key as
 //          unknown, so only an out-of-tree descriptor may omit it).
-//   G86.2  the Console's `SESSION_VARIABLES` (a copy: the Console imports nothing from the core) equals
-//          `sessionVariables(registry)` of the shipped registry, as a set and in order.
+//   G86.2  the Console's `SESSION_VARIABLES` (a copy: the Console imports nothing from the core), as console/src/verb-runner.ts
+//          under the root exports it, equals `sessionVariables(registry)` of the shipped registry, as a set and in order.
 //   G86.3  no registry harness id is a quoted string literal (single, double or backtick) in the reader, the resolver or
 //          the two wording modules (NFR-003). Comments are not stripped: a quoted id in a comment is a hit too, so prose
 //          there names a harness without quoting it.
@@ -16,16 +16,17 @@
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { sessionVariables, SESSION_REASONS } = require('../../src/runtime/context/session-effort.ts');
 const { NONE_REASONS } = require('../../src/runtime/worker/effort-resolution.ts');
-const { SESSION_VARIABLES } = require('../../console/src/verb-runner.ts');
 const { createScratch } = require('../helper/scratch-env.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const HARNESSES_FILE = 'core/registry/harnesses.json';
 const FIXTURE_FILE = 'test/fixtures/models/effort-text.json';
+const CONSOLE_FILE = 'console/src/verb-runner.ts';
 const NEUTRAL_MODULES: readonly string[] = [
   'src/runtime/context/session-effort.ts',
   'src/runtime/worker/effort-resolution.ts',
@@ -53,7 +54,11 @@ function declaresSessionEffort(root: string): string[] {
   return harnessesOf(root).filter((h) => h.sessionEffort === undefined).map((h) => `G86.1 harness ${h.id} declares no sessionEffort`);
 }
 
-function consoleListFindings(consoleList: readonly string[], registry: any): string[] {
+/** The `SESSION_VARIABLES` list the Console file under `root` exports (the file requires node built-ins only, so a copy loads). */
+const consoleListOf = (root: string): readonly string[] => require(path.join(root, CONSOLE_FILE)).SESSION_VARIABLES;
+
+function consoleListFindings(root: string, registry: any): string[] {
+  const consoleList = consoleListOf(root);
   const expected: string[] = sessionVariables(registry);
   return JSON.stringify(consoleList) === JSON.stringify(expected)
     ? []
@@ -104,7 +109,7 @@ test('G86.1 every shipped harness declares sessionEffort', () => {
 });
 
 test('G86.2 the Console SESSION_VARIABLES equal sessionVariables(registry), as a set and in order', () => {
-  assert.deepEqual(consoleListFindings(SESSION_VARIABLES, registry), []);
+  assert.deepEqual(consoleListFindings(REPO, registry), []);
 });
 
 test('G86.3 no harness id is a string literal in the reader, resolver or wording modules', () => {
@@ -128,12 +133,25 @@ test('G86.1 control: a harness with the key deleted is found', () => {
   assert.match(findings[0], /^G86\.1 harness \S+ declares no sessionEffort$/);
 });
 
-test('G86.2 control: a Console list missing one name is found', () => {
-  assert.ok(SESSION_VARIABLES.length > 1);
-  const findings = consoleListFindings(SESSION_VARIABLES.slice(1), registry);
-  assert.equal(findings.length, 1);
-  assert.match(findings[0], /^G86\.2 /);
-  assert.equal(consoleListFindings([...SESSION_VARIABLES].reverse(), registry).length, SESSION_VARIABLES.length > 1 ? 1 : 0, 'order counts');
+test('G86.2 control: a Console file whose list misses one name, or lists them out of order, is found', (t) => {
+  // Design §11: the fault is planted in a temp copy of the Console file the check reads, and the check runs on that copy.
+  const shipped = consoleListOf(REPO);
+  assert.ok(shipped.length > 1);
+  const source = read(REPO, CONSOLE_FILE);
+  const declared = /(const SESSION_VARIABLES\b[^=]*=\s*)Object\.freeze\(\[[^\]]*\]\)/;
+  assert.equal(source.match(new RegExp(declared, 'g'))?.length, 1, `${CONSOLE_FILE} declares SESSION_VARIABLES once as a frozen array literal`);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-g86-2-'));
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const planted = (name: string, list: readonly string[]): string => {
+    const root = path.join(tmp, name);
+    fs.mkdirSync(path.join(root, path.dirname(CONSOLE_FILE)), { recursive: true });
+    fs.writeFileSync(path.join(root, CONSOLE_FILE), source.replace(declared, (_m, head) => `${head}Object.freeze(${JSON.stringify(list)})`));
+    return root;
+  };
+  const missing = consoleListFindings(planted('missing', shipped.slice(1)), registry);
+  assert.equal(missing.length, 1);
+  assert.match(missing[0], /^G86\.2 /);
+  assert.equal(consoleListFindings(planted('reversed', [...shipped].reverse()), registry).length, 1, 'order counts');
 });
 
 test('G86.3 control: an id literal planted in a copy of effort-resolution.ts is found', () => {
