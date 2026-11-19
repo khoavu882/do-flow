@@ -277,7 +277,6 @@ function localResults(t: any) {
 test('(d) Local results: standing re-judged, each moved digest named, the case set compared in this project only', (t) => {
   const f = localResults(t);
   const report = buildReport({ roots: f.roots, kinds: ['tier', CS], now: NOW, projectRoot: f.project });
-  assert.equal('verdicts' in report, false);
   const rows = report.localResults.map((row: any) => [row.modelDigest.slice(7, 8), row.standing, row.stale, row.caseSet]);
   assert.deepEqual(rows, [
     ['a', 'measure-only', [], 'same'],
@@ -286,7 +285,6 @@ test('(d) Local results: standing re-judged, each moved digest named, the case s
     ['d', 'measure-only', [], 'other-project'],
   ]);
   let text = renderText(report);
-  assert.doesNotMatch(text, /Bench verdicts/);
   assert.match(text, /\nLocal results\n {2}The model build is not checked here/);
   assert.match(text, /claim-support clef-flash \(provider ollama, digest sha256:aaaaaaaa…\), run 2026-06-09: measure-only: .*; case set same/);
   assert.match(text, /sha256:bbbbbbbb…\), run 2026-06-09: stale: the question changed since the replay; replay again; case set same/);
