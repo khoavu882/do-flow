@@ -130,6 +130,8 @@ function agreementFigures(picks: any[], outcomes: Map<string, any>, { registry, 
 
 const NOT_CHECKED_NOTE = 'The model build is not checked here: that needs a network call, and the report makes none. Each decision checks it.';
 
+const LOCAL_RESULTS_SCOPE = 'Local results hold entries from every project on this machine, not only this one; each line is labelled with its model, run date and case-set state.';
+
 /** The moved digests of a stored entry, in the order question, builder, bars. */
 function movedDigests(entry: any, { question, source, registryKind, bars }: any): string[] {
   const current: Array<[string, string]> = [
@@ -364,6 +366,7 @@ function renderText(report: any): string {
   lines.push('', 'Local results', `  ${NOT_CHECKED_NOTE}`);
   if (report.localResults.length === 0) lines.push('  none stored for the kinds shown');
   for (const r of report.localResults) lines.push(`  ${renderLocalResult(r)}`);
+  lines.push(`  ${LOCAL_RESULTS_SCOPE}`);
   lines.push('', report.scope === GLOBAL_SCOPE ? GLOBAL_FOOTER : FOOTER);
   return lines.join('\n');
 }
