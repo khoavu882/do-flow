@@ -465,9 +465,10 @@
           "status": "supported",
           "evidence": [
             "core/worker-evidence/claude/2026-11-16-cli-check-effort.json",
-            "https://code.claude.com/docs/en/cli-reference"
+            "https://code.claude.com/docs/en/cli-reference",
+            "https://code.claude.com/docs/en/env-vars"
           ],
-          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` against the installed claude and read the matched `--effort <level>` lines (check help-effort). Recorded 2026-11-16 on Claude Code 2.1.311: `claude --help` lists `--effort <level>` with the levels low, medium, high, xhigh, max; the matched lines were copied by hand from a captured help output (the record's handAdded says so; no CLI was run for it). The CLI reference (https://code.claude.com/docs/en/cli-reference, fetched 2026-11-16, `--effort` row) says the available levels depend on the model and lists `ultracode`, which is left out here. That a given model accepts a given level is not checked; the level is passed through.",
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness claude --checks core/worker-evidence/claude/checks.json --out <new cli-check path>` against the installed claude and read the matched `--effort <level>` lines (check help-effort). Recorded 2026-11-16 on Claude Code 2.1.311: `claude --help` lists `--effort <level>` with the levels low, medium, high, xhigh, max; the matched lines were copied by hand from a captured help output (the record's handAdded says so; no CLI was run for it). The CLI reference (https://code.claude.com/docs/en/cli-reference, fetched 2026-11-16, `--effort` row) says the available levels depend on the model and lists `ultracode`, which is left out here. That a given model accepts a given level is not checked; the level is passed through. `overrideEnv` names `CLAUDE_CODE_EFFORT_LEVEL`: the env-vars page (https://code.claude.com/docs/en/env-vars, `CLAUDE_CODE_EFFORT_LEVEL` line) says it takes precedence over `--effort`, so an inherited copy is dropped from a worker launched with an effort.",
           "verifiedOn": "2026-11-16",
           "via": "flag",
           "argv": [
