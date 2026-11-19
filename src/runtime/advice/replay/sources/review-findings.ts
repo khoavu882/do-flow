@@ -5,9 +5,11 @@
 // pairs of seat findings per record, and a pair the synthesizer merged into one converged entry is labelled `yes`, a pair
 // it placed in two entries `no`. The label is the synthesizer's judgement, not the rule's, so `labelIsRule` is false.
 //
-// Read-only: the folder entries are listed with their types, a record is read only when its `review` folder is a real
-// directory and it is a regular file of at most 8 MiB (a link is never followed, at either level), and nothing is written.
-// A finding id that repeats keeps its first item. A skipped file, finding or pair is counted by reason, not shown.
+// Read-only: the folder entries are listed with their types (an entry that is not a directory, a link to one included,
+// is skipped as `not-a-directory`), a record is read only when its `review` folder is a real directory and it is a
+// regular file of at most 8 MiB (a link is never followed, at either level), and nothing is written. A finding id that
+// repeats keeps its first item; a finding with an empty id or summary is skipped as `incomplete-finding`. Every skipped
+// entry, file, finding or pair is counted by reason, not shown.
 // A record with fewer than two seats is skipped as `single-seat`: production asks only multi-seat reviews (`review
 // --action similar` runs only with more than one seat), so a one-seat record is a case the kind is never asked.
 //
@@ -27,7 +29,7 @@ const MAX_RECORD_BYTES = 8 * 1024 * 1024;
 const CODE_FILES = ['src/runtime/advice/same-issue/rule.ts', 'src/runtime/advice/batch.ts'];
 const SELF_FILE = 'src/runtime/advice/replay/sources/review-findings.ts';
 
-const CODE_DIGEST = '431a5c2e0d526214f97b0d0a3c8f4f6fd63cc990c02a9a2789181597440e25c8';
+const CODE_DIGEST = '525e93cc4fee5eb4a0f6a70a914785acafdfbd015041dd8b1e3760af43f028ef';
 
 /** Lowercase hex over the two code files' bytes, then this file's text without its pin line; null when one is unreadable. */
 function computeCodeDigest(fsImpl: any = nodeFs): string | null {
@@ -62,7 +64,9 @@ function build({ projectRoot, kind, fsImpl = nodeFs }: any = {}): { cases: any[]
   const base = path.join(projectRoot, 'agent-docs', 'doflow');
   let slugs: string[];
   try {
-    slugs = fsImpl.readdirSync(base, { withFileTypes: true }).filter((entry: any) => entry.isDirectory()).map((entry: any) => entry.name).sort();
+    const entries = fsImpl.readdirSync(base, { withFileTypes: true });
+    for (const entry of entries) if (!entry.isDirectory()) skip('not-a-directory');
+    slugs = entries.filter((entry: any) => entry.isDirectory()).map((entry: any) => entry.name).sort();
   } catch { return { cases: [], skipped }; }
 
   const found: any[] = [];
@@ -79,7 +83,7 @@ function build({ projectRoot, kind, fsImpl = nodeFs }: any = {}): { cases: any[]
     const itemById = new Map<string, any>();
     for (const seat of record.seats) {
       for (const finding of Array.isArray(seat?.findings) ? seat.findings : []) {
-        if (!nonEmpty(finding?.id) || !nonEmpty(finding.summary)) continue;
+        if (!nonEmpty(finding?.id) || !nonEmpty(finding.summary)) { skip('incomplete-finding'); continue; }
         const locator = nonEmpty(finding.locator) ? finding.locator : null;
         if (itemById.has(finding.id)) { skip('duplicate-finding-id'); continue; }
         const item = { id: finding.id, text: itemText(locator ? `${locator} — ${finding.summary}` : finding.summary, kind.params.itemBytes), locator };

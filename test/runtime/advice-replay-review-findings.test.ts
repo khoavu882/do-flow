@@ -22,7 +22,7 @@ const KIND = {
   params: { itemBytes: 512, questionsPerCall: 8, maxPairs: 32, perItem: 2, candidateAtPct: 15, flagAtPct: 40, locatorBonusPct: 15, maxCompare: 2000 },
 };
 
-/** A scratch project whose `agent-docs/doflow` is a copy of the fixture, plus a symlinked record, a symlinked review folder and a symlinked slug. */
+/** A scratch project whose `agent-docs/doflow` is a copy of the fixture, plus a symlinked record, a symlinked review folder, a symlinked slug and a plain file. */
 function project(t: any) {
   const root = tempDir(t, 'doflow-advice-replay-findings-');
   const doflow = path.join(root, 'agent-docs', 'doflow');
@@ -33,6 +33,7 @@ function project(t: any) {
   fs.mkdirSync(path.join(doflow, 'slug-reviewlink'), { recursive: true });
   fs.symlinkSync(path.join(doflow, 'slug-alpha', 'review'), path.join(doflow, 'slug-reviewlink', 'review'));
   fs.symlinkSync(path.join(doflow, 'slug-alpha'), path.join(doflow, 'slug-dirlink'));
+  fs.writeFileSync(path.join(doflow, 'notes.md'), 'not a slug');
   return { root, doflow };
 }
 
@@ -83,6 +84,7 @@ describe('cases', () => {
     const { skipped } = run(project(t));
     assert.deepEqual(skipped, {
       'not-a-review-record': 1,   // slug-schema-two
+      'not-a-directory': 2,       // slug-dirlink (a link to a folder), notes.md
       'single-seat': 1,           // slug-oneseat: production asks only multi-seat reviews
       'unreadable-file': 3,       // slug-broken, slug-linked, slug-reviewlink
       ungrouped: 1,               // a-6 / a-7: neither is in a converged entry
@@ -158,6 +160,24 @@ describe('cases', () => {
     assert.equal(built.skipped['duplicate-finding-id'], 2);
     const dup = built.cases.filter((c: any) => [caseId('slug-dup', 'd-1', 'd-1'), caseId('slug-dup', 'd-1', 'd-2')].includes(c.id));
     assert.deepEqual(dup.map((c: any) => [c.id, c.label]), [[caseId('slug-dup', 'd-1', 'd-2'), 'yes']]);
+  });
+
+  test('(b) a finding with an empty id or an empty summary is not an item and is counted as incomplete', (t: any) => {
+    const p = project(t);
+    const finding = (id: any, summary: any) => ({ id, severity: 'should-fix', locator: 'src/api.ts:20', summary });
+    const record = {
+      schema: 1, row: '900', slug: 'slug-incomplete', rounds: 1,
+      seats: [
+        { id: 'seat-1', findings: [finding('', 'handler returns an error on an empty body'), finding('i-1', ''), finding('i-2', '   '), finding('i-3', 'handler returns an error on an empty body')] },
+        { id: 'seat-2', findings: [finding('i-4', 'empty request body causes a server error')] },
+      ],
+      converged: [{ id: 'c-1', from: ['i-3', 'i-4'] }],
+    };
+    fs.mkdirSync(path.join(p.doflow, 'slug-incomplete', 'review'), { recursive: true });
+    fs.writeFileSync(path.join(p.doflow, 'slug-incomplete', 'review', 'findings.json'), JSON.stringify(record));
+    const built = run(p);
+    assert.equal(built.skipped['incomplete-finding'], 3);
+    assert.equal(built.cases.some((c: any) => c.id === caseId('slug-incomplete', 'i-3', 'i-4')), true);
   });
 
   test('(d) cases are sorted by id and the same on a second run', (t: any) => {
