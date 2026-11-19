@@ -15,10 +15,10 @@ const { composeFrame, FrameSpecError } = require('./frame.ts');
 
 const MAX_INPUT_BYTES = 4 * 1024 * 1024;
 const GUIDE = path.join('core', 'shared', 'guidance', 'references', 'PROMPT_FRAME.md');
-const DOC_KEY = /^input\.doc:(path|id)=(.+?)(?:;kind=(source|hand-back))?$/;
+const DOC_KEY = /^input\.doc:(path|id)=(.+?)(?:;kind=(source|hand-back|retrieved|tool))?$/;
 // The key of an `input.doc:` part holds its own `=` (`path=<rel>`, `id=<id>`), so the file begins at the first `=`
 // after that value (and after `;kind=...`); a document path or id therefore holds no `=`. Any other key ends at the first `=`.
-const DOC_PART = /^input\.doc:(?:path|id)=[^=]+?(?:;kind=(?:source|hand-back))?(?==)/;
+const DOC_PART = /^input\.doc:(?:path|id)=[^=]+?(?:;kind=(?:source|hand-back|retrieved|tool))?(?==)/;
 const CONSTRAINT_PREFIX = 'instructions.constraint:';
 
 /** Reads one input file as UTF-8 text, at most 4 MiB; `code` names the failure for the error shape. */
@@ -40,7 +40,7 @@ const lines = (body: string): string[] => body.split(/\r?\n/).filter((line) => l
  * The FrameSpec of a list of `<key>=<file>` parts. The file is whatever follows the key's end (the first `=`, or for
  * `input.doc:` the first `=` after its path or id and `;kind=`), so a file path may hold `=`; the key is
  * one of header, role, context, instructions.outcome|success|steps|stop, instructions.constraint:<Heading>
- * (repeatable), example, output_format.reader|lines, input.doc:path=<rel>|input.doc:id=<id>[;kind=hand-back]
+ * (repeatable), example, output_format.reader|lines, input.doc:path=<rel>|input.doc:id=<id>[;kind=hand-back|retrieved|tool]
  * (repeatable). Unknown keys and empty parts are the composer's to refuse, as for a spec file.
  */
 function specFromParts(parts: string[], { budgetLines, cwd }: { budgetLines?: number, cwd: string }): any {
@@ -58,7 +58,7 @@ function specFromParts(parts: string[], { budgetLines, cwd }: { budgetLines?: nu
     if (doc) {
       (spec.input = spec.input || []).push({ [doc[1]]: doc[2], ...(doc[3] ? { kind: doc[3] } : {}), text: body() });
     } else if (key.startsWith('input.doc:')) {
-      throw new FrameSpecError('frame-document-source', `--part ${key} is input.doc:path=<rel> or input.doc:id=<id>, then ;kind=hand-back`);
+      throw new FrameSpecError('frame-document-source', `--part ${key} is input.doc:path=<rel> or input.doc:id=<id>, then ;kind=source|hand-back|retrieved|tool`);
     } else if (key.startsWith(CONSTRAINT_PREFIX)) {
       (ins().constraints = ins().constraints || []).push({ heading: key.slice(CONSTRAINT_PREFIX.length), body: body() });
     } else {
