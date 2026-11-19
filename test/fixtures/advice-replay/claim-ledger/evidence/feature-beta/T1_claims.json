@@ -1,0 +1,22 @@
+{
+  "taskId": "T1",
+  "updatedAt": "2026-11-01T10:00:00.000Z",
+  "claimsCount": 1,
+  "claims": [
+    {
+      "id": "claim_beta_1",
+      "taskId": "T1",
+      "statement": "The parser rejects a trailing comma",
+      "role": null,
+      "status": "supported",
+      "supportingEvidence": [
+        "ev_beta_1"
+      ],
+      "contradictingEvidence": [],
+      "createdAt": "2026-11-01T10:00:00.000Z",
+      "updatedAt": "2026-11-01T10:00:00.000Z"
+    }
+  ],
+  "version": 1,
+  "revision": 1
+}

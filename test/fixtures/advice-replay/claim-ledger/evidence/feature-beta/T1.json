@@ -1,0 +1,35 @@
+{
+  "taskId": "T1",
+  "updatedAt": "2026-11-01T10:00:00.000Z",
+  "evidenceCount": 1,
+  "evidence": [
+    {
+      "id": "ev_beta_1",
+      "taskId": "T1",
+      "kind": "generated-analysis",
+      "source": {
+        "provider": "general-task-execution",
+        "capability": "coverage-reverify"
+      },
+      "locator": {},
+      "provenance": "inferred",
+      "content": "parse(\"[1,]\") throws SyntaxError at position 3",
+      "freshness": {
+        "gitCommit": "4296d8dde889db3a8de03ee4ecf97499b96f376d",
+        "fileHash": null,
+        "observedAt": "2026-11-01T10:00:00.000Z",
+        "status": "FRESH"
+      },
+      "establishes": [],
+      "observation": null,
+      "supports": [
+        "claim_beta_1"
+      ],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    }
+  ],
+  "version": 1,
+  "revision": 1
+}
