@@ -14,7 +14,9 @@
 //          `lifecycle/followup-similar.ts`, nor in the same-issue kind's texts in `core/registry/advice.json`.
 //   G89.4  advisory: `review/similar.ts`, `same-issue/**` and `lifecycle/followup-similar.ts` hold no write call
 //          except the `--out` writer in `review/similar.ts`, the block from `if (check.shown && outFile) {` to
-//          `result.out = target;`, which holds exactly one write, one rename and one temp-file cleanup.
+//          `result.out = target;`, which holds exactly one write, one rename and one temp-file cleanup. The same files also
+//          call no lifecycle or record writer (`appendEvents`, `writeAtomic`, the follow-up writers `addFollowups`,
+//          `reportFollowup`, `takeFollowups`, `settleFollowups`, `promoteFollowups`) and require no `event-store` module.
 //   Controls: each check fails on a planted-bad in-memory copy, never on the tree.
 
 const { test } = require('node:test');
@@ -161,7 +163,9 @@ test('G89.3 control: a planted vendor name, provider word and model literal are 
 
 // ---------------------------------------------------------------- G89.4
 
-const WRITE_CALL = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|renameSync|rename|rmSync|rm|unlinkSync|unlink|mkdirSync|mkdir|createWriteStream|truncateSync|copyFileSync|symlinkSync)\s*\(|\bopenSync\s*\([^)]*['"`][^'"`]*[wa+][^'"`]*['"`]|\bfs\.promises\b|\bfsp\./;
+const WRITE_CALL = /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|renameSync|rename|rmSync|rm|unlinkSync|unlink|mkdirSync|mkdir|createWriteStream|truncateSync|copyFileSync|symlinkSync|writeSync|cpSync)\s*\(|\bopenSync\s*\([^)]*['"`][^'"`]*[wa+][^'"`]*['"`]|\bfs\.promises\b|\bfsp\./;
+const RECORD_WRITER_CALL = /\b(?:appendEvents|writeAtomic|addFollowups|reportFollowup|takeFollowups|settleFollowups|promoteFollowups)\s*\(/;
+const EVENT_STORE_REQUIRE = /require\(\s*['"][^'"]*\bevent-store(?:\.ts)?['"]\s*\)/;
 const OUT_BLOCK_START = 'if (check.shown && outFile) {';
 const OUT_BLOCK_END = 'result.out = target;';
 
@@ -188,6 +192,8 @@ function writeFindings(overlay: Map<string, string> = new Map()): string[] {
       code = parts.rest;
     }
     if (WRITE_CALL.test(code)) found.push(`${file}: a write call`);
+    if (RECORD_WRITER_CALL.test(code)) found.push(`${file}: a lifecycle or record writer call`);
+    if (EVENT_STORE_REQUIRE.test(code)) found.push(`${file}: a require of the event store`);
   }
   return found;
 }
@@ -203,4 +209,15 @@ test('G89.4 control: a planted writeFileSync in ask.ts, a second write site in s
   assert.deepEqual(writeFindings(new Map([[FOLLOWUP_SIMILAR, `${read(FOLLOWUP_SIMILAR)}\nconst s = fs.createWriteStream('x');\n`]])), [`${FOLLOWUP_SIMILAR}: a write call`]);
   const second = read(SIMILAR).replace('fs.renameSync(temp, target);', 'fs.renameSync(temp, target);\n      fs.writeFileSync(`${target}.bak`, \'\');');
   assert.ok(writeFindings(new Map([[SIMILAR, second]])).some((finding) => finding.includes('not 1,1,1')));
+});
+
+test('G89.4 control: a planted appendEvents, follow-up writer, event-store require, writeSync and cpSync are each found', () => {
+  const plantRequire = (spec: string) => `require('${spec}')`; // built, so G16 does not read it as a real require
+  assert.deepEqual(writeFindings(new Map([[ASK, `${read(ASK)}\nappendEvents(root, drafts);\n`]])), [`${ASK}: a lifecycle or record writer call`]);
+  assert.deepEqual(writeFindings(new Map([[SIMILAR, `${read(SIMILAR)}\nwriteAtomic(file, text);\n`]])), [`${SIMILAR}: a lifecycle or record writer call`]);
+  assert.deepEqual(writeFindings(new Map([[FOLLOWUP_SIMILAR, `${read(FOLLOWUP_SIMILAR)}\nsettleFollowups({ root, ids });\n`]])), [`${FOLLOWUP_SIMILAR}: a lifecycle or record writer call`]);
+  assert.deepEqual(writeFindings(new Map([[FOLLOWUP_SIMILAR, `${read(FOLLOWUP_SIMILAR)}\nconst { appendEvents: planted } = ${plantRequire('./event-store.ts')};\n`]])), [`${FOLLOWUP_SIMILAR}: a require of the event store`]);
+  assert.deepEqual(writeFindings(new Map([[ASK, `${read(ASK)}\nconst { appendEvents: planted } = ${plantRequire('../../lifecycle/event-store.ts')};\n`]])), [`${ASK}: a require of the event store`]);
+  assert.deepEqual(writeFindings(new Map([[ASK, `${read(ASK)}\nfs.writeSync(fd, 'y');\n`]])), [`${ASK}: a write call`]);
+  assert.deepEqual(writeFindings(new Map([[FOLLOWUP_SIMILAR, `${read(FOLLOWUP_SIMILAR)}\nfs.cpSync('a', 'b');\n`]])), [`${FOLLOWUP_SIMILAR}: a write call`]);
 });
