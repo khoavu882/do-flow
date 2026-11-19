@@ -30,7 +30,6 @@ const { loadStorageRegistry } = require(path.join(REPO_ROOT, 'src', 'runtime', '
 const { resolveRoots } = require(path.join(REPO_ROOT, 'src', 'runtime', 'storage', 'roots.ts'));
 
 const SETTINGS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'settings.json'), 'utf8')).keys;
-const SHIPPED_VERDICTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice-verdicts.json'), 'utf8'));
 /** The kinds something asks at runtime: the ones with an advice.kinds setting and a record (the core's report lists these). */
 const KINDS: string[] = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice.json'), 'utf8')).kinds.filter((k: any) => k.askedBy?.length > 0).map((k: any) => k.id);
 
@@ -39,7 +38,11 @@ const AT = '2026-11-09T10:00:05.000Z';
 /** The partition the core cannot read: a directory where a file is expected. */
 const UNREAD_DAY = '2026-10-01';
 const UNSET = "not set (the kind's own path)";
-const GATE_LEAD = "A kind acts on the model's pick only when a shipped bench verdict passes for it; until then act is gated.";
+const LOCAL_LEAD = 'An answer is shown or acted on only for a kind set to show or act whose model has a passing local result. To measure one, run doflow advise --action replay --kind <kind> --write.';
+const LOCAL_NOTE = 'The model build is not checked here; each decision checks it.';
+const AGREEMENT_NOTE = 'Agreement with what you did is a figure only: it never lets a kind show or act.';
+/** task-class's one labelled pick (the outcome `feature`): neither the pick nor the rule's answer matches it. */
+const AGREEMENT_TASK = 'accuracy model 0.00, rule 0.00; kappa model 0.00 (lower 0.00), rule 0.00; worse 0, better 0; n=1';
 
 let copy: string;
 let world: string;
@@ -257,7 +260,7 @@ test('fixture: the world holds the cases the view is checked against', () => {
   const verify = report.data.kinds.find((row: any) => row.kind === 'verify-risk');
   assert.equal(verify.agreeStatic, null, 'verify-risk has no record');
   assert.equal(verify.modes, null);
-  assert.deepEqual(report.data.verdicts, [], 'the shipped verdicts file has no row');
+  assert.deepEqual(report.data.localResults, [], 'the world stores no local result');
   assert.equal(picks.data.days.length, 91);
   assert.equal(picks.data.days.find((d: any) => d.day === UNREAD_DAY).coverage, 'unknown');
   assert.equal(picks.data.limits.notShown, 0);
@@ -265,28 +268,30 @@ test('fixture: the world holds the cases the view is checked against', () => {
   assert.ok(modes.has('shadow') && modes.has('unrecorded'));
 });
 
-// ---- the gate -----------------------------------------------------------------------------------
+// ---- local results -----------------------------------------------------------------------------
 
-test('IC-018 gate: the lead sentence, and over the shipped empty verdicts file "No bench verdict ships for any kind."', () => {
-  assert.deepEqual(SHIPPED_VERDICTS.verdicts, [], 'core/registry/advice-verdicts.json ships with no verdict');
-  const gate = sectionOf(render(BODY), 'advice-gate');
-  const lead = gate.querySelector('p');
-  assert.equal(lead.textContent, GATE_LEAD);
-  assert.equal(lead.querySelector('code').textContent, 'act', 'act is set as code');
-  const sentences = gate.querySelectorAll('li').map((li: El) => li.textContent);
-  assert.deepEqual(sentences, ['No bench verdict ships for any kind.']);
+test('175 local results: the lead states the rule and the command, the note, and over the world "No local result is stored"', () => {
+  const local = sectionOf(render(BODY), 'advice-local');
+  assert.equal(local.querySelector('h2').textContent, 'Local results');
+  const [lead, note] = local.querySelectorAll('p');
+  assert.equal(lead.textContent, LOCAL_LEAD);
+  assert.deepEqual(lead.querySelectorAll('code').map((c: El) => c.textContent), ['show', 'act', 'doflow advise --action replay --kind <kind> --write']);
+  assert.equal(note.textContent, LOCAL_NOTE);
+  assert.deepEqual(local.querySelectorAll('li').map((li: El) => li.textContent), ['No local result is stored for the kinds shown.']);
 });
 
-test('IC-018 gate: with verdict rows, one sentence per kind from C.2 (a pass names its model, a stale row reads its reason)', () => {
+test('175 local results: one sentence per stored result, with its standing, why it is stale and its case set', () => {
   const body = clone(BODY);
-  body.sections.report.data.verdicts = [
-    { kind: 'tier', model: 'qwen3:8b', arm: null, result: 'pass', stale: false, reason: null },
-    { kind: 'task-class', model: 'm1', arm: null, result: 'pass', stale: true, reason: 'verdict stale: the bench changed' },
+  const digest = `sha256:${'0123456789abcdef'.repeat(4)}`;
+  body.sections.report.data.localResults = [
+    { kind: 'tier', provider: 'local-runtime', model: 'model-a:8b', modelDigest: digest, runAt: '2026-11-18T09:30:00.000Z', replayed: 40, eligible: 52, standing: 'show', failedChecks: ['min-cases'], stale: [], caseSet: 'same' },
+    { kind: 'task-class', provider: 'local-runtime', model: 'model-b:4b', modelDigest: 'sha256:abc', runAt: '2026-11-17T08:00:00.000Z', replayed: 12, eligible: 12, standing: 'stale', failedChecks: [], stale: ['bars'], caseSet: 'changed' },
   ];
-  const sentences = sectionOf(render(body), 'advice-gate').querySelectorAll('li').map((li: El) => li.textContent);
-  assert.ok(sentences.includes('A passing verdict ships for tier with qwen3:8b.'));
-  assert.ok(sentences.includes('verdict stale: the bench changed'));
-  assert.ok(sentences.includes('No bench verdict ships for verify-risk.'));
+  const sentences = sectionOf(render(body), 'advice-local').querySelectorAll('li').map((li: El) => li.textContent);
+  assert.deepEqual(sentences, [
+    'tier with model-a:8b (local-runtime, sha256:01234567…), replayed 2026-11-18 on 40 of 52 cases: passes the show bar, not the act bar (failed: min-cases). Case set unchanged.',
+    'task-class with model-b:4b (local-runtime, sha256:abc), replayed 2026-11-17 on 12 of 12 cases: stale: the bars changed since the replay; replay again. The case set changed since: replay again.',
+  ]);
 });
 
 // ---- settings -----------------------------------------------------------------------------------
@@ -305,12 +310,12 @@ test('IC-018 settings: advice.enabled and every kind with its layer; task-class 
   for (const th of section.querySelector('tbody').querySelectorAll('th')) assert.equal(th.getAttribute('scope'), 'row');
 });
 
-test('IC-018 settings: the claim-support key description says act is held at shadow; no combined mode is computed', () => {
+test('IC-018 settings: the claim-support key description says show and act are held at shadow; no combined mode is computed', () => {
   const root = render(BODY);
   const section = sectionOf(root, 'advice-settings');
   const text = section.textContent;
   const description = SETTINGS['advice.kinds.claim-support'].description;
-  assert.ok(description.includes('act is accepted but held at shadow'), 'the registry says it');
+  assert.ok(description.includes('and act are accepted but held at shadow'), 'the registry says it');
   assert.ok(text.includes(description), 'its description is shown whole');
   assert.ok(!text.includes(SETTINGS['advice.kinds.tier'].description), 'only the held kind shows a description');
   assert.doesNotMatch(root.textContent, /effective|combined/i, 'DEC-008: no combined effective mode');
@@ -328,19 +333,34 @@ test('IC-018 figures: the window line with its dates, and per kind each figure w
   assert.equal(task.get('Agrees with the outcome'), '0 of 1 (0%), n=1');
   assert.equal(task.get('Elevated'), '0 of 4');
   assert.equal(task.get('Mode shadow'), '2 of 4');
+  assert.equal(task.get('Mode show'), '0 of 4');
   assert.equal(task.get('Mode act'), '0 of 4');
+  assert.equal(task.get('Followed'), 'no shown pick (n=0)', 'no task-class pick was shown');
+  assert.equal(task.get('Agreement with what you did'), AGREEMENT_TASK);
   assert.equal(task.get('Mode unrecorded'), '2 of 4');
   assert.equal(task.get('Pick duration'), 'p50 120 ms, p90 120 ms, p95 120 ms, n=4');
   assert.equal(task.get('Miss duration'), 'p50 5000 ms, p90 5000 ms, p95 5000 ms, n=1');
+  assert.ok(section.querySelectorAll('p').some((p: El) => p.textContent === AGREEMENT_NOTE), 'agreement is never a certification');
   const tier = factMap(sectionOf(section, 'advice-kind-tier'));
   assert.equal(tier.get('Agrees with the outcome'), 'no data (n=0)', 'the kind without outcomes');
+  assert.equal(tier.get('Agreement with what you did'), 'no data (n=0)', 'the kind with no labelled pick');
   assert.equal(tier.get('Miss duration'), 'no data (n=0)');
   assert.equal(tier.get('Misses'), '0');
 });
 
+test('175 figures: the followed counts and the agreement figures of a kind, each with its n', () => {
+  const body = clone(BODY);
+  const tier = body.sections.report.data.kinds.find((row: any) => row.kind === 'tier');
+  tier.followed = { n: 3, followed: 2, partly: 0, overruled: 1 };
+  tier.agreement = { n: 3, counted: { partly: 0, overruledWithoutActual: 0, noStaticAnswer: 0 }, figures: { n: 3, accuracy: { model: 0.6667, rule: 0.3333 }, kappa: { model: 0.5, rule: -0.2, lower: 0.1 }, worse: 0, better: 1 } };
+  const facts = factMap(sectionOf(sectionOf(render(body), 'advice-figures'), 'advice-kind-tier'));
+  assert.equal(facts.get('Followed'), 'followed 2, partly 0, overruled 1, n=3 shown picks');
+  assert.equal(facts.get('Agreement with what you did'), 'accuracy model 0.67, rule 0.33; kappa model 0.50 (lower 0.10), rule -0.20; worse 0, better 1; n=3');
+});
+
 test('IC-018 figures: no 0 and no empty cell where the body holds null (FR-026)', () => {
   const section = sectionOf(render(BODY), 'advice-figures');
-  const nullable = ['Agrees with the rule', 'Agrees with the outcome', 'Elevated', 'Mode shadow', 'Mode act', 'Mode unrecorded', 'Pick duration', 'Miss duration'];
+  const nullable = ['Agrees with the rule', 'Agrees with the outcome', 'Elevated', 'Mode shadow', 'Mode show', 'Mode act', 'Mode unrecorded', 'Pick duration', 'Miss duration'];
   for (const row of BODY.sections.report.data.kinds.filter((k: any) => k.agreeStatic === null)) {
     const facts = factMap(sectionOf(section, `advice-kind-${row.kind}`));
     for (const term of nullable) assert.equal(facts.get(term), 'unknown', `${row.kind} ${term}`);
@@ -519,11 +539,11 @@ test('FR-029: a report section not in this core reads so in its parts, while the
   const body = clone(BODY);
   body.sections.report = { ok: false, code: 'core-lacks-verb' };
   const root = render(body);
-  for (const id of ['advice-gate', 'advice-figures']) {
+  for (const id of ['advice-local', 'advice-figures']) {
     const notInCore = sectionOf(root, id).querySelectorAll('p').filter((p: El) => p.getAttribute('data-state') === 'not-in-core');
     assert.deepEqual(notInCore.map((p: El) => p.textContent), ['This DoFlow core does not provide the advice report.'], id);
   }
-  assert.equal(sectionOf(root, 'advice-gate').querySelector('p').textContent, GATE_LEAD, 'the gate rule is stated still');
+  assert.equal(sectionOf(root, 'advice-local').querySelector('p').textContent, LOCAL_LEAD, 'the rule is stated still');
   assert.equal(sectionOf(root, 'advice-recent').querySelector('tbody').querySelectorAll('tr').length, BODY.sections.picks.data.picks.length);
   assert.ok(sectionOf(root, 'advice-days').querySelector('details'));
   assert.ok(sectionOf(root, 'advice-settings').querySelector('table'));

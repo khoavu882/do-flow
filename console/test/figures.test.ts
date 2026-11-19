@@ -176,8 +176,8 @@ test('IC-016 ratioText reads as the core report\'s own ratio line (src/runtime/a
   const zero = { n: 0, p50: null, p90: null, p95: null };
   for (const part of [{ n: 0, agree: 0 }, { n: 3, agree: 2 }, { n: 7, agree: 7 }, { n: 9, agree: 1 }, { n: 200, agree: 133 }]) {
     const report = {
-      scope: 'project', window: { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 }, unreadable: 0, verdicts: [],
-      kinds: { tier: { n: { picks: part.n, misses: 0 }, missesByReason: {}, agreeStatic: part, agreeOutcome: part, elevated: 0, modes: { shadow: 0, act: 0, unrecorded: 0 }, durationMs: zero, missDurationMs: zero } },
+      scope: 'project', window: { from: '2026-08-11', to: '2026-11-09', maxAgeDays: 90 }, unreadable: 0, localResults: [],
+      kinds: { tier: { n: { picks: part.n, misses: 0 }, missesByReason: {}, agreeStatic: part, agreeOutcome: part, elevated: 0, modes: { shadow: 0, show: 0, act: 0, unrecorded: 0 }, durationMs: zero, missDurationMs: zero, followed: null, agreement: null } },
     };
     const line = renderText(report).split('\n').find((l: string) => l.includes('agrees with the static answer: '));
     assert.ok(line, 'the report prints the ratio line');

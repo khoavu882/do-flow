@@ -1,7 +1,7 @@
 // Advice and shadow: read-only projections of the three advice sections (IC-018).
 import { h } from '../dom.js';
 import { renderSection, ratioText, countText } from '../figures.js';
-import { gateSentences, dayRows } from '../derive/advice.js';
+import { localResultSentences, followedText, agreementText, dayRows } from '../derive/advice.js';
 import { showPanel, hidePanel } from '../shell.js';
 
 /** @param {string} id @param {string} title @param {any} children */
@@ -26,8 +26,9 @@ function kindFigures(row) {
   const misses = row.n.misses === null ? 'unknown' : `${row.n.misses}${row.missesByReason.length ? ` (${row.missesByReason.map((/** @type {any} */ r) => `${r.reason} ${r.n}`).join(', ')})` : ''}`;
   return section(`advice-kind-${row.kind}`, row.kind, facts([
     ['Picks', countText(row.n.picks)], ['Misses', misses], ['Agrees with the rule', agreement(row.agreeStatic)], ['Agrees with the outcome', agreement(row.agreeOutcome)],
-    ['Elevated', of(row.elevated, row.n.picks)], ['Mode shadow', of(row.modes?.shadow, row.n.picks)], ['Mode act', of(row.modes?.act, row.n.picks)], ['Mode unrecorded', of(row.modes?.unrecorded, row.n.picks)],
+    ['Elevated', of(row.elevated, row.n.picks)], ['Mode shadow', of(row.modes?.shadow, row.n.picks)], ['Mode show', of(row.modes?.show, row.n.picks)], ['Mode act', of(row.modes?.act, row.n.picks)], ['Mode unrecorded', of(row.modes?.unrecorded, row.n.picks)],
     ['Pick duration', duration(row.durationMs)], ['Miss duration', duration(row.missDurationMs)],
+    ['Followed', followedText(row.followed)], ['Agreement with what you did', agreementText(row.agreement)],
   ]));
 }
 /** @param {any} block */
@@ -40,7 +41,10 @@ function claimFigures(block) {
 }
 /** @param {any} report */
 function figures(report) {
-  return [h('p', {}, `Last 90 days: ${report.window.from} to ${report.window.to} (UTC)`), report.kinds.map(kindFigures), report.claimSupport ? claimFigures(report.claimSupport) : null];
+  return [
+    h('p', {}, `Last 90 days: ${report.window.from} to ${report.window.to} (UTC)`), h('p', {}, 'Agreement with what you did is a figure only: it never lets a kind show or act.'),
+    report.kinds.map(kindFigures), report.claimSupport ? claimFigures(report.claimSupport) : null,
+  ];
 }
 /** @param {any} data */
 function settings(data) {
@@ -91,8 +95,9 @@ function renderAdvice(body, params, local) {
   const owners = new Map();
   const retry = () => { if (typeof local.retry === 'function') local.retry(); else if (typeof local.refresh === 'function') local.refresh(); };
   const part = (/** @type {any} */ value, /** @type {string} */ noun, /** @type {(data: any) => any} */ render) => renderSection(value, { noun, render, onRetry: retry });
-  const gate = section('advice-gate', 'Gate', [h('p', {}, ["A kind acts on the model's pick only when a shipped bench verdict passes for it; until then ", h('code', {}, 'act'), ' is gated.']), part(sections.report, 'the advice report', (data) => h('ul', {}, gateSentences(data.kinds, data.verdicts).map((entry) => h('li', {}, entry.text))))]);
-  const root = h('div', {}, [gate, section('advice-settings', 'Settings', part(sections.settings, 'advice settings', settings)), section('advice-figures', 'Figures', part(sections.report, 'the advice report', figures)), section('advice-days', 'Picks per day', part(sections.picks, 'advice picks', days)), section('advice-recent', 'Recent picks', [filter(params, picks, report), part(sections.picks, 'advice picks', (data) => recent(data, params, local, owners))])]);
+  const lead = h('p', {}, ['An answer is shown or acted on only for a kind set to ', h('code', {}, 'show'), ' or ', h('code', {}, 'act'), ' whose model has a passing local result. To measure one, run ', h('code', {}, 'doflow advise --action replay --kind <kind> --write'), '.']);
+  const results = section('advice-local', 'Local results', [lead, h('p', {}, 'The model build is not checked here; each decision checks it.'), part(sections.report, 'the advice report', (data) => h('ul', {}, localResultSentences(data.localResults).map((entry) => h('li', {}, entry.text))))]);
+  const root = h('div', {}, [results, section('advice-settings', 'Settings', part(sections.settings, 'advice settings', settings)), section('advice-figures', 'Figures', part(sections.report, 'the advice report', figures)), section('advice-days', 'Picks per day', part(sections.picks, 'advice picks', days)), section('advice-recent', 'Recent picks', [filter(params, picks, report), part(sections.picks, 'advice picks', (data) => recent(data, params, local, owners))])]);
   local.reselectAdvice = () => {
     const id = local.route?.pick;
     if (!id) { hidePanel(local.inspector, local); return; }
