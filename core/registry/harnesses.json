@@ -1272,7 +1272,7 @@
           ],
           "verification": "Read codex's CLI documentation and `codex --help` for the `-c model_reasoning_effort=<level>` form and its levels; add a check to core/worker-evidence/codex/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>`",
           "verifiedOn": "2026-11-16",
-          "reason": "the help gives `-c, --config <key=value>` overrides and the config docs give `model_reasoning_effort` (low, medium, high, xhigh, max or ultra, by model and client), but no source states they combine for `codex exec`; a live check is due when Codex is back; the effort is not sent"
+          "reason": "the config reference gives `model_reasoning_effort` (low, medium, high, xhigh, max or ultra, by model and client), but no recorded source states that a config override reaches `codex exec`; a live check is due; the effort is not sent"
         },
         "modelList": {
           "status": "none-recorded",

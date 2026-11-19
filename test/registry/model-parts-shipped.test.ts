@@ -112,7 +112,6 @@ test('codex: effort is unknown with the reason, and the verification names the c
   assert.equal(provider.status, 'unknown');
   assert.equal(effort.status, 'unknown');
   assert.match(effort.reason, /model_reasoning_effort/);
-  assert.match(effort.reason, /-c/);
   assert.match(effort.reason, /codex exec/, 'AC-5: the reason names the command no source ties the key to');
 });
 
