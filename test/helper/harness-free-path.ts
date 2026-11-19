@@ -55,8 +55,9 @@ function harnessFreePath(): string {
 
 /** Puts the harness-free PATH into this process; `node --test` gives each file its own process. */
 function useHarnessFreePath(): string {
-  process.env.PATH = harnessFreePath();
-  return process.env.PATH;
+  const free = harnessFreePath();
+  process.env.PATH = free;
+  return free;
 }
 
 module.exports = { harnessFreePath, useHarnessFreePath, HARNESS_BINARY_NAMES };
