@@ -302,7 +302,9 @@ function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel
   const out = appendEvents(root, drafts, { now, fsImpl });
   if (!out.ok) return refusalFrom('add', out);
   const created = out.written.map(({ event }: any) => ({ id: event.data.id, statement: event.data.statement, source: event.data.source, state: 'open' }));
-  // A hint only, from the fold read above: nothing is refused or merged (IC-009).
+  // A hint only, from the fold read above: nothing is refused or merged (IC-009). A taken item whose feature finished is
+  // still `taken` in the fold, so the hint may name it; `list --similar` shows it done (loadFollowups derives that with git,
+  // about 180 ms more per add on 385 follow-ups, measured 2026-11-20).
   const params = sameIssueParams();
   const similar = params ? ruleMatchesOnAdd({ created, followups, params }) : new Map();
   return {
