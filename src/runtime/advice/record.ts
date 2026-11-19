@@ -149,6 +149,14 @@ function appendMiss({ roots, now = () => new Date(), fsImpl = fs, kind, caller, 
   } catch { return null; }
 }
 
+/**
+ * A pick the person was shown (175 O-6): the dispatcher showed or acted on it (mode `show` or `act`), or it answered an ad
+ * hoc ask that was not a shadow one (an ad hoc ask under a shadow rollout is recorded with mode `shadow` and never shown).
+ */
+function wasShown(pick: any): boolean {
+  return pick?.mode === 'show' || pick?.mode === 'act' || (pick?.kind === 'adhoc' && pick?.mode !== 'shadow');
+}
+
 /** What the person did with a shown recommendation (175 IC-010): the `followed` label of an outcome line. */
 const FOLLOWED = ['followed', 'partly', 'overruled'];
 
@@ -241,4 +249,4 @@ function findPick({ pickId, roots, now = () => new Date(), fsImpl = fs }: any = 
   return found ? { pick: found.record, file: found.file, store: found.store } : null;
 }
 
-module.exports = { appendPick, appendMiss, appendOutcome, readWindow, findPick, newPickId, FOLLOWED };
+module.exports = { appendPick, appendMiss, appendOutcome, readWindow, findPick, newPickId, wasShown, FOLLOWED };

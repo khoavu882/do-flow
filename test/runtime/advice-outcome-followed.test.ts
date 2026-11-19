@@ -78,6 +78,19 @@ test('(a) --followed on a pick that was never shown is a usage error and writes 
   assert.deepEqual(f.outcomes(), []);
 });
 
+test('(a) --followed on a shadow ad hoc pick is refused: an ad hoc kind alone does not mean it was shown', (t) => {
+  const f = fixture(t);
+  const id = f.pick({
+    kind: 'adhoc', mode: 'shadow', staticAnswer: null,
+    answer: { name: 'q', type: 'yesno', pick: 'yes', probabilities: {}, confidence: 0.6, strength: { word: 'clear', between: null } },
+    question: { name: 'q', type: 'yesno', instructions: 'ad hoc question' },
+  });
+  const result = f.run('--pick-id', id, '--followed', 'followed');
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /this pick was never shown/);
+  assert.deepEqual(f.outcomes(), []);
+});
+
 test('(a) neither --actual nor --followed, or a --followed outside the three words, is a usage error', (t) => {
   const f = fixture(t);
   const id = f.pick({ mode: 'show' });

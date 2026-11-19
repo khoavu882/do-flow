@@ -15,7 +15,7 @@ const { interceptDecisionPoint } = require('./shadow-dispatcher.ts');
 const { resolveShadowConfig } = require('./shadow-config.ts');
 const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { materializeKind, validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
-const { findPick, appendOutcome, FOLLOWED } = require('./record.ts');
+const { findPick, appendOutcome, wasShown, FOLLOWED } = require('./record.ts');
 const { removedKeyDiagnostics } = require('./retired.ts');
 const { strengthWords } = require('./strength.ts');
 const { buildReport, renderText } = require('./report.ts');
@@ -329,7 +329,7 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
 
 /**
  * `--action outcome` (175 IC-010): `--actual` (an option of the pick) and `--followed` (FOLLOWED), at least one. The
- * followed label is only for a pick the person was shown: a line with mode `show` or `act`, or an ad hoc ask.
+ * followed label is only for a pick the person was shown (record.ts `wasShown`).
  */
 function handleOutcome(options: any, runtime: any) {
   const { json } = options;
@@ -348,8 +348,7 @@ function handleOutcome(options: any, runtime: any) {
   if (actual !== undefined && !found.pick.options?.includes(actual)) {
     return usageError('advise', `--actual must be one of: ${(found.pick.options || []).join(', ')}`, json);
   }
-  const shown = found.pick.mode === 'show' || found.pick.mode === 'act' || found.pick.kind === 'adhoc';
-  if (followed !== undefined && !shown) {
+  if (followed !== undefined && !wasShown(found.pick)) {
     return usageError('advise', `--followed: this pick was never shown (mode ${found.pick.mode ?? 'unrecorded'}); record what was done with --actual`, json);
   }
   const written = appendOutcome({ pickId: options.pickId, actual, followed, source: 'caller', roots: runtime.roots, store: found.store });

@@ -13,7 +13,7 @@
 
 const fs = require('node:fs');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { readWindow, FOLLOWED } = require('./record.ts');
+const { readWindow, wasShown, FOLLOWED } = require('./record.ts');
 const { isRetiredOutcome } = require('./retired.ts');
 const { loadAdviceRegistry } = require('./registry.ts');
 const { materializeKind } = require('./kinds.ts');
@@ -77,11 +77,6 @@ function kindFigures(picks: any[], misses: any[], outcomes: Map<string, any>, ag
     followed: followed.n === 0 ? null : followed,
     agreement,
   };
-}
-
-/** A pick the person was shown (175 O-6): the dispatcher showed or acted on it, or it answered an ad hoc ask. */
-function wasShown(pick: any): boolean {
-  return pick.mode === 'show' || pick.mode === 'act' || pick.kind === 'adhoc';
 }
 
 /**

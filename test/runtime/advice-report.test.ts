@@ -186,6 +186,15 @@ test('(b) the followed, partly and overruled counts per kind carry n, the shown 
   assert.match(text, /mcp-need\n(?: {2}.*\n)*? {2}followed \(n=3 shown picks\): followed 1, partly 1, overruled 1/);
 });
 
+test('(b) a shadow ad hoc pick is not shown: its followed label joins neither the counts nor the agreement', (t) => {
+  const { roots } = fixture(t);
+  labelled(roots, 0, 'adhoc', { mode: 'shadow', pick: 'frontier', followed: 'followed' });
+  labelled(roots, 1, 'adhoc', { pick: 'frontier', followed: 'followed' });   // an ad hoc ask answered to the person: shown
+  const report = buildReport({ roots, kinds: [], now: NOW });
+  assert.deepEqual(report.kinds.adhoc.followed, { n: 1, followed: 1, partly: 0, overruled: 0 });
+  assert.equal(report.kinds.adhoc.agreement.n, 1);
+});
+
 test('(c) agreement with what you did scores the known and derived labels and counts the rest', (t) => {
   const { roots } = fixture(t);
   labelledWindow(roots);
