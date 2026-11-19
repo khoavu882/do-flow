@@ -15,6 +15,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { IDENTITY_VARS, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
 const { ENV_SET, PROMPT_LIMITS, argvShape, assembleArgv, launchEnv, launchRecord, launchWorker, mainArgv, mainArgvShape, mainEnv, mainLaunchRecord, launchChannelSession, withIdentity } = require('../../src/runtime/worker/launch.ts');
 const { composeModelPart } = require('../../src/runtime/worker/model-choice.ts');
+const { withPiReadOnly } = require('../helper/pi-read-only.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
@@ -360,22 +361,24 @@ test('170: launchChannelSession spawns the channel argv plus the model part with
 // ---- 178 T5: an effort with or without a model, and the child environment ---------------------------------------------------
 
 const harnessWorker = (id: string) => structuredClone(loadRegistry({ repoRoot: path.resolve(__dirname, '../..') }).harnesses.find((h: any) => h.id === id).worker);
+// Shipped Pi holds readOnly and spawnDenial as `unknown` (178 G-1); these tests are about effort forwarding, so they use the restored recipe.
+const piWithReadOnly = () => withPiReadOnly(harnessWorker('pi'));
 const EFFORT_ONLY = { model: null, provider: null, effort: 'high', flag: 'supported' };
 
 test('178 (a): the shipped Pi block with no binding and no effort assembles a one-shot argv with no --thinking', () => {
-  const argv = assembleArgv(harnessWorker('pi'), 'p', false);
+  const argv = assembleArgv(piWithReadOnly(), 'p', false);
   assert.equal(argv.some((item: string) => item.startsWith('--thinking')), false);
-  const w = harnessWorker('pi');
+  const w = piWithReadOnly();
   assert.deepEqual(argv, [...w.readOnly.argv, ...w.spawnDenial.argv, ...w.structuredOutput.argv, ...w.oneShot.argv.slice(0, -1), 'p']);
 });
 
 test('178 (b): an effort with no model composes the effort pair alone, on Pi and on Claude, and no --model', () => {
-  const pi = assembleArgv(harnessWorker('pi'), 'p', false, undefined, EFFORT_ONLY);
-  const w = harnessWorker('pi');
+  const pi = assembleArgv(piWithReadOnly(), 'p', false, undefined, EFFORT_ONLY);
+  const w = piWithReadOnly();
   assert.deepEqual(pi, [...w.readOnly.argv, '--thinking', 'high', ...w.spawnDenial.argv, ...w.structuredOutput.argv, ...w.oneShot.argv.slice(0, -1), 'p']);
   assert.equal(pi.includes('--model'), false);
   assert.deepEqual(mainArgv(harnessWorker('claude'), 'p', undefined, { model: null, provider: null, effort: 'high' }), ['-p', '--output-format', 'text', '--effort', 'high']);
-  assert.deepEqual(composeModelPart(harnessWorker('pi'), { model: null, provider: null, effort: 'high' }), { argv: ['--thinking', 'high'], strip: [] });
+  assert.deepEqual(composeModelPart(piWithReadOnly(), { model: null, provider: null, effort: 'high' }), { argv: ['--thinking', 'high'], strip: [] });
 });
 
 test('178 (c): a model-less choice with an id-suffix effort, with a provider or with no effort is model-part-invalid', () => {
@@ -407,11 +410,11 @@ test('178 (d): withIdentity and mainEnv drop the session variables always and th
 });
 
 test('178 (e): the stored argv shape holds {effort}, never the level, for an effort with no model', () => {
-  const shape = argvShape(harnessWorker('pi'), 'p', false, EFFORT_ONLY);
+  const shape = argvShape(piWithReadOnly(), 'p', false, EFFORT_ONLY);
   const at = shape.indexOf('--thinking');
   assert.deepEqual(shape.slice(at, at + 2), ['--thinking', '{effort}']);
   assert.equal(JSON.stringify(shape).includes('high'), false);
-  const record = launchRecord(harnessWorker('pi'), { run: 'r', lineage: 'l', attempt: '1', runSource: 'claim' }, 'p', false, EFFORT_ONLY);
+  const record = launchRecord(piWithReadOnly(), { run: 'r', lineage: 'l', attempt: '1', runSource: 'claim' }, 'p', false, EFFORT_ONLY);
   assert.deepEqual(record.recipe.argvShape, shape);
 });
 
