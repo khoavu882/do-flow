@@ -8,7 +8,8 @@
 //          "Decision model: replay and local results" (any heading level). The check fails closed when that section is
 //          absent. A provider is named by its id from data, never by a literal.
 //   G87.2  no model in tests: every file under test/ whose text runs `--action replay` or requires `replay/run` also
-//          requires the fake decision server or injects a `client`, so no test reaches a model. This file is left out of
+//          requires the fake decision server or injects a `client` (never a real `createAdviceClient`), so no test reaches a
+//          model; `--action replay`, `--action=replay` and `{ action: 'replay' }` all count as running replay. This file is left out of
 //          the scan: it holds the planted controls as text.
 //   G87.3  one bars schema: every kind's effective bars validate, every `replay.source` is a source the seam knows, and
 //          every source the seam knows has a fixture test under test/runtime/ that names its id and requires its module.
@@ -142,15 +143,18 @@ test('G87.1 control: a provider word in run.ts, a vendor name, a model literal a
 
 // ---------------------------------------------------------------- G87.2
 
-const RUNS_REPLAY = /--action['"`,\s]+replay\b|require\([^)]*replay\/run(\.ts|\.js)?['"`]\)/;
-const NO_MODEL = /fake-decision-server|createClient|\bclient\s*[:,}=]/;
+// Runs replay: the argv forms `--action replay` and `--action=replay`, a handler call `{ action: 'replay' }`, or a require of replay/run.
+const RUNS_REPLAY = /--action(=|['"`,\s]+)replay\b|\baction\s*:\s*['"`]replay['"`]|require\([^)]*replay\/run(\.ts|\.js)?['"`]\)/;
+// Model-free: the fake decision server, or a `createClient` / `client` injection. A real `createAdviceClient` is never model-free.
+const NO_MODEL = /fake-decision-server|createClient|\bclient\s*[:,}]/;
+const REAL_CLIENT = /\bcreateAdviceClient\b/;
 
 /** Test files under `testRoot` that run replay and neither use the fake decision server nor inject a client. */
 function modelReachingTests(testRoot: string, skip: string | null = null): string[] {
   return filesUnder(testRoot, (file) => /\.(ts|js)$/.test(file) && file !== skip)
     .filter((file) => {
       const text = fs.readFileSync(file, 'utf8');
-      return RUNS_REPLAY.test(text) && !NO_MODEL.test(text);
+      return RUNS_REPLAY.test(text) && (REAL_CLIENT.test(text) || !NO_MODEL.test(text));
     })
     .map((file) => path.relative(testRoot, file));
 }
@@ -168,6 +172,16 @@ test('G87.2 control: a test file that runs replay with neither is found; one wit
   fs.writeFileSync(path.join(dir, 'ok-client.test.ts'), "const { handleReplay } = require('../../src/runtime/advice/replay/run.ts');\nhandleReplay(o, r, { createClient: () => fake });\n");
   fs.writeFileSync(path.join(dir, 'unrelated.test.ts'), "const x = require('../../src/runtime/advice/replay/score.ts');\n");
   assert.deepEqual(modelReachingTests(dir), ['bad-require.test.ts', 'bad.test.ts']);
+});
+
+test('G87.2 control: the equals form, a direct handler call and a real client are each found', (t) => {
+  const dir = tempDir(t, 'doflow-g87-forms-');
+  const verb = ['--action', 'replay'].join('=');
+  fs.writeFileSync(path.join(dir, 'bad-equals.test.ts'), `spawn(node, [bin, 'advise', '${verb}', '--kind', 'x']);\n`);
+  fs.writeFileSync(path.join(dir, 'bad-handler.test.ts'), `handleAdviseCommand({ action: 'replay', kind: 'x' }, roots);\n`);
+  fs.writeFileSync(path.join(dir, 'bad-real-client.test.ts'), `const client = createAdviceClient({ adviceRegistry, roots });\nspawn(node, [bin, 'advise', '--action', 'replay']);\n`);
+  fs.writeFileSync(path.join(dir, 'ok-handler.test.ts'), `const { startFakeServer } = require('../helper/fake-decision-server.ts');\nhandleAdviseCommand({ action: 'replay', kind: 'x' }, roots);\n`);
+  assert.deepEqual(modelReachingTests(dir), ['bad-equals.test.ts', 'bad-handler.test.ts', 'bad-real-client.test.ts']);
 });
 
 // ---------------------------------------------------------------- G87.3
