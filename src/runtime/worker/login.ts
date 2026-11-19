@@ -376,6 +376,21 @@ function loginAnswers({ env = process.env, now = Date.now, registry, view, worke
   return list.slice(0, LIST_MAX).map((entry: any) => loginAnswerOf({ harness: entry.id, worker: entry.worker, record: store.harnesses[entry.id] ?? null, now }));
 }
 
+/**
+ * 178 design 4.3 (IC-007): the login mode of a harness, from the stored answer only (the store is read once, here; no
+ * process starts, no credential is read). `subscription` or `api-key` only for a `logged-in` answer holding one
+ * billing mode; `null` for `mixed`, `stale`, `never-checked`, logged out, expired and a harness with no login recipe.
+ */
+function loginModeOf({ registry, env = process.env, now = Date.now }: any): (harness: string) => 'subscription' | 'api-key' | null {
+  const store = readLoginStore(env);
+  return (harness: string) => {
+    const worker = (registry?.harnesses ?? []).find((entry: any) => entry.id === harness)?.worker;
+    const answer = loginAnswerOf({ harness, worker, record: store.harnesses[harness] ?? null, now });
+    const billing = answer.billing;
+    return answer.state === 'logged-in' && billing !== null && typeof billing === 'object' ? billing.mode : null;
+  };
+}
+
 /** Design 4.6: the readiness `login` fact of an answer. */
 function loginFact(answer: LoginAnswer, basis = 'free') {
   const fact = (state: string, reason: string | null) => ({ state, reason, at: answer.at, basis });
@@ -406,6 +421,6 @@ function loginCell(answer: LoginAnswer): string {
   return `unknown (${reason}${answer.at ? `, ${answer.at}` : ''}${caveat})`;
 }
 
-module.exports = { checkLogin, loginAnswerOf, loginAnswers, loginExpiredOf, loginFact, loginCell, recipeDigest, PROCESS_MS, LISTING_MS, TOTAL_MS, ANSWER_BYTES };
+module.exports = { checkLogin, loginAnswerOf, loginAnswers, loginModeOf, loginExpiredOf, loginFact, loginCell, recipeDigest, PROCESS_MS, LISTING_MS, TOTAL_MS, ANSWER_BYTES };
 
 export type { LoginRecipe, RecipeAnswer, LoginAnswer, LoginState, ProviderAnswer };
