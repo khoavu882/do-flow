@@ -2,7 +2,7 @@
 const { bashPath } = require('../helper/bash-locator.ts');
 // task-attempts.test.js — the task-attempt ledger (feature 070; FR-001..FR-007, NFR-001).
 //
-// A subprocess suite for the verb, for the reason runtime-outcome.test.js gives: the contract is
+// A subprocess suite for the verb, for the reason outcome.test.ts gives: the contract is
 // exit codes, a JSON answer and bytes on disk, and a library call proves none of them. Evidence is
 // written in-process with the evidence ledger so each case can pin the observation time, freshness
 // and task binding the finish checks read. The orchestrator gate (FR-006) is exercised in-process

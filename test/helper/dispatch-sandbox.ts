@@ -20,7 +20,7 @@
 // editDescriptors() is test/fixtures/worker/descriptors.json with a supported `isolatedEdit` on the
 // claude fake (argv ['--edit-in-cwd']); antigravity keeps none, so it reads unknown, reason
 // not-declared. It lives here rather than in descriptors.json because 081's
-// test/runtime/worker-fake-cli.test.ts asserts each descriptors.json block holds exactly
+// test/runtime/worker/fake-cli.test.ts asserts each descriptors.json block holds exactly
 // WORKER_KEYS, and that file stays byte-identical (plan §1, NFR-003).
 
 const fs = require('node:fs');

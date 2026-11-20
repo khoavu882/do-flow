@@ -117,7 +117,7 @@ rejected by this document, not by that function.
   "evidence": {
     "kind": "semantic-retrieval",
     "source": { "provider": "semble", "capability": "code.semantic-search", "queryRef": "plan-074#need-3" },
-    "locator": { "file": "src/runtime/context-pack.ts", "line": 459 },
+    "locator": { "file": "src/runtime/context/context-pack.ts", "line": 459 },
     "content": "uncapped context-pack verb",
     "score": 0.83,
     "freshness": { "status": "FRESH" }

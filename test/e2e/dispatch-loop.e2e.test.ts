@@ -24,8 +24,8 @@ const { bashPath } = require('../helper/bash-locator.ts');
 // recorded worker process outlived its test. POSIX only: tree cleanup is unverified on win32
 // (NFR-005), so on win32 the sandbox cannot be built and every case skips with that reason.
 //
-// The race and the leak scan live beside this file in test/runtime/dispatch-race.test.ts and
-// test/runtime/dispatch-secrets.test.ts (D.4, DEC-058).
+// The race and the leak scan live beside this file in test/runtime/dispatch/race.test.ts and
+// test/runtime/dispatch/secrets.test.ts (D.4, DEC-058).
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

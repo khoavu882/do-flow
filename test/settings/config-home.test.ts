@@ -17,7 +17,7 @@ const { reportsHome } = require('../../src/runtime/lifecycle/report-store.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { stateDir, resolveIdentity } = require('../../src/runtime/context/identity.ts');
-const { emitContext } = require('../../src/runtime/context-pack.ts');
+const { emitContext } = require('../../src/runtime/context/context-pack.ts');
 const store = require('../../src/runtime/context/summary-store.ts');
 const { observeForwarding, bindingObserved } = require('../../src/runtime/worker/readiness.ts');
 

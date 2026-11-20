@@ -291,7 +291,7 @@ function isDirectory(target: any): boolean {
  * run, a `requested` spawn request of the dispatch whose worker run is the granter. Returns the
  * refusal reason, or null. Reads the dispatch store without a lock; an unreadable store throws
  * `store-unreadable`. With no dispatch run there is no grant to name, so only the basename rule
- * applies (081-level children, `worker-child-run.test.js`).
+ * applies (081-level children, `worker/child-run.test.ts`).
  */
 function childRequestRefusal(root: string, slug: string, childOf: string, request: string, execWorktree: string): string | null {
   if (path.basename(real(execWorktree)) !== request) return 'request-mismatch';

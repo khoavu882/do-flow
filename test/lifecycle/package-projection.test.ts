@@ -3,7 +3,7 @@
 // 122 C.3 (IC-017, IC-006 `projection`): the skills and agents of an active package are projected into the harnesses
 // of a global install through the lifecycle, and unprojected when the package stops being active. One real
 // `doflow install -g -t claude,kiro` into a scratch HOME; the package verbs run in process (the grants file of a
-// scratch HOME lies under the system temp directory, so `tmpDir` is moved off it, as package-instruction.test.js does).
+// scratch HOME lies under the system temp directory, so `tmpDir` is moved off it, as test/runtime/packages/instruction.test.ts does).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');

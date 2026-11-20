@@ -7,11 +7,11 @@
 // the harness; `firstPrompt()` then runs that harness's SessionStart and UserPromptSubmit front
 // doors from an install mirror (test/helper/hook-fixtures buildInstallMirror) with the same
 // environment. 081 re-runs every scenario that uses this stand-in with its real launcher.
-// Those re-runs live in test/runtime/worker-launcher.test.ts (081 IC-024).
+// Those re-runs live in test/runtime/worker/launcher.test.ts (081 IC-024).
 
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { emitContext } = require('../../src/runtime/context-pack.ts');
+const { emitContext } = require('../../src/runtime/context/context-pack.ts');
 const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
 
 /**

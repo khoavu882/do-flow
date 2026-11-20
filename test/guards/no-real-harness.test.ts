@@ -44,21 +44,28 @@ function findOnPath(tool: string): string | undefined {
   return undefined;
 }
 
-/** The test files of the models and worker folders (and the Console's actions e2e, 170, and the dispatch loop's, 173), relative to the repo, this file excluded. */
+/** The test files of the models and worker folders and every folder beneath them (the walk is recursive), and the Console's actions e2e, 170, and the dispatch loop's, 173, relative to the repo, this file excluded. */
 function targetFiles(): string[] {
   const files: string[] = [];
   const add = (dir: string, keep: (name: string) => boolean) => {
     for (const name of fs.readdirSync(path.join(REPO, dir)).sort()) if (/\.test\.(ts|js)$/.test(name) && keep(name) && name !== SELF) files.push(`${dir}/${name}`);
   };
-  add('test/runtime/models', () => true);
-  add('test/runtime/worker', () => true);
-  add('test/runtime', (name) => name.startsWith('worker-'));
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(path.join(REPO, dir), { withFileTypes: true }).sort((a: any, b: any) => (a.name < b.name ? -1 : 1))) {
+      if (entry.isDirectory()) walk(`${dir}/${entry.name}`);
+      else if (/\.test\.(ts|js)$/.test(entry.name) && entry.name !== SELF) files.push(`${dir}/${entry.name}`);
+    }
+  };
+  walk('test/runtime/models');
+  walk('test/runtime/worker');
   // Row 173 T5: the headless handoff prompt, and the dispatch loop tests that launch fake workers with it.
-  add('test/runtime', (name) => name === 'handoff-prompt.test.ts' || name === 'dispatch-loop-step.test.ts');
+  add('test/runtime/dispatch', (name) => name === 'handoff-prompt.test.ts' || name === 'loop-step.test.ts');
   add('test/e2e', (name) => name === 'dispatch-loop.e2e.test.ts');
   // Row 173 T8: the prompt frame's spawning tests: the verb, the brief generator and review package scripts through the real
-  // dispatcher, the started session's prompt, and the G85 guard whose fixtures run those scripts.
-  add('test/runtime', (name) => ['prompt-frame.test.ts', 'review-package-frame.test.ts', 'task-brief-tools.test.ts', 'session-prompt.test.ts'].includes(name));
+  // dispatcher, and the G85 guard whose fixtures run those scripts (the started session's prompt test sits in worker/, so the walk takes it).
+  add('test/runtime', (name) => name === 'task-brief-tools.test.ts');
+  add('test/runtime/prompt', (name) => name === 'frame.test.ts');
+  add('test/runtime/review', (name) => name === 'package-frame.test.ts');
   add('test/guards', (name) => name === 'prompt-frame.test.ts');
   add('test/cli', (name) => name.startsWith('models-'));
   // Row 170: the Console's actions e2e and measure-steer spawn the fake channel harness (test/helper/fake-channel-harness.ts) through the real core and supervisor.

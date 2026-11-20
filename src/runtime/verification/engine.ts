@@ -26,7 +26,7 @@ const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect.ts');
 const { selectChangedTests, formatSelectedTestPattern, testFilesFor, conventionFor, quotePath } = require('./test-selection.ts');
 const { selectImpactedTests } = require('./impact.ts');
-const { RecoveryManager } = require('../recovery.ts');
+const { RecoveryManager } = require('./recovery.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const {
