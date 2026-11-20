@@ -21,7 +21,8 @@
 // nothing (no recipe holds one, 178 D7). The shape keeps `{model}`, `{provider}` and `{effort}`.
 //
 // `launchWorker` runs IC-012 steps 1 to 5: the environment, the optional 078 grant, the launch
-// emission in process, the emission text before the brief, then `spawn` with no shell. It returns a
+// emission in process, the emission text after `</role>` of a framed prompt (one `<context>` block) and before
+// the brief for an unframed one, then `spawn` with no shell. It returns a
 // promise that resolves once the process has spawned and rejects on any throw or a spawn `error`
 // (for example ENOENT); the supervisor ends such a run `not-started`. No variable's value is stored,
 // and the emission text is never returned for storage.
