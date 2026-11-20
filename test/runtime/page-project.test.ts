@@ -981,3 +981,8 @@ test('a filter that matches only ids leaves the sidebar whole, and the ids stay 
   assert.equal(p.$$('.sidebar li.nav-sec[data-miss]').length, 0);
   assert.ok(p.$('#filter-results a[href="#r-FR-001"]'), 'the id match is in the list');
 });
+
+test('the brand link keeps the feature name as its accessible name when the narrow bar hides the name', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  assert.ok(page.includes('<a class="brand" href="#overview" data-view-link="overview" aria-label="Pay with a &lt;b&gt;code&lt;/b&gt;">'), between(page, '<header class="appbar">', '</header>'));
+});

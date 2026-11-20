@@ -1669,7 +1669,7 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
     + '<meta name="viewport" content="width=device-width, initial-scale=1">\n<meta name="generator" content="doflow render-page">\n'
     + `<title>${escapeHtml(name)}</title>\n<style>\n${STYLE}\n</style>\n<script>\n${PAGE_SCRIPT}\n</script>\n</head>\n<body>\n`
     + '<header class="appbar">\n<a class="nav-toggle" href="#sidebar" aria-controls="sidebar" data-nav-toggle>Contents</a>\n'
-    + `<a class="brand" href="#overview" data-view-link="overview"><span class="mark" aria-hidden="true"></span><span class="name">${escapeHtml(name)}</span>`
+    + `<a class="brand" href="#overview" data-view-link="overview" aria-label="${escapeHtml(name)}"><span class="mark" aria-hidden="true"></span><span class="name">${escapeHtml(name)}</span>`
     + `${name === slug ? '' : `<code class="slug">${escapeHtml(slug)}</code>`}</a>\n`
     + '<div class="bar-tools">\n<input class="filter" type="search" placeholder="Filter sections and ids" aria-label="Filter sections and ids" autocomplete="off" data-filter hidden>\n'
     + '<button class="theme" type="button" aria-label="Switch theme" title="Switch theme" data-theme-toggle hidden>◐</button>\n</div>\n</header>\n'
