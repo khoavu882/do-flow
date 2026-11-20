@@ -142,8 +142,7 @@ The template is `templates/doflow/design-template.md` in the install step 1 reso
    A design-level clarification question resolved via the defer escape hatch in Step 5 becomes a row
    of `requirement.md` §8 Assumptions, at step 1's `requirement` path, with a one-line rationale:
    Stage `design`, Affects the component or contract it bears on, numbered on from the last `A#`.
-   Adding that row revises `requirement.md`, so record it in that file's History as
-   `references/ARTIFACT_FORMAT.md` §3 requires. `design.md` has no Assumptions section.
+   `design.md` has no Assumptions section.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
 When this feature authors its C4 in PlantUML under `<feature dir>/design/c4/`, run the render and
    projection before finishing this step, so the System Overview inline diagram is current at the moment the

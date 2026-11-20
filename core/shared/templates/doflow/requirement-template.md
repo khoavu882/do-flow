@@ -4,9 +4,10 @@
 **Created:** [DATE] · **Owner:** [OWNER] · **Ticket:** [PBI/ticket ID, or "none"]
 **Intent:** [agent-docs/intent/<name>.md, or "none"]
 
-> WHAT and WHY only — no tech or implementation detail. Zero unresolved clarification markers at
-> hand-off — every ambiguity is resolved via the question tool before this file is written;
-> deferred answers become assumptions in §8, which holds the assumptions of every stage.
+> WHAT and WHY only — no tech or implementation detail, except in §8 rows whose Stage is not
+> `requirement`. Zero unresolved clarification markers at hand-off — every ambiguity is resolved
+> via the question tool before this file is written; deferred answers become assumptions in §8,
+> which holds the assumptions of every stage.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
 > `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level

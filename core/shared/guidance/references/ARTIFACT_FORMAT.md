@@ -85,7 +85,8 @@ Every chain artifact's header carries `**Maturity:** <value>`, one of exactly th
 The two vocabularies are **disjoint**: no value is a member of both, so no reader and no parser has
 to work out which one a value came from. `Maturity` describes the document as a whole; `Status`
 describes one indexed item inside it. A document can be `Approved` while an item inside it is
-`Superseded → <ref>`, and the two say different things.
+`Superseded → <ref>`, and the two say different things. A design-stage Assumptions row appended to
+`requirement.md` §8 does not change the requirement's `Maturity`.
 
 The former header form `**Status:** Draft` is gone. A header carrying `Status` is reading the item
 vocabulary in the wrong place, and `Draft` was never a legal member of it.
