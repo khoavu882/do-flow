@@ -792,6 +792,43 @@ img.image{display:block;max-width:100%;height:auto;margin:0 auto 18px}
 .diagram figcaption{margin-bottom:8px;font-size:13px;color:var(--muted)}
 .foot{margin:0;padding:20px 0 0;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
 .foot code{font-size:12px;background:none;padding:0}
+.view[hidden]{margin:0}
+[data-hit],tbody tr:has(>[data-hit])>td{background:color-mix(in srgb,var(--accent) 11%,transparent)}
+.anchor{margin-left:.4em;color:var(--muted);font-weight:500;text-decoration:none;opacity:0}
+.anchor::before{content:"#"}
+:is(h2,h3):hover>.anchor,.anchor:focus-visible{opacity:1}
+.bar-tools{position:relative}
+.filter-results{position:absolute;top:42px;right:0;z-index:50;width:min(460px,calc(100vw - 24px));max-height:min(64vh,520px);overflow:auto;margin:0;padding:6px;list-style:none;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px var(--shadow)}
+.filter-results li{margin:0}
+.filter-results a{display:grid;grid-template-columns:auto minmax(0,1fr);gap:0 10px;padding:7px 10px;border-radius:8px;color:var(--ink);font-size:13.5px;line-height:1.45;text-decoration:none}
+.filter-results a:hover,.filter-results a.on{background:var(--tint)}
+.filter-results .rid{font:650 12.5px/1.45 ${MONO};color:var(--ref)}
+.filter-results .rdoc{font-size:12px;color:var(--muted);text-align:right}
+.filter-results .rsum{grid-column:1/-1;color:var(--muted);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.filter-results .rnote{padding:7px 10px;font-size:13px;color:var(--muted)}
+.sidebar [data-miss]{display:none}
+html[data-script] .sidebar[data-filtering] .nav-doc>.nav-secs,.sidebar[data-filtering] .nav-sub{display:block}
+.ref-card{position:fixed;z-index:60;max-width:min(380px,calc(100vw - 16px));margin:0;padding:10px 12px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px var(--shadow);font-size:13.5px;line-height:1.5;pointer-events:none}
+.ref-card[hidden]{display:none}
+.ref-card p{margin:0}
+.ref-card .rc-top{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-bottom:4px}
+.ref-card .rc-id{font:650 13px/1.4 ${MONO};color:var(--ref)}
+.ref-card .rc-doc{font-size:12px;color:var(--muted)}
+.frame-bar{display:flex;justify-content:flex-end;margin:0 0 6px}
+.frame-bar[hidden]{display:none}
+.tool-btn{flex:none;height:30px;padding:0 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;font-weight:600;line-height:1;cursor:pointer}
+.tool-btn:hover{border-color:var(--accent)}
+dialog.viewer{width:calc(100vw - 32px);height:calc(100vh - 32px);max-width:none;max-height:none;margin:auto;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);overflow:hidden}
+dialog.viewer[open]{display:flex;flex-direction:column}
+dialog.viewer::backdrop{background:rgba(10,12,16,.55)}
+.viewer-bar{display:flex;align-items:center;gap:12px;padding:10px 12px 10px 18px;border-bottom:1px solid var(--line)}
+.viewer-title{flex:1 1 auto;min-width:0;margin:0;overflow:hidden;font-size:15px;white-space:nowrap;text-overflow:ellipsis}
+.viewer-tools{display:flex;align-items:center;gap:6px;flex:none}
+.viewer-level{min-width:48px;font:12.5px/1 ${MONO};color:var(--muted);text-align:center}
+.viewer-stage{flex:1 1 auto;min-height:0;overflow:auto;background:var(--bg);outline:none}
+.viewer-sizer{margin:0 auto;overflow:hidden}
+.viewer-content{padding:24px;transform-origin:0 0}
+.viewer-content table{background:var(--surface)}
 @media (max-width:900px){
 .appbar{gap:10px;padding:0 12px}
 .nav-toggle{display:inline-flex;align-items:center;flex:none;height:34px;padding:0 12px;border:1px solid var(--line);border-radius:8px;color:var(--ink);font-size:14px;font-weight:600;text-decoration:none}
@@ -812,7 +849,7 @@ h1{font-size:24px}
 @media print{
 html[data-theme],html:not([data-theme]){${LIGHT}}
 html[data-theme] .tag,html:not([data-theme]) .tag{background:var(--tb);color:var(--tf)}
-.appbar,.sidebar,.foot,.more{display:none!important}
+.appbar,.sidebar,.foot,.more,.frame-bar,.anchor,.ref-card,dialog{display:none!important}
 body{background:#fff}
 .layout{display:block}
 main{max-width:none;padding:0}
@@ -823,6 +860,512 @@ main{max-width:none;padding:0}
 .diagram,.card,.doc-card,tr{break-inside:avoid}
 }
 `.trim();
+
+/**
+ * The page's own script, inline in `<head>` so the stored theme applies before the body paints; the rest
+ * waits for the document. It only listens through `addEventListener` and puts document text on the page
+ * through `textContent` (the ids block) or by moving markup the converter already escaped. Without it every
+ * view stays visible, stacked, and the drawer opens through `:target`.
+ *
+ * `openViewer(title, node, fit)` shows `node` in the one full-size viewer; tables reach it through their
+ * "Open full size" button, and a diagram can reach it the same way.
+ */
+const PAGE_SCRIPT = String.raw`(function () {
+'use strict';
+var root = document.documentElement;
+var THEME_KEY = 'doflow-page-theme';
+var THEMES = ['auto', 'light', 'dark'];
+var TONES = ${JSON.stringify(TONES)};
+var NEUTRAL_TONES = ${NEUTRAL_TONES};
+// A page opened from a file may be refused storage; the theme then lasts as long as the page is open.
+function storedTheme() { try { var t = localStorage.getItem(THEME_KEY); return THEMES.indexOf(t) > 0 ? t : 'auto'; } catch (e) { return 'auto'; } }
+function applyTheme(t) { if (t === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t); }
+applyTheme(storedTheme());
+root.setAttribute('data-script', '');
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+
+function start() {
+  var $$ = function (sel, from) { return Array.prototype.slice.call((from || document).querySelectorAll(sel)); };
+  var make = function (tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  var views = $$('section.view[data-view]');
+  var sidebar = document.querySelector('.sidebar');
+  if (!views.length || !sidebar) return;
+  var viewOf = function (node) { return node && node.closest ? node.closest('section.view[data-view]') : null; };
+  var current = null;
+  var routed = null;
+
+  // A # link on every H2 and H3; its mark comes from CSS, so a heading's text stays its own.
+  $$('section.view :is(h2,h3)[id]').forEach(function (h) {
+    var a = make('a', 'anchor');
+    a.setAttribute('href', '#' + h.id);
+    a.setAttribute('aria-label', 'Link to ' + h.textContent.trim());
+    h.appendChild(a);
+  });
+
+  // Ids: id -> entries in reading order; a link names the entry by its anchor (or the secondary one).
+  var ids = {};
+  try { var block = document.getElementById('page-ids'); if (block) ids = JSON.parse(block.textContent); } catch (e) { ids = {}; }
+  var byAnchor = {};
+  var idIndex = [];
+  Object.keys(ids).forEach(function (id) {
+    ids[id].forEach(function (entry) {
+      var hit = { id: id, entry: entry, key: id.toLowerCase(), text: (id + ' ' + entry.doc + ' ' + entry.summary).toLowerCase() };
+      byAnchor[entry.anchor] = hit;
+      if (!byAnchor[entry.anchor + '-2']) byAnchor[entry.anchor + '-2'] = hit;
+      idIndex.push(hit);
+    });
+  });
+  function toneOf(value) {
+    var key = value.toLowerCase();
+    if (TONES[key]) return TONES[key];
+    if (key.indexOf('superseded') === 0) return 'quiet';
+    var hash = 0;
+    for (var ch of key) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+    return 'n' + (hash % NEUTRAL_TONES);
+  }
+
+  // The sidebar: one entry per view, and per view its sections in reading order, each with its H2 parent.
+  var navDocs = {};
+  $$('li.nav-doc', sidebar).forEach(function (li) { navDocs[li.getAttribute('data-view')] = li; });
+  var spies = {};
+  var sections = [];
+  views.forEach(function (view) {
+    var key = view.getAttribute('data-view');
+    var doc = navDocs[key];
+    var list = [];
+    if (doc) {
+      var label = doc.firstElementChild.firstElementChild ? doc.firstElementChild.firstElementChild.textContent : '';
+      $$('li.nav-sec', doc).forEach(function (li) {
+        var el = document.getElementById(li.getAttribute('data-section'));
+        if (!el) return;
+        var parent = li.parentElement.closest('li.nav-sec');
+        list.push({ el: el, li: li, parent: parent });
+        var text = li.firstElementChild.textContent.trim();
+        sections.push({ href: '#' + el.id, text: text, doc: label, key: text.toLowerCase() });
+      });
+    }
+    spies[key] = list;
+  });
+
+  // Keep el in view inside box without scrolling anything else.
+  function keepIn(box, el) {
+    var b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+    if (r.top < b.top + 8) box.scrollTop += r.top - b.top - 8;
+    else if (r.bottom > b.bottom - 8) box.scrollTop += r.bottom - b.bottom + 8;
+  }
+
+  // One view at a time: the others are hidden until found, so the browser's find still reaches them.
+  var marked = [];
+  function show(view) {
+    if (view === current) return false;
+    views.forEach(function (v) { if (v === view) v.removeAttribute('hidden'); else v.setAttribute('hidden', 'until-found'); });
+    current = view;
+    var key = view.getAttribute('data-view');
+    Object.keys(navDocs).forEach(function (k) { navDocs[k].toggleAttribute('data-current', k === key); });
+    mark([]);
+    checkFrames();
+    return true;
+  }
+  function targetOf(hash) {
+    var id = hash.slice(1);
+    try { id = decodeURIComponent(id); } catch (e) { /* kept as written */ }
+    return id ? document.getElementById(id) : null;
+  }
+  function openDetails(el) {
+    for (var d = el.parentElement; d; d = d.parentElement) {
+      if (d.tagName !== 'DETAILS' || d.open) continue;
+      var summary = d.querySelector(':scope>summary');
+      if (!summary || !summary.contains(el)) d.open = true;
+    }
+  }
+  // Show the view the hash points into and scroll to the hash's target; a new view opens without animation.
+  var reached = null;
+  function route(hash) {
+    routed = hash;
+    var el = targetOf(hash);
+    var view = viewOf(el);
+    if (el && !view) { if (!current) show(views[0]); return; }
+    var changed = show(view || views[0]);
+    var behavior = changed ? 'instant' : 'auto';
+    if (!el || el === view) window.scrollTo({ top: 0, behavior: behavior });
+    else { openDetails(el); el.scrollIntoView({ block: 'start', behavior: behavior }); }
+    // The hash moves without :target (history.pushState), so the reached id is marked here.
+    if (reached) reached.removeAttribute('data-hit');
+    reached = el && el !== view && !/^H[1-6]$/.test(el.tagName) ? el : null;
+    if (reached) reached.setAttribute('data-hit', '');
+    spy();
+  }
+  function go(hash) {
+    if (hash !== location.hash) {
+      try { history.pushState(null, '', hash); } catch (e) { location.hash = hash; return; }
+    }
+    route(hash);
+  }
+  try { history.scrollRestoration = 'manual'; } catch (e) { /* not offered */ }
+  window.addEventListener('popstate', function () { if (location.hash !== routed) route(location.hash); });
+  window.addEventListener('hashchange', function () { if (location.hash !== routed) route(location.hash); });
+  // Find in page reached text in a hidden view: that view becomes the current one.
+  document.addEventListener('beforematch', function (e) {
+    var view = viewOf(e.target);
+    if (!view || !show(view)) return;
+    if (viewOf(targetOf(location.hash)) === view) return;
+    routed = '#' + view.id;
+    try { history.replaceState(null, '', routed); } catch (err) { /* the hash stays */ }
+  }, true);
+
+  // The current section: the last heading of the current view scrolled past the app bar.
+  var ticking = false;
+  function mark(next) {
+    if (next.length === marked.length && next.every(function (li, k) { return li === marked[k]; })) return false;
+    marked.forEach(function (li) { li.removeAttribute('data-current'); });
+    next.forEach(function (li) { li.setAttribute('data-current', ''); });
+    marked = next;
+    return true;
+  }
+  function spy() {
+    ticking = false;
+    if (!current) return;
+    var list = spies[current.getAttribute('data-view')] || [];
+    var height = window.innerHeight;
+    var atEnd = window.scrollY > 0 && height + window.scrollY >= document.documentElement.scrollHeight - 4;
+    var hit = null;
+    for (var i = 0; i < list.length; i++) {
+      var rects = list[i].el.getClientRects();
+      if (!rects.length) continue;
+      var top = rects[0].top;
+      if (top <= 100 || (atEnd && top < height)) hit = list[i];
+      else if (!atEnd) break;
+    }
+    var next = hit ? (hit.parent ? [hit.parent, hit.li] : [hit.li]) : [];
+    if (mark(next) && hit) keepIn(sidebar, hit.li.firstElementChild);
+  }
+  window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(spy); } }, { passive: true });
+
+  // The full-size viewer: one dialog for tables and diagrams.
+  var viewer = make('dialog', 'viewer');
+  viewer.setAttribute('aria-labelledby', 'viewer-title');
+  var vbar = make('div', 'viewer-bar');
+  var vtitle = make('h2', 'viewer-title');
+  vtitle.id = 'viewer-title';
+  var tools = make('div', 'viewer-tools');
+  var level = make('output', 'viewer-level', '100%');
+  var stage = make('div', 'viewer-stage');
+  // The stage takes focus when the viewer opens, so arrow keys pan it.
+  stage.tabIndex = 0;
+  stage.setAttribute('autofocus', '');
+  var sizer = make('div', 'viewer-sizer');
+  var content = make('div', 'viewer-content');
+  var zoom = 1, natW = 1, natH = 1;
+  function tool(label, text, fn) {
+    var b = make('button', 'tool-btn', text);
+    b.type = 'button';
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.addEventListener('click', fn);
+    return b;
+  }
+  tools.append(tool('Zoom out', '−', function () { zoomTo(zoom / 1.25); }), level,
+    tool('Zoom in', '+', function () { zoomTo(zoom * 1.25); }), tool('Fit to window', 'Fit', fit), tool('Close', '×', function () { viewer.close(); }));
+  vbar.append(vtitle, tools);
+  sizer.appendChild(content);
+  stage.appendChild(sizer);
+  viewer.append(vbar, stage);
+  document.body.appendChild(viewer);
+  function applyZoom() {
+    content.style.transform = 'scale(' + zoom + ')';
+    sizer.style.width = natW * zoom + 'px';
+    sizer.style.height = natH * zoom + 'px';
+    level.textContent = Math.round(zoom * 100) + '%';
+  }
+  // Zoom about a point of the stage (its centre by default), so what is under it stays there.
+  function zoomTo(z, cx, cy) {
+    z = Math.min(8, Math.max(0.1, z));
+    if (cx == null) { cx = stage.clientWidth / 2; cy = stage.clientHeight / 2; }
+    var x = (stage.scrollLeft + cx - sizer.offsetLeft) / zoom, y = (stage.scrollTop + cy - sizer.offsetTop) / zoom;
+    zoom = z;
+    applyZoom();
+    stage.scrollLeft = x * z + sizer.offsetLeft - cx;
+    stage.scrollTop = y * z + sizer.offsetTop - cy;
+  }
+  function fit() {
+    zoomTo(Math.min(stage.clientWidth / natW, stage.clientHeight / natH));
+    stage.scrollLeft = 0;
+    stage.scrollTop = 0;
+  }
+  stage.addEventListener('wheel', function (e) {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    var r = stage.getBoundingClientRect();
+    zoomTo(zoom * Math.exp(-e.deltaY * 0.002), e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  viewer.addEventListener('click', function (e) { if (e.target === viewer) viewer.close(); });
+  // The close event comes a task later: a viewer opened again in between keeps its new content.
+  viewer.addEventListener('close', function () { if (!viewer.open) content.textContent = ''; hideCard(); });
+  // Show node full size under title: at 100 % unless fitFirst, scrolled to its top left.
+  function openViewer(title, node, fitFirst) {
+    hideCard();
+    vtitle.textContent = title;
+    content.textContent = '';
+    content.style.transform = '';
+    sizer.style.width = '';
+    sizer.style.height = '';
+    content.appendChild(node);
+    if (!viewer.open) viewer.showModal();
+    var width = stage.clientWidth;
+    content.style.width = width + 'px';
+    natW = Math.max(width, Math.ceil(node.getBoundingClientRect().width) + 48);
+    content.style.width = natW + 'px';
+    natH = Math.max(1, content.offsetHeight);
+    zoom = 1;
+    applyZoom();
+    if (fitFirst) fit();
+    stage.scrollLeft = 0;
+    stage.scrollTop = 0;
+  }
+  // The nearest heading before a node in its view, after the view's label: the viewer's title.
+  function captionOf(node) {
+    var view = viewOf(node);
+    var kicker = view && view.querySelector('.kicker');
+    var label = kicker ? kicker.textContent.trim() : document.title;
+    var name = '';
+    if (view) {
+      var heads = $$('h1,h2,h3,h4,h5,h6', view);
+      for (var i = 0; i < heads.length; i++) {
+        if (heads[i].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) name = heads[i].textContent.trim();
+        else break;
+      }
+    }
+    return name && name !== label ? label + ' · ' + name : label;
+  }
+  // A table frame wider than its column gets a button that opens a copy of the table in the viewer.
+  var frameBars = new Map();
+  function checkFrames() {
+    if (!current) return;
+    $$('.table-wrap', current).forEach(function (frame) {
+      var wide = frame.scrollWidth > frame.clientWidth + 1;
+      var bar = frameBars.get(frame);
+      if (wide && !bar) {
+        bar = make('div', 'frame-bar');
+        bar.appendChild(tool('Open this table full size', 'Open full size', function () {
+          var table = frame.querySelector('table').cloneNode(true);
+          table.removeAttribute('id');
+          $$('[id]', table).forEach(function (n) { n.removeAttribute('id'); });
+          openViewer(captionOf(frame), table, false);
+        }));
+        frame.parentNode.insertBefore(bar, frame);
+        frameBars.set(frame, bar);
+      }
+      if (bar) bar.hidden = !wide;
+    });
+  }
+  document.addEventListener('toggle', function (e) { if (e.target.tagName === 'DETAILS') checkFrames(); }, true);
+  var resizing = false;
+  window.addEventListener('resize', function () {
+    if (resizing) return;
+    resizing = true;
+    requestAnimationFrame(function () { resizing = false; checkFrames(); spy(); });
+  });
+  window.addEventListener('load', checkFrames);
+
+  // The hover card: an id link's id, document, status and summary, kept inside the viewport.
+  var card = make('div', 'ref-card');
+  card.id = 'ref-card';
+  card.setAttribute('role', 'tooltip');
+  card.hidden = true;
+  document.body.appendChild(card);
+  var cardFor = null, cardTimer = 0;
+  var refOf = function (node) { return node && node.closest ? node.closest('a.ref') : null; };
+  function hideCard() {
+    clearTimeout(cardTimer);
+    card.hidden = true;
+    if (cardFor) cardFor.removeAttribute('aria-describedby');
+    cardFor = null;
+  }
+  function showCard(a) {
+    var hit = byAnchor[(a.getAttribute('href') || '').slice(1)];
+    if (!hit) return;
+    card.textContent = '';
+    var top = make('p', 'rc-top');
+    top.append(make('span', 'rc-id', hit.id), make('span', 'rc-doc', hit.entry.doc));
+    if (hit.entry.status) top.appendChild(make('span', 'tag tag--' + toneOf(hit.entry.status), hit.entry.status));
+    card.appendChild(top);
+    if (hit.entry.summary) card.appendChild(make('p', 'rc-sum', hit.entry.summary));
+    // Inside the open viewer the card has to be in the dialog to show above it.
+    var host = viewer.open ? viewer : document.body;
+    if (card.parentNode !== host) host.appendChild(card);
+    card.hidden = false;
+    var r = a.getBoundingClientRect();
+    var w = card.offsetWidth, h = card.offsetHeight;
+    var vw = document.documentElement.clientWidth, vh = window.innerHeight;
+    var left = Math.min(Math.max(8, r.left), vw - w - 8);
+    var y = r.bottom + 6 + h > vh - 8 ? r.top - h - 6 : r.bottom + 6;
+    card.style.left = Math.max(8, left) + 'px';
+    card.style.top = Math.max(8, y) + 'px';
+    if (cardFor && cardFor !== a) cardFor.removeAttribute('aria-describedby');
+    a.setAttribute('aria-describedby', 'ref-card');
+    cardFor = a;
+  }
+  document.addEventListener('mouseover', function (e) {
+    var a = refOf(e.target);
+    if (!a || a === cardFor) return;
+    clearTimeout(cardTimer);
+    cardTimer = setTimeout(function () { showCard(a); }, 120);
+  });
+  document.addEventListener('mouseout', function (e) { var a = refOf(e.target); if (a && !a.contains(e.relatedTarget)) hideCard(); });
+  document.addEventListener('focusin', function (e) { var a = refOf(e.target); if (a) showCard(a); });
+  document.addEventListener('focusout', function (e) { if (refOf(e.target)) hideCard(); });
+  document.addEventListener('scroll', function () { if (cardFor) hideCard(); }, { capture: true, passive: true });
+
+  // The drawer below 900 px: the button opens and closes it, and a choice closes it.
+  var navToggle = document.querySelector('[data-nav-toggle]');
+  function setNav(open) {
+    sidebar.toggleAttribute('data-open', open);
+    if (navToggle) navToggle.setAttribute('aria-expanded', String(open));
+  }
+  if (navToggle) navToggle.setAttribute('aria-expanded', 'false');
+
+  // The filter: narrows the sidebar to matching sections and lists matching ids, then sections.
+  var filter = document.querySelector('[data-filter]');
+  var results = make('ol', 'filter-results');
+  results.id = 'filter-results';
+  results.hidden = true;
+  results.setAttribute('aria-label', 'Matches');
+  var picks = [], active = -1;
+  var MAX_RESULTS = 40;
+  if (filter) {
+    filter.parentNode.insertBefore(results, filter.nextSibling);
+    filter.setAttribute('aria-controls', 'filter-results');
+    filter.removeAttribute('hidden');
+  }
+  var has = function (text, words) { return words.every(function (w) { return text.indexOf(w) !== -1; }); };
+  function narrow(words) {
+    sidebar.toggleAttribute('data-filtering', words.length > 0);
+    Object.keys(navDocs).forEach(function (k) {
+      var doc = navDocs[k];
+      var any = false;
+      // Sections after their H3s, so a section stays when one of its H3s matches.
+      $$('li.nav-sec', doc).reverse().forEach(function (li) {
+        var hit = !words.length || has(li.firstElementChild.textContent.toLowerCase(), words) || !!li.querySelector('li.nav-sec:not([data-miss])');
+        li.toggleAttribute('data-miss', !hit);
+        if (hit) any = true;
+      });
+      doc.toggleAttribute('data-miss', words.length > 0 && !any && !has(doc.firstElementChild.textContent.toLowerCase(), words));
+    });
+  }
+  function setActive(k) {
+    var links = $$('a', results);
+    links.forEach(function (a, i) { a.classList.toggle('on', i === k); });
+    active = k;
+    if (links[k]) keepIn(results, links[k]);
+  }
+  function update() {
+    var query = filter.value.trim().toLowerCase();
+    var words = query.split(/\s+/).filter(Boolean);
+    narrow(words);
+    results.textContent = '';
+    picks = [];
+    active = -1;
+    if (!words.length) { results.hidden = true; return; }
+    // Ids first: the id itself, then one starting with the query, then one holding it, then one whose text holds every word.
+    var scored = [];
+    idIndex.forEach(function (hit) {
+      var rank = hit.key === query ? 0 : hit.key.indexOf(query) === 0 ? 1 : hit.key.indexOf(query) !== -1 ? 2 : has(hit.text, words) ? 3 : -1;
+      if (rank >= 0) scored.push([rank, scored.length, hit]);
+    });
+    scored.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+    var found = scored.map(function (s) { return { href: '#' + s[2].entry.anchor, id: s[2].id, doc: s[2].entry.doc, text: s[2].entry.summary }; });
+    sections.forEach(function (s) { if (has(s.key, words)) found.push({ href: s.href, id: '', doc: s.doc, text: s.text }); });
+    picks = found.slice(0, MAX_RESULTS);
+    picks.forEach(function (p) {
+      var li = make('li');
+      var a = make('a');
+      a.setAttribute('href', p.href);
+      if (p.id) a.append(make('span', 'rid', p.id), make('span', 'rdoc', p.doc), make('span', 'rsum', p.text));
+      else a.append(make('span', 'rid', '§'), make('span', 'rdoc', p.doc), make('span', 'rsum', p.text));
+      li.appendChild(a);
+      results.appendChild(li);
+    });
+    if (found.length > picks.length) results.appendChild(make('li', 'rnote', (found.length - picks.length) + ' more; type more to narrow'));
+    if (!found.length) results.appendChild(make('li', 'rnote', 'Nothing matches'));
+    results.hidden = false;
+  }
+  function clearFilter() { if (!filter) return; filter.value = ''; update(); }
+  if (filter) {
+    filter.addEventListener('input', update);
+    filter.addEventListener('focus', function () { if (filter.value.trim()) results.hidden = false; });
+    filter.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!picks.length) return;
+        e.preventDefault();
+        setActive(((active < 0 && e.key === 'ArrowUp' ? 0 : active) + (e.key === 'ArrowDown' ? 1 : -1) + picks.length) % picks.length);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        var p = picks[active < 0 ? 0 : active];
+        if (!p) return;
+        clearFilter();
+        filter.blur();
+        setNav(false);
+        go(p.href);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (filter.value) clearFilter(); else filter.blur();
+      }
+    });
+  }
+
+  // The theme switch: auto, light, dark, remembered when the page may store it.
+  var toggle = document.querySelector('[data-theme-toggle]');
+  var GLYPHS = { auto: '◐', light: '☀', dark: '☾' };
+  var theme = storedTheme();
+  function paintToggle() {
+    toggle.textContent = GLYPHS[theme];
+    var label = 'Theme: ' + theme + '. Switch theme';
+    toggle.title = label;
+    toggle.setAttribute('aria-label', label);
+  }
+  if (toggle) {
+    paintToggle();
+    toggle.removeAttribute('hidden');
+    toggle.addEventListener('click', function () {
+      theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+      applyTheme(theme);
+      try { if (theme === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, theme); } catch (e) { /* this page only */ }
+      paintToggle();
+    });
+  }
+
+  // Links inside the page: shown here rather than by the browser, so a link into another view opens it first.
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var t = e.target;
+    var a = t && t.closest ? t.closest('a[href]') : null;
+    if (filter && !results.hidden && !(t.closest && t.closest('.bar-tools'))) results.hidden = true;
+    if (sidebar.hasAttribute('data-open') && !sidebar.contains(t) && !(navToggle && navToggle.contains(t))) setNav(false);
+    if (!a) return;
+    if (a === navToggle) { e.preventDefault(); setNav(!sidebar.hasAttribute('data-open')); return; }
+    var href = a.getAttribute('href');
+    if (href.charAt(0) !== '#' || href.length < 2) return;
+    e.preventDefault();
+    if (viewer.open && viewer.contains(a)) viewer.close();
+    if (results.contains(a)) { clearFilter(); filter.blur(); }
+    if (sidebar.contains(a)) setNav(false);
+    go(href);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === '/' && filter && !e.ctrlKey && !e.metaKey && !e.altKey && !viewer.open) {
+      var t = e.target;
+      if (t && t.closest && t.closest('input,textarea,select,[contenteditable]')) return;
+      e.preventDefault();
+      filter.focus();
+      filter.select();
+    } else if (e.key === 'Escape' && sidebar.hasAttribute('data-open')) {
+      setNav(false);
+    }
+  });
+
+  route(location.hash);
+}
+})();`;
 
 /** A renderer for `inline` mode: Mermaid text in, SVG text out, or null when `mmdc` failed on it. */
 function mmdcRenderer(theme: string | null): { render: (source: string) => string | null; dispose: () => void } {
@@ -1100,7 +1643,7 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   const generated = escapeHtml(now.toISOString().slice(0, 16).replace('T', ' '));
   const page = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
     + '<meta name="viewport" content="width=device-width, initial-scale=1">\n<meta name="generator" content="doflow render-page">\n'
-    + `<title>${escapeHtml(name)}</title>\n<style>\n${STYLE}\n</style>\n</head>\n<body>\n`
+    + `<title>${escapeHtml(name)}</title>\n<style>\n${STYLE}\n</style>\n<script>\n${PAGE_SCRIPT}\n</script>\n</head>\n<body>\n`
     + '<header class="appbar">\n<a class="nav-toggle" href="#sidebar" aria-controls="sidebar" data-nav-toggle>Contents</a>\n'
     + `<a class="brand" href="#overview" data-view-link="overview"><span class="mark" aria-hidden="true"></span><span class="name">${escapeHtml(name)}</span>`
     + `${name === slug ? '' : `<code class="slug">${escapeHtml(slug)}</code>`}</a>\n`

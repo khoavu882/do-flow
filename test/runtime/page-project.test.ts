@@ -148,8 +148,8 @@ test('buildPage writes the documents that exist, in chain order, and reports the
   assert.match(page, /<li class="nav-sec" data-section="requirement-1-summary"><a href="#requirement-1-summary" data-section-link="requirement-1-summary" data-view="requirement"><span class="num">1\.<\/span> Summary<\/a><\/li>/);
   assert.match(page, /<footer class="foot">Generated 2026-11-14 10:20 UTC from <code>agent-docs\/doflow\/001-x<\/code><\/footer>/);
   assert.match(page, /A\[&quot;&lt;b&gt;x&lt;\/b&gt;&quot;\]/);
-  // A source page carries no script at all.
-  assert.ok(!page.includes('<script'));
+  // A source page loads nothing: its only script is its own, inline.
+  assert.ok(!/<script[^>]*\ssrc=/.test(page));
   assert.deepEqual(fs.readdirSync(path.join(root, dir)).filter((f: string) => f.endsWith('.tmp')), []);
 });
 
@@ -157,7 +157,7 @@ test('buildPage in cdn mode loads the pinned Mermaid build, and only when the pa
   const withDiagram = feature({ 'design/design.md': `# Design\n\n${DIAGRAM}` });
   const page = fs.readFileSync(buildPage({ paths: withDiagram.paths, root: withDiagram.root, mode: 'cdn', now: NOW }).file, 'utf8');
   assert.match(page, /<pre class="mermaid">flowchart LR/);
-  assert.equal(page.split('<script').length - 1, 2);
+  assert.equal((page.match(/<script[^>]*\ssrc=/g) || []).length, 1);
   assert.ok(page.includes(`<script src="${MERMAID_SCRIPT}" integrity="${MERMAID_INTEGRITY}" crossorigin="anonymous"></script>`));
   assert.match(page, /"securityLevel":"strict"/);
   // One pinned file with its hash, at or past the release that closed GHSA-8gwm-58g9-j8pw (11.10.0).
@@ -169,7 +169,7 @@ test('buildPage in cdn mode loads the pinned Mermaid build, and only when the pa
 
   const without = feature({ 'plan.md': '# Plan\n' });
   const plain = fs.readFileSync(buildPage({ paths: without.paths, root: without.root, mode: 'cdn', now: NOW }).file, 'utf8');
-  assert.ok(!plain.includes('<script'));
+  assert.ok(!/<script[^>]*\ssrc=/.test(plain) && !plain.includes('mermaid.initialize'));
 });
 
 test('buildPage in inline mode embeds each rendered diagram, and a block the renderer fails on stays as source', () => {
@@ -656,4 +656,46 @@ test('the app bar carries the name, the slug and the controls, and no render cou
   assert.ok(bar.includes('placeholder="Filter sections and ids"') && bar.includes('data-theme-toggle'));
   assert.ok(!/document|diagram|generated|UTC|\d{4}-\d{2}-\d{2}/i.test(bar.replace(/data-[a-z-]+/g, '')), bar);
   assert.match(page, /<footer class="foot">Generated 2026-11-14 10:20 UTC/);
+});
+
+// Row 179: the page's own script moves the reader through it; without the script every view stays visible.
+const pageScript = (page: string) => /<script>\n([\s\S]*?)\n<\/script>/.exec(page)?.[1] ?? '';
+
+test('the page carries exactly one inline script, holding view switching, scroll tracking, the filter and the viewer', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': REQUIREMENT,
+    'design/design.md': `# Design\n\nA <img src=x onerror=alert(1)> and <a href="#" onclick="x()">y</a>.\n\n${DIAGRAM}`,
+  });
+  const render = () => '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+  for (const mode of ['source', 'inline']) {
+    const page = fs.readFileSync(buildPage({ paths, root, mode, render, now: NOW }).file, 'utf8');
+    const executable = (page.match(/<script\b[^>]*>/g) || []).filter((tag: string) => !tag.includes('type="application/json"'));
+    assert.deepEqual(executable, ['<script>'], mode);
+    assert.ok(!/<script[^>]*\ssrc=/.test(page), 'no external script outside cdn');
+    const body = pageScript(page);
+    assert.doesNotThrow(() => new Function(body), 'the script parses');
+    for (const piece of ["'until-found'", "'beforematch'", "addEventListener('scroll'", "'[data-filter]'", 'showModal()', 'Open full size', "'wheel'"]) {
+      assert.ok(body.includes(piece), `${mode}: ${piece}`);
+    }
+    assert.ok(!/\beval\(|new Function|innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(body), 'text reaches the page only through textContent');
+    // The views ship visible; only the script hides all but the current one.
+    assert.ok(!/<section class="view[^>]*\shidden/.test(page));
+    const markup = page.replace(/<script>[\s\S]*?<\/script>/, '');
+    assert.ok(!/<[a-z][^>]*\son[a-z]+\s*=/i.test(markup), 'no inline event-handler attribute');
+  }
+});
+
+test('the filter and theme controls ship hidden and the script shows them; the theme applies before the body', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const bar = between(page, '<header class="appbar">', '</header>');
+  assert.match(bar, /<input class="filter" type="search"[^>]*data-filter hidden>/);
+  assert.match(bar, /<button class="theme" type="button"[^>]*data-theme-toggle hidden>/);
+  assert.match(bar, /<a class="nav-toggle" href="#sidebar"[^>]*data-nav-toggle>/, 'the drawer opens through :target without the script');
+  const body = pageScript(page);
+  assert.ok(body.includes("filter.removeAttribute('hidden')") && body.includes("toggle.removeAttribute('hidden')"));
+  // The script sits in the head and applies the stored theme before it waits for the document.
+  assert.ok(page.indexOf('<script>') < page.indexOf('<body>'));
+  assert.ok(body.indexOf('applyTheme(storedTheme())') < body.indexOf("'DOMContentLoaded'"));
+  assert.match(body, /try \{ var t = localStorage\.getItem/, 'storage is guarded: a file page may refuse it');
 });
