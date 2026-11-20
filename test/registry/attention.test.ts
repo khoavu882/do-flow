@@ -8,7 +8,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadRegistry } = require('../../src/registry/index.ts');
+const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
 const { validateAttention, projectAttention, attentionProblems } = require('../../src/registry/attention.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -112,4 +112,16 @@ test('(a) attention.json equals projectAttention(registry); a planted drift fail
   const drift = structuredClone(registry);
   drift.harnesses.find((h: any) => h.id === 'claude').attention.answeredBy.push('PreToolUse');
   assert.notDeepEqual(onDisk, projectAttention(drift), 'a registry change the checked-in file does not carry is caught');
+});
+
+test('(a) validateRegistry refuses a bad attention block at load, naming the harness; a valid shipped registry stays clean', () => {
+  const registry = structuredClone(loadRegistry({ repoRoot: REPO }));
+  const run = (r: any): string[] => validateRegistry(r, { repoRoot: REPO, sources: 'skip' }).errors;
+  assert.deepEqual(run(registry).filter((line) => / attention: /.test(line)), []);
+  // an event the harness's contract does not list is refused with the contract events from the registry itself
+  registry.harnesses.find((h: any) => h.id === 'claude').attention.asks[0].event = 'NoSuchEvent';
+  registry.harnesses.find((h: any) => h.id === 'kiro').attention = { status: 'unknown' };
+  const errors = run(registry);
+  assert.ok(errors.some((line) => line.startsWith("harness 'claude' attention: ") && /event 'NoSuchEvent' is not an event of the harness contract/.test(line)), errors.join('\n'));
+  assert.ok(errors.some((line) => line.startsWith("harness 'kiro' attention: ") && /status unknown requires a reason/.test(line)), errors.join('\n'));
 });
