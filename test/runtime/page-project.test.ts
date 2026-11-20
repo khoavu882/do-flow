@@ -1045,3 +1045,44 @@ test('Escape hides the hover card an id link shows', () => {
   assert.equal(card.hidden, true);
   assert.equal(link.getAttribute('aria-describedby'), null);
 });
+
+test('a filter match taken by Enter or a click moves focus to its target, not to the page body', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const filter = p.$('[data-filter]');
+  const focused = () => `${p.document.activeElement.tagName}#${p.document.activeElement.id}`;
+  filter.focus();
+  filter.value = 'IC-061';
+  fire(filter, 'input');
+  fire(filter, 'keydown', { key: 'Enter' });
+  assert.equal(focused(), 'LI#d-IC-060', 'the item the id is anchored in takes focus');
+  assert.equal(p.$('#d-IC-060').getAttribute('tabindex'), '-1');
+  filter.focus();
+  filter.value = 'approach';
+  fire(filter, 'input');
+  fire(p.$('#filter-results a[href="#design-1-approach"]'), 'click');
+  assert.equal(focused(), 'H2#design-1-approach', 'a section match focuses its heading');
+});
+
+test('the current view and section carry aria-current, set and removed with data-current', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const current = () => p.$$('.sidebar [aria-current]').map((a: any) => `${a.getAttribute('href')}=${a.getAttribute('aria-current')}`);
+  assert.deepEqual(current(), ['#overview=page']);
+  p.navigate('#d-IC-061');
+  assert.deepEqual(current(), ['#doc-design=page']);
+  const heading = p.$('#design-1-approach');
+  heading.rects = [{ top: 50 }];
+  fire(p.window, 'scroll', {}, false);
+  p.flush();
+  assert.deepEqual(current(), ['#doc-design=page', '#design-1-approach=location']);
+  assert.ok(p.$('li.nav-sec[data-section="design-1-approach"]').hasAttribute('data-current'));
+  heading.rects = [{ top: 500 }];
+  fire(p.window, 'scroll', {}, false);
+  p.flush();
+  assert.deepEqual(current(), ['#doc-design=page']);
+});
+
+test('smooth scrolling applies only when the reader has not asked for reduced motion', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  assert.ok(page.includes('@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}'));
+  assert.equal(page.split('scroll-behavior:smooth').length - 1, 1, 'nowhere else');
+});

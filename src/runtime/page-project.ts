@@ -689,7 +689,8 @@ const STYLE = `
 @media (prefers-color-scheme:dark){${darkTheme('html:not([data-theme=light])')}}
 ${darkTheme('html[data-theme=dark]')}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:76px}
+html{scroll-padding-top:76px}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-underline-offset:2px}
 code,pre{font-family:${MONO}}
@@ -979,12 +980,17 @@ function start() {
 
   // One view at a time: the others are hidden until found, so the browser's find still reaches them.
   var marked = [];
+  // A sidebar entry is current for the page script (data-current) and for assistive technology (aria-current on its link).
+  function setCurrent(li, on, kind) {
+    li.toggleAttribute('data-current', on);
+    if (on) li.firstElementChild.setAttribute('aria-current', kind); else li.firstElementChild.removeAttribute('aria-current');
+  }
   function show(view) {
     if (view === current) return false;
     views.forEach(function (v) { if (v === view) v.removeAttribute('hidden'); else v.setAttribute('hidden', 'until-found'); });
     current = view;
     var key = view.getAttribute('data-view');
-    Object.keys(navDocs).forEach(function (k) { navDocs[k].toggleAttribute('data-current', k === key); });
+    Object.keys(navDocs).forEach(function (k) { setCurrent(navDocs[k], k === key, 'page'); });
     mark([]);
     checkFrames();
     return true;
@@ -1002,6 +1008,7 @@ function start() {
     }
   }
   // Show the view the hash points into and scroll to the hash's target; a new view opens without animation.
+  // Returns what the reader reached: the marked item, else the target itself, else null.
   var reached = null;
   function route(hash) {
     routed = hash;
@@ -1019,12 +1026,19 @@ function start() {
     if (reached && reached.tagName === 'SPAN' && !reached.firstChild && reached.parentElement) reached = reached.parentElement;
     if (reached) reached.setAttribute('data-hit', '');
     spy();
+    return reached || (el && el !== view ? el : null);
   }
   function go(hash) {
     if (hash !== location.hash) {
-      try { history.pushState(null, '', hash); } catch (e) { location.hash = hash; return; }
+      try { history.pushState(null, '', hash); } catch (e) { location.hash = hash; return null; }
     }
-    route(hash);
+    return route(hash);
+  }
+  // Focus follows a choice whose control goes away (a filter match), so the keyboard goes on from the target.
+  function focusOn(el) {
+    if (!el) return;
+    if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
+    el.focus({ preventScroll: true });
   }
   try { history.scrollRestoration = 'manual'; } catch (e) { /* not offered */ }
   window.addEventListener('popstate', function () { if (location.hash !== routed) route(location.hash); });
@@ -1042,8 +1056,8 @@ function start() {
   var ticking = false;
   function mark(next) {
     if (next.length === marked.length && next.every(function (li, k) { return li === marked[k]; })) return false;
-    marked.forEach(function (li) { li.removeAttribute('data-current'); });
-    next.forEach(function (li) { li.setAttribute('data-current', ''); });
+    marked.forEach(function (li) { setCurrent(li, false); });
+    next.forEach(function (li) { setCurrent(li, true, 'location'); });
     marked = next;
     return true;
   }
@@ -1343,7 +1357,7 @@ function start() {
         clearFilter();
         filter.blur();
         setNav(false);
-        go(p.href);
+        focusOn(go(p.href));
       } else if (e.key === 'Escape') {
         e.preventDefault();
         if (filter.value) clearFilter(); else filter.blur();
@@ -1385,9 +1399,11 @@ function start() {
     if (href.charAt(0) !== '#' || href.length < 2) return;
     e.preventDefault();
     if (viewer.open && viewer.contains(a)) viewer.close();
-    if (results.contains(a)) { clearFilter(); filter.blur(); }
+    var picked = results.contains(a);
+    if (picked) { clearFilter(); filter.blur(); }
     if (sidebar.contains(a)) setNav(false);
-    go(href);
+    var to = go(href);
+    if (picked) focusOn(to);
   });
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && cardFor) hideCard();
