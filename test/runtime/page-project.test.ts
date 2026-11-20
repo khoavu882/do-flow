@@ -1013,3 +1013,8 @@ test('every label tone in light mode reads at 4.5:1 or more against its own back
     assert.ok(ratio >= 4.5, `${tone}: ${ratio.toFixed(2)}:1`);
   }
 });
+
+test('the viewer stage, which takes focus so arrow keys pan it, shows a focus ring for the keyboard', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  assert.ok(page.includes('.viewer-stage:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}'));
+});

@@ -847,6 +847,7 @@ dialog.viewer::backdrop{background:rgba(10,12,16,.55)}
 .viewer-tools{display:flex;align-items:center;gap:6px;flex:none}
 .viewer-level{min-width:48px;font:12.5px/1 ${MONO};color:var(--muted);text-align:center}
 .viewer-stage{flex:1 1 auto;min-height:0;overflow:auto;background:var(--bg);outline:none}
+.viewer-stage:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .viewer-sizer{margin:0 auto;overflow:hidden}
 .viewer-content{padding:24px;transform-origin:0 0}
 .viewer-content table{background:var(--surface)}
