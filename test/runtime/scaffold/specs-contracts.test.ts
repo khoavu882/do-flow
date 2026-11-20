@@ -207,3 +207,39 @@ test('a stub header names design/specs.md when the feature has one, and not othe
   assert.match(stubHeader(SPECS), /generated from 001-specs's requirement\.md, design\.md, design\/specs\.md and plan\.md\./);
   assert.doesNotMatch(stubHeader(null), /specs\.md and plan\.md|design\/specs\.md/);
 });
+
+test('a Contracts line followed by indented `- IC-…` list items reads every item; the next entry or a heading ends the block', () => {
+  const design = parseDesign([
+    DESIGN.trimEnd(), '',
+    '**Detail**', '',
+    '- **C1:** Name resolver',
+    '  - **Contracts:** FR-001, IC-001, and',
+    '    - IC-007 the resolver input',
+    '    - IC-008 to IC-009 the resolver output',
+    '  - **Notes:** IC-004 is only mentioned here.',
+    '- **C2:** Name store',
+    '  - **Contracts:** IC-002',
+    '    - IC-003 the store input',
+    '',
+    '## 6. Design Risks & Alternatives Considered', '',
+    '- IC-005 is not a continuation.', '',
+  ].join('\n'));
+  const specs = [
+    '# Specs: Fixture', '', '## 1. Interface Contracts', '',
+    '| ID | Contract | Family | Kind | Status |', '|---|---|---|---|---|',
+    ...[1, 2, 3, 4, 5, 7, 8, 9].map((n) => `| IC-00${n} | Contract ${n} | f | schema | Live |`), '',
+    '**Detail**', '',
+    ...[1, 2, 3, 4, 5, 7, 8, 9].flatMap((n) => [`#### IC-00${n}: Contract ${n}`, '', `body ${n}`, '']),
+  ].join('\n');
+  parseSpecs(specs, design.components);
+  const headings = (id: string) => design.components.get(id).declared.map((d: any) => d.heading.slice(0, 6));
+  assert.deepEqual(headings('C1'), ['IC-001', 'IC-007', 'IC-008', 'IC-009']);
+  assert.deepEqual(headings('C2'), ['IC-002', 'IC-003']);
+});
+
+test('the design template\'s §5 comment states the run form the scaffold reads', () => {
+  const template = fs.readFileSync(path.join(__dirname, '../../../core/shared/templates/doflow/design-template.md'), 'utf8');
+  const comment = template.match(/<!-- A component entry names[\s\S]*?-->/);
+  assert.ok(comment, 'the §5 component-entry comment is present');
+  assert.match(comment[0], /`IC-a to IC-b`[\s\S]*counts\s+every id between/);
+});

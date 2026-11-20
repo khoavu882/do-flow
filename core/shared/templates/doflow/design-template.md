@@ -224,7 +224,9 @@ Interface contracts are in `./specs.md` §1; the data model and its flows are in
 **Detail**
 
 <!-- A component entry names the component after its ID, then answers the four labels below in
-     order. The labels are structural, not emphasis, and none may be dropped or reordered. -->
+     order. The labels are structural, not emphasis, and none may be dropped or reordered. The
+     scaffold reads the `IC-###` ids on the Contracts line: write `IC-a to IC-b` for a run, which counts
+     every id between, or a `- IC-###` list item under the line for each contract. -->
 
 - **C1:** [component name]
   - **Responsibility:** [what this component is answerable for, in full].

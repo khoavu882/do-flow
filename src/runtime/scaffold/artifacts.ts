@@ -93,7 +93,8 @@ function parseRequirement(text: string): any {
 /**
  * The `- **Contracts:** …` line of each `- **C#:** …` entry in design §5 names the `IC-###` ids that component serves
  * (the design template's own attribution). A run `IC-003 to IC-006` stands for every id between, and a list names each.
- * A wrapped line is read to its end; ids of a component the index does not list are ignored.
+ * A wrapped line, or an indented `- IC-…` list item under the line (one per contract), is read to its end; ids of a
+ * component the index does not list are ignored.
  */
 function collectContractLines(body: string, components: Map<string, any>): void {
   const lines = body.split('\n');
@@ -103,7 +104,7 @@ function collectContractLines(body: string, components: Map<string, any>): void 
     for (let j = i + 1; j < lines.length && !/^\s*-\s+\*\*C\d+:\*\*/.test(lines[j]) && !/^#{1,6}\s/.test(lines[j]); j += 1) {
       if (!/^\s*-\s+\*\*Contracts:\*\*/.test(lines[j])) continue;
       let text = lines[j];
-      while (j + 1 < lines.length && /^\s+[^\s-]/.test(lines[j + 1])) { j += 1; text += ` ${lines[j].trim()}`; }
+      while (j + 1 < lines.length && /^\s+(?:[^\s-]|-\s+IC-\d)/.test(lines[j + 1])) { j += 1; text += ` ${lines[j].trim()}`; }
       const target = components.get(entry[1]);
       if (!target) break;
       for (const [, from, to] of text.matchAll(/IC-(\d+)(?:\s*(?:to|through|–|—|\.\.)\s*IC-(\d+))?/g)) {
