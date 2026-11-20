@@ -1390,6 +1390,7 @@ function start() {
     go(href);
   });
   document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && cardFor) hideCard();
     if (e.key === '/' && filter && !e.ctrlKey && !e.metaKey && !e.altKey && !viewer.open) {
       var t = e.target;
       if (t && t.closest && t.closest('input,textarea,select,[contenteditable]')) return;

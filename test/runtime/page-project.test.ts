@@ -1033,3 +1033,15 @@ test('reaching an id anchored by an empty span marks its item or heading, not th
   p.navigate('#design-cd-2-and-cd-3-a-heading');
   assert.deepEqual(hits(), [], 'a heading reached as a section is not marked');
 });
+
+test('Escape hides the hover card an id link shows', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const link = p.$('p a.ref[href="#d-IC-061"]');
+  const card = p.document.getElementById('ref-card');
+  link.focus();
+  assert.equal(card.hidden, false, 'focus shows the card');
+  assert.equal(link.getAttribute('aria-describedby'), 'ref-card');
+  fire(link, 'keydown', { key: 'Escape' });
+  assert.equal(card.hidden, true);
+  assert.equal(link.getAttribute('aria-describedby'), null);
+});
