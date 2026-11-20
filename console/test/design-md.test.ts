@@ -63,7 +63,7 @@ test('control: a component list edited by hand is reported as drift', () => {
 test('the component list is the sorted, de-duplicated set of top-level blocks', () => {
   const blocks: string[] = componentBlocks(appCss);
   assert.deepEqual(blocks, [...new Set(blocks)].sort());
-  for (const block of ['badge', 'rail', 'banner', 'btn', 'cmd', 'conn', 'segmented', 'skel', 'empty', 'state-panel']) assert.ok(blocks.includes(block), `.${block} is a block`);
+  for (const block of ['badge', 'rail', 'banner', 'btn', 'cmd', 'conn', 'theme', 'skel', 'empty', 'state-panel']) assert.ok(blocks.includes(block), `.${block} is a block`);
   assert.ok(!blocks.some((block) => block.includes('__') || block.includes('--')), 'no element or modifier is listed as a block');
 });
 

@@ -435,9 +435,10 @@ animation; server CPU under 5% idle with one open page.
 `app.css` budget: **155,648 bytes** (152 KiB), held by `console/test/budgets.test.ts`. Measured on 2026-11-20 at
 commit 2c5edda8: 155,982 bytes before row 180's reduction and 153,749 after it. The reduction removed the rules no
 file under `console/web/` or `console/src/` can match, one repeated and one overridden declaration, and merged rules
-with equal bodies within their own commented section. The file stays above 128 KiB (131,072 bytes) because every
-remaining rule is used by a view or is a component `DESIGN.md` documents (`.segmented`, `.daytable`): without its
-13,140 bytes of comments it would still be 140,609 bytes. Rules with equal bodies in different sections stay apart,
+with equal bodies within their own commented section. The file stayed above 128 KiB (131,072 bytes) because every
+remaining rule was used by a view or was a component `DESIGN.md` documented: without its 13,140 bytes of comments it would
+still have been 140,609 bytes. The 180 review then removed those two unused components, `.segmented` and `.daytable`
+(153,119 bytes after). Rules with equal bodies in different sections stay apart,
 so each view's rules stay under its own heading. Splitting the file per area is out of scope (owner ruling,
 2026-11-20).
 

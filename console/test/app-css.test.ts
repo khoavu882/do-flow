@@ -1,16 +1,34 @@
 'use strict';
 
-// Cascade checks over web/app.css (180 review): in forced colours a 4 px start edge (`border-inline-start-width`) carries what the
-// state colour did, so no later rule of the same layer may reset it with a border shorthand. A text check: rules are matched by
-// the exact selector, so it does not compute specificity (a later, more specific reset is not caught).
+// Checks over web/app.css (180 review). In forced colours a 4 px start edge (`border-inline-start-width`) carries what the
+// state colour did, so no later rule of the same layer may reset it with a border shorthand; rules are matched by the exact
+// selector, so specificity is not computed (a later, more specific reset is not caught). And every component block of the file
+// is used by a file of console/web/: a block counts as used when a script or page names the block or one of its classes as a
+// whole word, or builds one from a template (`block--${`); a name in a comment counts too.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { classNames, componentBlocks } = require('../scripts/build-design-md.ts');
+
 const WEB = path.join(__dirname, '..', 'web');
 const APP_CSS: string = fs.readFileSync(path.join(WEB, 'app.css'), 'utf8');
+
+/** The text of every script and page under console/web/. */
+function webSources(): string {
+  const texts: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(js|html)$/.test(entry.name)) texts.push(fs.readFileSync(full, 'utf8'));
+    }
+  };
+  walk(WEB);
+  return texts.join('\n');
+}
 
 type Rule = { order: number, selectors: string[], props: string[], layer: string | null, media: string[] };
 
@@ -67,4 +85,24 @@ test('in forced colours every 4 px start edge holds: no later rule of its layer 
 test('control: a later forced-colours border on the same selector is reported', () => {
   const planted = `${APP_CSS}\n@media (forced-colors: active) { .gcard { border: 1px solid CanvasText; } }\n`;
   assert.ok(resetEdges(planted).includes('.gcard: .gcard'));
+});
+
+const word = (name: string) => new RegExp(`(?<![\\w-])${name.replace(/-/g, '\\-')}(?![\\w-])`);
+
+/** The component blocks of `css` no script or page of `sources` uses. */
+function unusedBlocks(css: string, sources: string): string[] {
+  const names: string[] = classNames(css);
+  return componentBlocks(css).filter((block: string) => {
+    const own = names.filter((name) => name === block || name.startsWith(`${block}__`) || name.startsWith(`${block}--`));
+    return !own.some((name) => word(name).test(sources)) && !new RegExp(`(?<![\\w-])${block.replace(/-/g, '\\-')}(?:__|--)\\$\\{`).test(sources);
+  });
+}
+
+test('every component block of app.css is used by a script or page of console/web/', () => {
+  assert.deepEqual(unusedBlocks(APP_CSS, webSources()), []);
+});
+
+test('control: a block no file uses is reported; one named only through its element, or built from a template, is not', () => {
+  const planted = `${APP_CSS}\n@layer components { .zz-unused { color: var(--text); } .zz-elem__part { color: var(--text); } .zz-built--on { color: var(--text); } }\n`;
+  assert.deepEqual(unusedBlocks(planted, `${webSources()}\nh('p', { class: 'zz-elem__part' }); const c = \`zz-built--\${state}\`;`), ['zz-unused']);
 });

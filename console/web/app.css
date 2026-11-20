@@ -1832,10 +1832,6 @@
   }
   .chip:hover { background: var(--surface-2); }
   .chip[aria-checked="true"], .chip[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
-  .segmented { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-md); overflow: hidden; }
-  .segmented__opt { min-height: var(--target); padding: 0 var(--space-4); background: var(--surface); color: var(--text); font: var(--type-sm); border: 0; cursor: pointer; }
-  .segmented__opt + .segmented__opt { border-inline-start: 1px solid var(--border-strong); }
-  .segmented__opt[aria-checked="true"] { background: var(--accent-tint); color: var(--accent); font-weight: 600; }
   .model-chip { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--space-2); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text); font: var(--type-xs); font-family: var(--font-mono); }
 
 
@@ -2070,7 +2066,7 @@
 @media (forced-colors: active) {
   .ev__tool,
   .masked { border: 1px solid CanvasText; }
-  .chip[aria-pressed="true"], .chip[aria-checked="true"], .segmented__opt[aria-checked="true"] { outline: 2px solid Highlight; }
+  .chip[aria-pressed="true"], .chip[aria-checked="true"] { outline: 2px solid Highlight; }
 }
 
 /* The shortcut help (feature 133, FR-6): a modal list built from the registry in keys.js. */
@@ -2442,7 +2438,7 @@
 
 @layer components {
   /* Management tables remain individually scrollable and keyboard reachable in narrow canvases. */
-  .mtable, .matrix, .daytable {
+  .mtable, .matrix {
     display: block;
     max-width: 100%;
     overflow: auto;
@@ -2451,20 +2447,20 @@
     font: var(--type-sm);
     font-variant-numeric: tabular-nums;
   }
-  .mtable caption, .matrix caption, .daytable caption {
+  .mtable caption, .matrix caption {
     padding-block: var(--space-2);
     text-align: left;
     font: var(--type-sm);
     color: var(--text-muted);
   }
-  .mtable th, .mtable td, .matrix th, .matrix td, .daytable th, .daytable td {
+  .mtable th, .mtable td, .matrix th, .matrix td {
     padding: var(--space-2) var(--space-3);
     border-bottom: 1px solid var(--border);
     text-align: left;
     vertical-align: top;
     overflow-wrap: anywhere;
   }
-  .mtable thead th, .matrix thead th, .daytable thead th {
+  .mtable thead th, .matrix thead th {
     background: var(--surface-2);
     color: var(--text);
     font: var(--type-xs);
