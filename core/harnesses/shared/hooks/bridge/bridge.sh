@@ -164,6 +164,13 @@ doflow_bridge() {
           [ ! -f "$_DOFLOW_BRIDGE_DIR/observe-model.sh" ] || ( . "$_DOFLOW_BRIDGE_DIR/observe-model.sh" && doflow_observe_model "$harness" "$payload" ) >/dev/null 2>&1 </dev/null || true
           ;;
       esac
+      # Step observe-effort (row 180 IC-180-E1): an envelope whose identity names an effort level is recorded per
+      # session under the config home, under the same rule: no decision, exit code or stream changes.
+      case "$payload" in
+        *'"doflow_event":{'*'"effort":"'*)
+          [ ! -f "$_DOFLOW_BRIDGE_DIR/observe-effort.sh" ] || ( . "$_DOFLOW_BRIDGE_DIR/observe-effort.sh" && doflow_observe_effort "$harness" "$payload" ) >/dev/null 2>&1 </dev/null || true
+          ;;
+      esac
     fi
   else
     doflow_bridge_failure "$policy" dependency-missing:jq

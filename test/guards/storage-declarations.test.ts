@@ -299,6 +299,7 @@ function runScenario() {
     const target: any = ['--force', '--target', TARGETS];
     const bridge = path.join(mirror, '.doflow/shared/hooks/bridge/bridge.sh');
     const modelPayload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'g26-session', cwd: project, model: 'gpt-5.1' });
+    const effortPayload = JSON.stringify({ hook_event_name: 'Stop', session_id: 'g26-session', cwd: project, effort: { level: 'high' } });
     const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','settings.json');const net=require('node:net');const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>{fs.writeFileSync(f,JSON.stringify({schema:1,'advice.enabled':true,'advice.provider':'ollama','advice.endpoint':'http://127.0.0.1:'+port,'advice.model':'clef-flash'})+'\\n');});});";
     // The bash summary store (feature 078): a scoped summary write and its owner claim, then a grant
     // seeded where grantSummary() would write it and claimed by rename.
@@ -449,6 +450,8 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       // the main session and once as a launched worker, writes one file in each observation store.
       ['bridge observe-model main', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
       ['bridge observe-model worker', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], envPatch: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'g26', DOFLOW_LINEAGE_ID: 'w', DOFLOW_ATTEMPT: '1' }, input: modelPayload }, 0],
+      // The observe-effort step (row 180 IC-180-E1): a main-session claude payload naming an effort level writes one file.
+      ['bridge observe-effort main', { cmd: bashPath(), args: [bridge, 'claude', 'Stop', 'stop-check'], input: effortPayload }, 0],
       ['project install', cli('install', project, ...target, '--mcp', 'none'), 0],
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],

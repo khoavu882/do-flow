@@ -116,14 +116,18 @@ test('codex: effort is unknown with the reason, and the verification names the c
 });
 
 // Row 178 T2 (design §10): what each shipped harness says about the effort of its own running session.
-test('(a) claude sessionEffort is supported: marker CLAUDE_CODE_CHILD_SESSION=1 and one env source CLAUDE_EFFORT for both modes', () => {
+test('(a) claude sessionEffort is supported: marker CLAUDE_CODE_CHILD_SESSION=1, the hook-stored level keyed by CLAUDE_CODE_SESSION_ID (180), then CLAUDE_EFFORT, both for both modes', () => {
   const entry = REGISTRY.harnesses.find((h: any) => h.id === 'claude').sessionEffort;
   assert.equal(entry.status, 'supported');
   assert.deepEqual(entry.marker, { env: 'CLAUDE_CODE_CHILD_SESSION', equals: '1' });
-  assert.deepEqual(entry.sources, [{ kind: 'env', name: 'CLAUDE_EFFORT', modes: ['subscription', 'api-key'] }]);
-  assert.equal(entry.verifiedOn, '2026-11-19');
-  assert.deepEqual(entry.evidence, ['https://code.claude.com/docs/en/env-vars']);
+  assert.deepEqual(entry.sources, [
+    { kind: 'hook-state', sessionIdEnv: 'CLAUDE_CODE_SESSION_ID', modes: ['subscription', 'api-key'] },
+    { kind: 'env', name: 'CLAUDE_EFFORT', modes: ['subscription', 'api-key'] },
+  ]);
+  assert.equal(entry.verifiedOn, '2026-11-20');
+  assert.deepEqual(entry.evidence, ['https://code.claude.com/docs/en/env-vars', 'https://code.claude.com/docs/en/hooks']);
   assert.match(entry.verification, /CLAUDE_EFFORT/);
+  assert.match(entry.verification, /CLAUDE_CODE_SESSION_ID/);
   assert.match(entry.note, /effortLevel is not read/);
 });
 

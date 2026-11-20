@@ -500,6 +500,14 @@
         },
         "sources": [
           {
+            "kind": "hook-state",
+            "sessionIdEnv": "CLAUDE_CODE_SESSION_ID",
+            "modes": [
+              "subscription",
+              "api-key"
+            ]
+          },
+          {
             "kind": "env",
             "name": "CLAUDE_EFFORT",
             "modes": [
@@ -510,10 +518,11 @@
         ],
         "note": "effortLevel is not read: CLAUDE_EFFORT is unset exactly when the model takes no effort",
         "evidence": [
-          "https://code.claude.com/docs/en/env-vars"
+          "https://code.claude.com/docs/en/env-vars",
+          "https://code.claude.com/docs/en/hooks"
         ],
-        "verification": "Read the env-vars page for CLAUDE_EFFORT and CLAUDE_CODE_CHILD_SESSION; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
-        "verifiedOn": "2026-11-19"
+        "verification": "Read the env-vars page for CLAUDE_EFFORT, CLAUDE_CODE_SESSION_ID and CLAUDE_CODE_CHILD_SESSION and the hooks page for effort.level; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
+        "verifiedOn": "2026-11-20"
       },
       "contextProfile": {
         "capacityTokens": {

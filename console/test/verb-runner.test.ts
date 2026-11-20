@@ -2274,6 +2274,13 @@ test('178 (d), O-6 (a): a Console started from a harness shell passes no harness
   assert.equal(written.KEEP_ME, 'kept');
 });
 
+test('180 FR-E5: the session id a hook-state effort is keyed by never reaches a core child', async () => {
+  const { runner, starts } = setup('echo', { CLAUDE_CODE_SESSION_ID: 'parent-session', KEEP_ME: 'kept' });
+  assert.equal((await runner.run('list', {})).ok, true);
+  assert.equal('CLAUDE_CODE_SESSION_ID' in starts()[0].env, false);
+  assert.equal(starts()[0].env.KEEP_ME, 'kept');
+});
+
 test('178 F-11: the Console start shapes (the start-options read and the start-session write) declare no main harness, DOFLOW_PRIMARY_HARNESS=unknown over the parent\'s; no other shape carries it', async () => {
   const f = await writeSetup(undefined, { DOFLOW_PRIMARY_HARNESS: 'pi' });
   assert.equal((await f.runner.run('start-options', { projectKey: KEY_A })).ok, true);

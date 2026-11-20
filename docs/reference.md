@@ -1224,6 +1224,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `summary-grants` | `~/.config/doflow/session-env/grants` | prune inactive directories after 90 days |
 | `model-observations` | `~/.config/doflow/session-env/primary` | prune inactive directories after 7 days |
 | `worker-model-observations` | `~/.config/doflow/session-env/worker-model` | keep newest 1000; prune entries older than 7 days |
+| `effort-observations` | `~/.config/doflow/session-env/effort` | keep newest 1000; prune entries older than 7 days |
 | `installer-backups-user-doflow` | `~/.doflow/backups` | keep 3 |
 | `installer-backups-project-doflow` | `.doflow/backups` | keep 3 |
 | `nudge-markers` | `~/.config/doflow/session-env/nudge` | prune after 30 days |

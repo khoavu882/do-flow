@@ -806,6 +806,27 @@
       ]
     },
     {
+      "id": "effort-observations",
+      "root": "config-home",
+      "path": "session-env/effort",
+      "entry": "file",
+      "match": "^[0-9a-f]{16}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 1000,
+        "maxAgeDays": 7,
+        "either": true
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/observe-effort.sh"
+      ]
+    },
+    {
       "id": "installer-backups-user-doflow",
       "root": "user-doflow",
       "path": "backups",

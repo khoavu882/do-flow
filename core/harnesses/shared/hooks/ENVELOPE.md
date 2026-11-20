@@ -33,6 +33,14 @@ Pi 1.1.0 declares 41 `on()` overloads in its shipped extension types. `tool_call
 patch tool vocabulary down to that one word. Non-edit operations may be sent (the policy allows
 them through), but sending nothing for a non-edit tool is equally correct and cheaper.
 
+## Identity
+
+`identity` holds what the payload and the launch environment say about the session: `session`, the model (`model`, or
+`modelUnparsed`), the launch identity (`run`, `attempt`, `lineage`, `role`, `worktree`) and, for Claude Code only,
+`effort`: the payload's `effort.level` when it is a well-formed level (`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`). The key is
+additive; policies ignore it. The bridge steps `observe-model` and `observe-effort` record `model` and `effort` under the
+config home and never change a decision, an exit code or a stream.
+
 ## Version and mixed-install rules
 
 - A missing envelope or version, empty or non-object input, or a missing `contract.sh` is out of

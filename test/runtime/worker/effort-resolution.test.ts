@@ -123,3 +123,23 @@ test('(k) effortPlanFor takes the worker block it is given, which the registry n
     pass: 'b', source: 'session', harness: 'sess', level: 'd', origin: 'SESS_EFFORT', mapped: { from: 'd', to: 'b' }, check: 'listed',
   });
 });
+
+test('(l) 180: effortPlanFor reads a hook-state level stored under the env\'s config home; it beats the env variable', (t) => {
+  const { tempDir } = require('../../helper/tmp.ts');
+  const crypto = require('node:crypto');
+  const xdg = tempDir(t, 'doflow-effort-plan-');
+  const key = crypto.createHash('sha256').update('sess-id-1').digest('hex').slice(0, 16);
+  const file = path.join(xdg, 'doflow', 'session-env', 'effort', `${key}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const now = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z');
+  fs.writeFileSync(file, `${JSON.stringify({ schema: 1, harness: 'sess', level: 'c', event: 'PreToolUse', observedAt: now, session: key })}\n`);
+  const registry = {
+    harnesses: [{ id: 'sess', worker: sessionWorker, sessionEffort: { status: 'supported', marker: { env: 'SESS_MARK', equals: '1' }, sources: [
+      { kind: 'hook-state', sessionIdEnv: 'SESS_ID', modes: ['subscription', 'api-key'] }, { kind: 'env', name: 'SESS_EFFORT', modes: ['subscription', 'api-key'] }] } }],
+  };
+  const call = (env: any) => effortPlanFor({ registry, env: { SESS_MARK: '1', SESS_EFFORT: 'd', XDG_CONFIG_HOME: xdg, ...env }, declaredHarness: null, workerHarness: 'sess', choice: null, loginModeOf: () => null });
+  assert.deepEqual(call({ SESS_ID: 'sess-id-1' }), { pass: 'c', source: 'session', harness: 'sess', level: 'c', origin: 'hook-state', mapped: null, check: 'listed' });
+  assert.equal(call({ SESS_ID: 'another-session' }).origin, 'SESS_EFFORT', 'another session\'s id finds no stored level');
+  fs.writeFileSync(file, `${JSON.stringify({ schema: 1, harness: 'sess', level: 'c', event: 'PreToolUse', observedAt: '2020-01-01T00:00:00Z', session: key })}\n`);
+  assert.equal(call({ SESS_ID: 'sess-id-1' }).origin, 'SESS_EFFORT', 'a level stored before this process started is older than the env variable');
+});
