@@ -19,6 +19,8 @@
 // submit. The reads need the scope alone; the transport rule (`deviceMayAct`) is the action's, as for every action.
 //
 // Feature 172 (IC-005): `GET /api/harness-login` (each worker harness's login answer) is a plain read for both scopes.
+//
+// Feature 180 (IC-180-B1): `GET /api/runs/:slug/:taskId/export` (one run as a masked JSON file) is a plain read for both scopes.
 
 /** The Console's action ids (IC-001): each is a route suffix, an actions.ts ACTIONS row and a verb-runner WRITE_SHAPES id. 170 IC-005: `session-send`, `session-steer` and `session-stop` are three more, control scope and loopback like the rest. */
 const ACTION_IDS: readonly string[] = Object.freeze(['decide-gate', 'close-run', 'cancel-worker', 'start-session', 'session-send', 'session-steer', 'session-stop']);
@@ -31,6 +33,7 @@ const READS = Object.freeze([
   'GET /api/worker-runs/:slug', 'GET /api/worker-runs/:slug/:runId/result', 'GET /api/worker-runs/:slug/:runId/status',
   'GET /api/worker-runs/:slug/:runId/log', 'GET /api/worker-runs/:slug/:runId/transcript',
   'GET /api/actions', 'GET /api/harness-login',
+  'GET /api/runs/:slug/:taskId/export',
 ]);
 
 const DEVICE_ROUTES: Readonly<Record<'view' | 'control', readonly string[]>> = Object.freeze({
