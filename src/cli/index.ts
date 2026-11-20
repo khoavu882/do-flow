@@ -737,7 +737,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        outcome: record|show · advise: ask|outcome|configure|report|replay|flags · tools: see below
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
-                       worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|login-state|send|steer|stop
+                       worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|conform|login-state|send|steer|stop
                        dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
@@ -892,7 +892,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             read) or --worker-run <w-id> (an ended run);
                                             start-session: --project-key --worktree-key --harness
                                             [--model [--provider] [--effort]] --entry do|none --request-id --stdin [--via]
-                                            (the prompt on stdin); start-options: --project-key.
+                                            (the prompt on stdin); start-options: --project-key;
+                                            conform: --harness [--json] (a fake harness in a temp scratch).
                                             send, steer: --project-key --worker-run --request-id --stdin [--via]
                                             (the message on stdin); stop: the same without --stdin.
                                             Exit 0 done; 1 refused or
