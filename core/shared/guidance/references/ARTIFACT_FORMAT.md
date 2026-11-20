@@ -237,8 +237,8 @@ Acceptance criteria are formatted as testable Gherkin BDD scenario blocks mapped
 ## 7. Technical Scaffolding in specs.md and data-model.md
 
 `specs.md` and `data-model.md` are the one home of the technical implementation anchors. No other
-artifact carries a section for them: `design.md` §5 Components & Boundaries holds one line pointing at
-them, and `plan.md` cites them by `IC-###` id and entity name.
+artifact carries a section for them: `design.md`'s Components & Boundaries section holds one line
+pointing at them, and `plan.md` cites them by `IC-###` id and entity name.
 - **Interface Contracts (`specs.md` §1):** HTTP endpoints (methods, routes, request/response shapes, status codes), CLI verb signatures, and repository/service interfaces (`interface` → `concrete` → `mock`).
 - **Data Model (`data-model.md` §1):** Relational data model diagrams, database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
 - **Sequence / Data Flow (`data-model.md` §2):** interaction sequence diagrams and the swimlane flows.
