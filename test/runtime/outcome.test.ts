@@ -1,9 +1,9 @@
 'use strict';
 const { bashPath } = require('../helper/bash-locator.ts');
-// runtime-outcome.test.js — the task's terminal record and the closed vocabulary it draws from
+// outcome.test.ts — the task's terminal record and the closed vocabulary it draws from
 // (feature 011, plan task B.2, design component C2; FR-011, NFR-001).
 //
-// Mostly a subprocess suite, for the reason runtime-retrieval-plan.test.js gives: the contract this
+// Mostly a subprocess suite, for the reason retrieval-plan.test.ts gives: the contract this
 // verb ships is exit codes and a record on disk, and a library call proves neither. The two
 // in-process assertions are the ones a subprocess cannot make — the exported vocabulary itself, and
 // the record path a task id resolves to.

@@ -1,6 +1,6 @@
 'use strict';
 const { bashPath } = require('../helper/bash-locator.ts');
-// runtime-retrieval-plan.test.js — the declare-then-report contract for retrieval
+// retrieval-plan.test.ts — the declare-then-report contract for retrieval
 // (feature 011, plan task B.1, design component C1; FR-010, FR-013, FR-014, FR-015, NFR-001).
 //
 // Two halves, for two different kinds of claim.
@@ -13,7 +13,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 // a freshness state the local machine may never produce.
 //
 // The subprocess half spawns the real CLI, because the contract this verb ships is exit codes and
-// a record on disk, and a library call proves neither. It follows runtime-evidence-write.test.js
+// a record on disk, and a library call proves neither. It follows cli-evidence-write.test.ts
 // for the same reason that file gives: the libraries were never the part that broke.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');

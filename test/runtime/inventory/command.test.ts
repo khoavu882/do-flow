@@ -12,7 +12,7 @@
  * **Two halves, because the observable differs.**
  *
  * The in-process half calls the handler directly with stdout and stderr captured, following
- * `test/runtime/runtime-retrieval-plan.test.ts`'s `callVerb` helper. It observes two things the
+ * `test/runtime/retrieval-plan.test.ts`'s `callVerb` helper. It observes two things the
  * handler produces: its **return value**, and `process.exitCode`, which `finishRuntime` sets on the
  * way out. Both are restored afterwards — a verb reporting a finding must not make the whole test
  * process exit non-zero. What this half cannot observe is the *process* status, which is the thing

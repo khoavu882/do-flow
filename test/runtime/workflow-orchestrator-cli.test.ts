@@ -1,5 +1,5 @@
 'use strict';
-// runtime-orchestrate.test.js — CLI-level coverage for `doflow orchestrate`, added alongside the
+// workflow-orchestrator-cli.test.ts — CLI-level coverage for `doflow orchestrate`, added alongside the
 // feature-023 remediation review. `handleOrchestrateCommand` had zero test coverage before this —
 // not even indirectly, since test/runtime/workflow-orchestrator.test.ts only exercises the
 // WorkflowOrchestrator class in-process with an injected readinessEvaluate, never the real
@@ -26,7 +26,7 @@ const FIFO_SKIP = process.platform === 'win32' ? 'a FIFO is not a filesystem ent
 const REPO = path.resolve(__dirname, '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
-/** A git-backed scratch project, same shape as runtime-evidence-write.test.js's own helper; removed
+/** A git-backed scratch project, same shape as cli-evidence-write.test.ts's own helper; removed
  * when `t` ends, when one is given, and otherwise when this file ends. */
 function project(t?: any) {
   const real = t ? tempDir(t, 'doflow-runtime-orchestrate-') : suiteTempDir('doflow-runtime-orchestrate-');

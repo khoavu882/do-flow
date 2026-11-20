@@ -1,6 +1,6 @@
 'use strict';
 
-// One real process taking the slot lock, for test/runtime/slot-lock.test.js.
+// One real process taking the slot lock, for test/runtime/slots-lock.test.ts.
 // usage: node slot-lock-actor.js <json config>
 //   runtime   'new' (SLOTS_MODULE's acquireSlotLock) or 'old' (LEGACY_SLOT_LOCK_MODULE's, default the
 //             frozen 115 lock in legacy-slot-lock.js)

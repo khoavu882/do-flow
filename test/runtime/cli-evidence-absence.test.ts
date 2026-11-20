@@ -1,5 +1,5 @@
 'use strict';
-// runtime-evidence-absence.test.js — absence records, provider freshness probing, and refusals
+// cli-evidence-absence.test.ts — absence records, provider freshness probing, and refusals
 // (feature 076, plan task C.3; IC-006, DEC-009, DEC-010, DEC-018, DEC-019).
 
 const { test } = require('node:test');

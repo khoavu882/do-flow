@@ -1,5 +1,5 @@
 'use strict';
-// runtime-evidence-write.test.js — the evidence write boundary and the readiness states it makes
+// cli-evidence-write.test.ts — the evidence write boundary and the readiness states it makes
 // reachable (plan task C.12; FR-007, FR-008).
 //
 // Why this file spawns the real CLI rather than calling the libraries: the libraries were never

@@ -108,7 +108,7 @@ function requireSpecifiers(file: any) {
 /**
  * Is this `require(` occurrence itself inside a string literal?
  *
- * This repository writes real `require(...)` calls into strings: runtime-evidence-write.test.js
+ * This repository writes real `require(...)` calls into strings: cli-evidence-write.test.ts
  * writes fixture files whose contents are JavaScript. Those are data, not edges in this tree's
  * module graph, and counting them
  * makes the resolve check below report a broken require that is not broken and not ours.

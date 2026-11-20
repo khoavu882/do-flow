@@ -1,5 +1,5 @@
 'use strict';
-// stage-outcome.test.js — review A1: `catch-up` marked required non-mutating stages completed with
+// workflow-orchestrator-stage-outcome.test.ts — review A1: `catch-up` marked required non-mutating stages completed with
 // only a history flag distinguishing them, so a jump to review backfilled regression verification
 // without executing it and the completed state read as successful verification. Execution status
 // and outcome are now separate facts on the stage node: completed vs imported says HOW the program

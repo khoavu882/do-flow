@@ -1,5 +1,5 @@
 'use strict';
-// capability-execution.test.js — review R5 (P2): provider routing did not deliver a reliable
+// capability-router-execution.test.ts — review R5 (P2): provider routing did not deliver a reliable
 // execution contract. A query containing `$(...)` became executable shell syntax in the
 // interpolated command string, a path with spaces split into arguments, the Semble MCP arguments
 // used `path` where the tool's schema requires `repo`, and `native.test` was reported HEALTHY on
