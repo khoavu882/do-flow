@@ -2054,7 +2054,6 @@
     .chain__node { border-color: CanvasText; }
   }
 }
-}
 
 @layer motion {
   @keyframes ev-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

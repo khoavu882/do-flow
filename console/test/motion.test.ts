@@ -46,17 +46,23 @@ const declsOf = (body: string) => new Map(body.split(';').map((d) => d.trim()).f
   return [d.slice(0, at).trim().toLowerCase(), d.slice(at + 1).trim()] as [string, string];
 }));
 
-/** Every style rule with the at-rule preludes around it, and every @keyframes block with the properties it declares. */
-function parse(css: string): { rules: Rule[], keyframes: Keyframes[], firstLayer: string | null } {
+/**
+ * Every style rule with the at-rule preludes around it, every @keyframes block with the properties it declares, and every
+ * stray `}` between rules (named by the prelude after it). A browser reads a stray `}` as the start of a selector, so the next
+ * rule, an @layer block too, is dropped whole.
+ */
+function parse(css: string): { rules: Rule[], keyframes: Keyframes[], firstLayer: string | null, strays: string[] } {
   const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
   const rules: Rule[] = [];
   const keyframes: Keyframes[] = [];
+  const strays: string[] = [];
   const walk = (source: string, context: string[]) => {
     let index = 0;
     while (index < source.length) {
       const open = source.indexOf('{', index);
       if (open === -1) break;
       const prelude = source.slice(index, open).split(/[;}]/).pop()!.trim();
+      if (source.slice(index, open).includes('}')) strays.push(prelude);
       const close = closeOf(source, open);
       const body = source.slice(open + 1, close);
       if (prelude.startsWith('@keyframes')) {
@@ -71,7 +77,7 @@ function parse(css: string): { rules: Rule[], keyframes: Keyframes[], firstLayer
   };
   walk(text, []);
   const first = /@layer[^;{]*;/.exec(text);
-  return { rules, keyframes, firstLayer: first ? first[0].replace(/\s+/g, ' ') : null };
+  return { rules, keyframes, firstLayer: first ? first[0].replace(/\s+/g, ' ') : null, strays };
 }
 
 const selectorsOf = (rule: Rule) => rule.selector.split(',').map((s) => s.trim().replace(/\s+/g, ' '));
@@ -83,9 +89,10 @@ const isStop = (rule: Rule) => /^none\s*!important$/.test(rule.decls.get('animat
 
 /** Every way the text breaks IC-022, as one sentence each; empty when it conforms. */
 function checkMotion(css: string): string[] {
-  const { rules, keyframes, firstLayer } = parse(css);
+  const { rules, keyframes, firstLayer, strays } = parse(css);
   const problems: string[] = [];
   if (firstLayer !== LAYERS) problems.push(`the layer order is ${firstLayer}, not ${LAYERS}`);
+  for (const prelude of strays) problems.push(`a stray } before ${prelude}, which the browser drops`);
 
   for (const frame of keyframes) {
     for (const prop of new Set(frame.props)) if (!ALLOWED.has(prop)) problems.push(`@keyframes ${frame.name} animates ${prop}`);
@@ -189,6 +196,11 @@ test('control: a missing reduced-motion stop fails', () => {
 test('control: an animated host in the page frame fails', () => {
   const planted = `${APP_CSS}\n@layer motion { .navrail__link { animation: fade 1s both; } }\n`;
   assert.deepEqual(checkMotion(planted), ['.navrail__link lives outside #main and #inspector, so no stale stop reaches it']);
+});
+
+test('control: a stray } before a block fails, because the browser drops the block after it', () => {
+  const planted = `${APP_CSS}\n}\n@layer motion { .planted { animation: fade 1s both; } }\n`;
+  assert.deepEqual(checkMotion(planted), ['a stray } before @layer motion, which the browser drops']);
 });
 
 test('control: an animation outside the motion layer fails', () => {
