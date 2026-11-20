@@ -203,7 +203,7 @@ doflow models --action unbind --harness codex --tier light
 - Both actions write the `workers.models` setting in your user settings file, with the settings writer's lock and `<file>.config.bak` backup. `bind`, `unbind` and `advise --action configure` exit 1 and write nothing when `DOFLOW_SESSION_ROLE` names a worker session, so a person runs them from their own terminal; that is defence in depth, not a boundary. The binding applies to every place a tier becomes a model: a headless worker launch, the `Model:` line of a task brief, and `doflow rules`.
 - The orchestrator is the role that runs the plan (agent owner `delivery-lead`). Its model is, first match wins: the bound `orchestrator` id; the main session's own model when the harness is the one the main session runs on (`doflow primary --action resolve`); the bound `frontier` id; the harness default. A task line that names a tier still wins over the owner's default.
 
-**Effort without a binding.** When no binding names an effort, a worker takes the effort of the orchestrator session it was launched from, unchanged, or the next lower level the worker has; with no session effort to follow it runs its harness default, and DoFlow never picks a level of its own. Today only a Claude Code orchestrator forwards, from the `CLAUDE_EFFORT` variable Claude Code sets in its Bash tool, and a worker takes it only on claude or pi; every other orchestrator, a plain shell and the Console give the harness default, and the brief's `Effort:` line says which case applies and why. One cost to know: a headless pi worker with no binding and no session to follow now runs Pi's own default thinking level (`medium` unless you set `defaultThinkingLevel`, per Pi 1.5.2's settings docs) instead of the `off` it used to be pinned to, which may cost more per run. To keep it lower, bind the tier with a model and an effort (`--effort off` or `low`). The rules and every reason are in [Session effort](reference.md#session-effort).
+**Effort without a binding.** When no binding names an effort, a worker takes the effort of the orchestrator session it was launched from, unchanged, or the next lower level the worker has; with no session effort to follow it runs its harness default, and DoFlow never picks a level of its own. Today only a Claude Code orchestrator forwards: the level its hooks last recorded for the session when that record is newer than the driver's start, else the `CLAUDE_EFFORT` variable Claude Code sets in its Bash tool, so an `/effort` change reaches a running driver after the next tool call or the end of the turn. A worker takes it only on claude or pi; every other orchestrator, a plain shell and the Console give the harness default, and the brief's `Effort:` line says which case applies and why. One cost to know: a headless pi worker with no binding and no session to follow now runs Pi's own default thinking level (`medium` unless you set `defaultThinkingLevel`, per Pi 1.5.2's settings docs) instead of the `off` it used to be pinned to, which may cost more per run. To keep it lower, bind the tier with a model and an effort (`--effort off` or `low`). The rules and every reason are in [Session effort](reference.md#session-effort).
 
 ### Switch off the /do suggestion
 
@@ -380,13 +380,14 @@ doflow followup --action report --release v1.1.0 --statement "Search crashes on 
 doflow lifecycle --maintain
 doflow followup --action settle --ids FU-2sb0xv --as kept --reason "<why it stays>" --channel question
 doflow followup --action settle --ids FU-2sb0xv --as dismissed --reason "cannot reproduce" --channel question
+doflow followup --action settle --ids FU-2sb0xv --as dismissed --duplicate-of FU-88ggkq --channel question
 doflow followup --action settle --ids FU-2sb0xv --as fix --reason "<where it is routed>" --channel question
 doflow followup --action settle --ids FU-2sb0xv --as done --evidence "<what shows it>" --channel question
 doflow followup --action promote --ids FU-w1as7v --title "Search startup speed" --channel question
 doflow lifecycle --action init --slug 012-startup --intent agent-docs/intent/search-startup-speed.md
 ```
 
-Promoting creates `agent-docs/intent/search-startup-speed.md` from the item, and the next feature starts from that intent. A goal records an outcome and a checklist, and only you close it:
+`--duplicate-of` dismisses an item as a duplicate of another (the reason defaults to `duplicate of FU-88ggkq`); those labels let `doflow advise --action replay --kind same-issue` measure a decision model on your follow-ups too. Promoting creates `agent-docs/intent/search-startup-speed.md` from the item, and the next feature starts from that intent. A goal records an outcome and a checklist, and only you close it:
 
 ```bash
 doflow goal --action add --goal fast-search --statement "Search feels instant" --item "Accents work" --item "Index is cached"

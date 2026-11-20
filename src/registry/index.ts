@@ -751,7 +751,7 @@ const { validateLoginProbe } = require('./login-recipe.ts');
 const { validateControlChannel } = require('./control-channel.ts');
 // 169 design §4.4: the provider, effort and listing-column grammar (rules 1 to 7).
 const { validateModelParts, validateModelListColumns, levelOrderProblem } = require('./model-parts.ts');
-// 178 design §3.1: the `sessionEffort` key (environment sources only).
+// 178 design §3.1: the `sessionEffort` key (environment sources; since 180 IC-180-E2 also one `hook-state` source).
 const { validateSessionEffort } = require('./session-effort.ts');
 // 180 design §5 (IC-180-D0): the `attention` key, checked against the harness's contract hook events.
 const { validateAttention } = require('./attention.ts');

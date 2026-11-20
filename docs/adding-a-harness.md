@@ -10,7 +10,7 @@ A harness is a coding tool that DoFlow installs into and can run as a worker. Mo
 
 The registry rows for a harness:
 
-- [`harnesses.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/harnesses.json): the harness itself. Its id, display name, adapter, install paths, capabilities, `worker` descriptor and `sessionEffort` entry.
+- [`harnesses.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/harnesses.json): the harness itself. Its id, display name, adapter, install paths, capabilities, `worker` descriptor, `sessionEffort` entry and `attention` entry.
 - [`assets.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/assets.json): which shared assets the harness gets and how each is rendered for it.
 - [`lifecycle.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/lifecycle.json): which hook event, if any, carries each lifecycle policy for the harness.
 - [`contracts.json`](https://github.com/khoavu882/do-flow/blob/develop/core/registry/contracts.json): the skill and agent fields the harness accepts.
@@ -44,6 +44,7 @@ A tier binding can carry a provider and an effort beside the model id (`{"model"
 - `via` is the transport. `provider` takes `flag` or `id-prefix`; `effort` takes `flag` or `id-suffix`.
 - `via: "flag"` carries `argv`: `["--provider-flag", "{provider}"]`, or for effort `["--effort-flag", "{effort}"]` or `["-c", "<key>={effort}"]`. A provider flag must not appear in `readOnly`, `spawnDenial` or `isolatedEdit`, and where another recipe carries it, it must have a fixed value.
 - An effort flag appears in no recipe argv at all, with a fixed value or without one: not in `oneShot`, `structuredOutput`, `mainSession`, `controlChannel`, `readOnly`, `spawnDenial` or `isolatedEdit`. An effort comes only from a binding or the session ([Session effort](reference.md#session-effort)); with neither, the harness runs its own default. The registry refuses such a descriptor with `transport flag '<flag>' must not appear in <recipe>: an effort comes only from a binding or the session`.
+- A keyed effort is the one exception. When the effort argv is `["<flag>", "<key>={effort}"]`, a recipe may carry the same flag with another `key=value` pair (for example `-c sandbox_mode=read-only` beside an effort of `["-c", "model_reasoning_effort={effort}"]`). The registry refuses only a pair that sets the effort key, whether written `<flag> <key>=high`, `<flag>=<key>=high` or as a bare `<key>=high`, with `transport flag '<flag>' must not set '<key>' in <recipe>: an effort comes only from a binding or the session`. It also refuses the flag when the next item has no `key=value` shape, or when the flag is the last item, with `transport flag '<flag>' is followed by no key=value, so its key cannot be read in <recipe>`. An effort without a key (`["--effort", "{effort}"]`) keeps the rule above, and an effort entry that is not `supported` is not checked. No shipped harness has a keyed supported effort today.
 - `via: "id-prefix"` or `"id-suffix"` carries `separator` (one of `/`, `:`, `#`, `@`) instead of `argv`: the provider is joined before the model id, the effort after it.
 - `effort` may carry `levels`: a list of 1 to 16 distinct names, lowest first, or `"per-model"` when each model lists its own. The order is data: a session level the worker lacks is mapped down along it. The registry refuses two harnesses whose lists hold two shared names in opposite order; it cannot prove that one list ascends. `offLevel` names the level that switches reasoning off and needs a list. `mayLower: true` says the harness may run a lower level than bound when the model cannot run the one asked for; every display of such a binding says so. Pi sets it.
 - `effort` may carry `overrideEnv`: 1 to 4 distinct variable names (`^[A-Z][A-Z0-9_]{0,63}$`) that the harness lets take precedence over its effort argument, backed by the entry's evidence. When DoFlow passes an effort it drops them from the worker's environment, so the passed level holds; with no effort passed they stay, as the person's own setting. Claude declares `CLAUDE_CODE_EFFORT_LEVEL`.
@@ -59,7 +60,10 @@ The evidence bar is the same as for every other entry: a `supported` provider or
 - `status` is `supported` or `unknown`. Declare `unknown` until you have evidence: it needs a `reason` (one line, at most 240 characters) and a `verification` that names the check which would open it, may carry `evidence` and `verifiedOn`, and carries no `marker` and no `sources`.
 - `supported` needs `evidence` (not empty), `verifiedOn`, `verification`, a `marker` and `sources`, and the harness's `worker.effort` must be `supported`, since its `levels` check the value read.
 - `marker` is `{env, equals}`: a variable (`^[A-Z][A-Z0-9_]{0,63}$`) and a value (1 to 32 printable ASCII characters) that only this harness sets, in its own tool shells. It proves DoFlow runs inside that harness's session; without it nothing is read.
-- `sources` is 1 to 8 entries, highest precedence first, each `{kind, name, modes}`. `kind` is `env`, the only kind: a source is one environment variable the session sets. There is no configuration-file kind; one is added with the first harness whose session level lives in a file and has the evidence. `name` follows the same pattern, is not the marker's own variable and is distinct across sources.
+- `sources` is 1 to 8 entries, highest precedence first. `kind` is `env` or `hook-state`:
+  - `env` is `{kind, name, modes}`: one environment variable the session sets. `name` follows the same pattern, is not the marker's own variable and is distinct across sources.
+  - `hook-state` is `{kind, sessionIdEnv, modes}`: the level a hook of this harness last recorded for the session. `sessionIdEnv` names the variable that holds the session id in the session's tool shells (the same pattern, not the marker's variable). DoFlow looks the level up by the first 16 hex characters of the sha256 of that id. An entry holds at most one `hook-state` source. It needs a hook that writes the level: the shared bridge step `observe-effort` records the envelope's `identity.effort`, which the envelope sets only from a payload field the harness documents (today Claude Code's `effort.level`).
+  - There is no configuration-file kind; one is added with the first harness whose session level lives in a file and has the evidence.
 - `modes` is 1 or 2 distinct of `subscription` and `api-key`: the login modes your evidence shows the variable is set in. Declare a mode only on evidence. A source declared for one mode is not read when the session's login mode is unknown or is the other one.
 - `note` is optional, at most 240 characters. The whole entry serializes to at most 2 KiB.
 
@@ -70,16 +74,31 @@ The shipped Claude entry:
   "status": "supported",
   "marker": { "env": "CLAUDE_CODE_CHILD_SESSION", "equals": "1" },
   "sources": [
+    { "kind": "hook-state", "sessionIdEnv": "CLAUDE_CODE_SESSION_ID", "modes": ["subscription", "api-key"] },
     { "kind": "env", "name": "CLAUDE_EFFORT", "modes": ["subscription", "api-key"] }
   ],
   "note": "effortLevel is not read: CLAUDE_EFFORT is unset exactly when the model takes no effort",
-  "evidence": ["https://code.claude.com/docs/en/env-vars"],
-  "verification": "Read the env-vars page for CLAUDE_EFFORT and CLAUDE_CODE_CHILD_SESSION; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
-  "verifiedOn": "2026-11-19"
+  "evidence": ["https://code.claude.com/docs/en/env-vars", "https://code.claude.com/docs/en/hooks"],
+  "verification": "Read the env-vars page for CLAUDE_EFFORT, CLAUDE_CODE_SESSION_ID and CLAUDE_CODE_CHILD_SESSION and the hooks page for effort.level; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
+  "verifiedOn": "2026-11-20"
 }
 ```
 
-Evidence is the harness's own documentation for the variables, or a capture of them: run `env` once in one of the harness's tool shells, once per login mode you declare, and record what you read in `verification`. A setting the harness reads at startup is not a source unless it is the level the session runs: Pi's `defaultThinkingLevel` is not one. Every marker and source name you declare joins the variables DoFlow drops from the environment of each worker, started session and Console verb it launches, so DoFlow in a child never reads the parent's session as its own. The Console keeps its own copy of that list (`SESSION_VARIABLES` in `console/src/verb-runner.ts`, since the Console imports nothing from the core), and guard G86 (`test/guards/session-effort.test.ts`) fails until the copy equals the registry's names.
+Evidence is the harness's own documentation for the variables (and, for a `hook-state` source, for the hook payload field), or a capture of them: run `env` once in one of the harness's tool shells, once per login mode you declare, and record what you read in `verification`. A setting the harness reads at startup is not a source unless it is the level the session runs: Pi's `defaultThinkingLevel` is not one. Every marker and source name you declare, a `hook-state` source's `sessionIdEnv` included, joins the variables DoFlow drops from the environment of each worker, started session and Console verb it launches, so DoFlow in a child never reads the parent's session as its own. The Console keeps its own copy of that list (`SESSION_VARIABLES` in `console/src/verb-runner.ts`, since the Console imports nothing from the core), and guard G86 (`test/guards/session-effort.test.ts`) fails until the copy equals the registry's names.
+
+### Asks that wait on the person (`attention`)
+
+`attention` is a top-level key of the harness row, beside `sessionEffort`. It says which hook events of the harness mean the agent waits on the person (a permission prompt, a question, an idle wait), which payload fields name the session, the kind of ask and the tool, and which events answer an ask. It is data: one shared bridge step reads it, and no code names a harness for it ([Agent questions and permission prompts](reference.md#agent-questions-and-permission-prompts)). It is checked by `validateAttention` (`src/registry/attention.ts`) when the registry loads, and every shipped harness declares it.
+
+- `status` is `supported` or `unknown`. `unknown` needs a `reason` (one line, at most 240 characters) and carries no `sessionField`, `asks` or `answeredBy`. Declare `unknown` until the harness's own documentation, cited in `evidence`, shows the events and their payload fields.
+- `supported` needs `evidence` (https links, not empty), `verifiedOn`, `verification`, `sessionField` (the payload key that holds the session id), 1 to 4 `asks` and `answeredBy`.
+- An ask names an `event` from the harness's hook events in `core/registry/contracts.json`, and either a fixed `kind` or a `kindField` with `kinds` (a payload value to a kind), an optional `skip` (values that write nothing) and `otherwise` (the kind of any other value). A kind is `permission`, `question`, `idle` or `other`. `toolField` (optional) names the payload key that holds the tool name. A field name is one top-level key (`^[a-z_]{1,40}$`).
+- `answeredBy` lists 1 to 8 distinct hook events of the same contract list, none of them an ask's event, that mark an open ask answered. The asks' events are distinct too.
+- The step reads `sessionField`, `kindField` and `toolField` and no other payload field, so no message text and no tool input reach the record. The whole entry serializes to at most 2 KiB.
+
+The registry projects the supported entries to `core/harnesses/shared/hooks/bridge/attention.json`, which ships with the bridge. `test/registry/attention.test.ts` fails when that file differs from the registry: regenerate the file. A harness's front door then calls the step on its ask events (`doflow_observe_attention <harness> <event>`, the native payload on stdin) and on its answering events (`doflow_attention_answered <harness> <event> <session id>`); Claude Code's front door is `core/harnesses/claude/hooks/attention-audit.sh`. The Layers coverage table reads questions as observed only for a harness whose entry is `supported`.
+
+Claude Code is `supported`, on its hooks page (<https://code.claude.com/docs/en/hooks>): `PermissionRequest` is a `permission` ask with `toolField` `tool_name`, and `Notification` maps `notification_type` (`permission_prompt` to `permission`, `elicitation_dialog` and `elicitation_url_dialog` to `question`, `idle_prompt` to `idle`, a listed set skipped, any other value `other`); `UserPromptSubmit`, `PermissionDenied`, `Stop`, `PostToolUse` and `PostToolUseFailure` answer. Every other shipped harness is `unknown` with reason `no-harness-record`.
 
 ### The login recipe
 
