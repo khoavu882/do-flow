@@ -255,7 +255,13 @@ test('IC-022 / DEC-048: with the claude fake supported the attempt runs subagent
   const prompt = fs.readFileSync(promptPath, 'utf8');
   assert.ok(prompt.startsWith(`<role>\nYou are the \`core-implementer\` implementing task \`A.1\` of feature \`${SLUG}\` in an isolated worktree.\n</role>`), prompt.slice(0, 300));
   assert.ok(prompt.includes(`<document path=".doflow/state/dispatch-envelopes/${d.dispatchId}.handoff.json">\n`), 'the envelope is the path document');
-  assert.ok(runArgv[0].at(-1).endsWith(`\n${prompt}`), 'the fake worker received the framed prompt after the context pack the worker layer puts first');
+  // The worker layer places the delivered pack as one <context> block right after </role>; the rest of the prompt follows it unchanged.
+  const roleBlock = prompt.slice(0, prompt.indexOf('</role>') + '</role>'.length);
+  const afterRole = prompt.slice(roleBlock.length).replace(/^\n+/, '');
+  const promptTail = afterRole.startsWith('<context>\n') ? afterRole.slice('<context>\n'.length) : `</context>\n\n${afterRole}`;
+  const received = runArgv[0].at(-1);
+  assert.ok(received.startsWith(`${roleBlock}\n\n<context>\n`), 'the fake worker received the same <role> block first, then a <context> block holding the pack');
+  assert.ok(received.endsWith(`\n${promptTail}`), 'the fake worker received the rest of the framed prompt after the context pack');
   assert.deepEqual(callerState(p.root, p.env), p.before);
 });
 
