@@ -91,6 +91,32 @@ function parseRequirement(text: string): any {
 }
 
 /**
+ * The `- **Contracts:** …` line of each `- **C#:** …` entry in design §5 names the `IC-###` ids that component serves
+ * (the design template's own attribution). A run `IC-003 to IC-006` stands for every id between, and a list names each.
+ * A wrapped line is read to its end; ids of a component the index does not list are ignored.
+ */
+function collectContractLines(body: string, components: Map<string, any>): void {
+  const lines = body.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const entry = lines[i].match(/^\s*-\s+\*\*(C\d+):\*\*/);
+    if (!entry) continue;
+    for (let j = i + 1; j < lines.length && !/^\s*-\s+\*\*C\d+:\*\*/.test(lines[j]) && !/^#{1,6}\s/.test(lines[j]); j += 1) {
+      if (!/^\s*-\s+\*\*Contracts:\*\*/.test(lines[j])) continue;
+      let text = lines[j];
+      while (j + 1 < lines.length && /^\s+[^\s-]/.test(lines[j + 1])) { j += 1; text += ` ${lines[j].trim()}`; }
+      const target = components.get(entry[1]);
+      if (!target) break;
+      for (const [, from, to] of text.matchAll(/IC-(\d+)(?:\s*(?:to|through|–|—|\.\.)\s*IC-(\d+))?/g)) {
+        const low = Number(from);
+        const high = to === undefined ? low : Number(to);
+        for (let n = low; n <= high && n - low < 1000; n += 1) target.contracts.add(`IC-${String(n).padStart(from.length, '0')}`);
+      }
+      break;
+    }
+  }
+}
+
+/**
  * `design.md` → the component index (traceability) and whatever an API / Interface Contracts section declares as an
  * interface (carried through verbatim rather than paraphrased). A design written after the interface contracts moved to
  * `specs.md` §1 has no such section; `hasContracts` says whether this one did, and `parseSpecs` reads the other source.
@@ -106,8 +132,9 @@ function parseDesign(text: string): any {
     const id = cells[0].replace(/`/g, '').trim();
     if (!/^C\d+$/.test(id)) continue;
     const serves = [...new Set(cells[3].match(/N?FR-\d+/g) || [])].sort();
-    components.set(id, { id, name: cells[1].replace(/`/g, ''), kind: cells[2], serves, declared: [] });
+    components.set(id, { id, name: cells[1].replace(/`/g, ''), kind: cells[2], serves, declared: [], contracts: new Set<string>() });
   }
+  collectContractLines(body, components);
   if (components.size === 0) {
     gaps.push({ artifact: 'design.md', what: 'component index', why: 'no `| Cn | … |` table row found under a "Components & Boundaries" heading' });
   }
@@ -145,7 +172,8 @@ function parseDesign(text: string): any {
 /**
  * `specs.md` §1 → the interface contracts, attributed to components. An `#### IC-###: <summary>` detail heading counts
  * only when the same id is in the first column of the index (the template's rule), and it names its component the way
- * design.md's subsections did: `(C16)` in the heading, or a `C16` in the index row's other cells. The contract text is
+ * design.md's subsections did: `(C16)` in the heading, or a `C16` in the index row's other cells, or the id in a
+ * component's design §5 `Contracts:` line (the template's own attribution). The contract text is
  * the whole detail entry, carried through verbatim. Returns whether §1 exists, so "N/A: no interface" is a declaration
  * and only a missing section is a gap.
  */
@@ -176,7 +204,10 @@ function parseSpecs(text: string, components: Map<string, any>): boolean {
   }
   for (const entry of entries) {
     if (!indexRows.has(entry.id)) continue;
-    const owners = [...new Set(`${entry.heading} ${indexRows.get(entry.id)}`.match(/\bC\d+\b/g) || [])];
+    const owners = [...new Set([
+      ...(`${entry.heading} ${indexRows.get(entry.id)}`.match(/\bC\d+\b/g) || []),
+      ...[...components.values()].filter((c: any) => c.contracts?.has(entry.id)).map((c: any) => c.id),
+    ])];
     const block = entry.lines.join('\n').trim();
     for (const owner of owners) {
       if (components.has(owner)) components.get(owner).declared.push({ heading: entry.heading, block, source: 'specs.md' });

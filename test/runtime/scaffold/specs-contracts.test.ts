@@ -134,3 +134,51 @@ test('an older design.md that carries its own contracts section still declares t
   const stub = fs.readFileSync(path.join(featureDir, SCAFFOLD_DIR_NAME, 'src', 'src', 'resolver.js.stub'), 'utf8');
   assert.match(stub, /declared interface — design\.md "6\.1 Resolver contract \(C1\)"/);
 });
+
+// The design template gives each component a `- **Contracts:**` line and its specs.md has no `(C#)`: that line is
+// the attribution, with a run `IC-003 to IC-006` standing for every id between and a list naming each.
+const TEMPLATE_DESIGN = [
+  DESIGN.trimEnd(), '',
+  '**Detail**', '',
+  '- **C1:** Name resolver',
+  '  - **Responsibility:** resolves names.',
+  '  - **Contracts:** FR-001, IC-001.', '',
+  '- **C2:** Name store',
+  '  - **Contracts:** IC-002, IC-004 to IC-005 and',
+  '    IC-007.', '',
+  '## 6. Design Risks & Alternatives Considered', '',
+].join('\n');
+
+const TEMPLATE_SPECS = [
+  '# Specs: Fixture', '',
+  '## 1. Interface Contracts', '',
+  '| ID | Contract | Family | Kind | Status |',
+  '|---|---|---|---|---|',
+  ...[1, 2, 3, 4, 5, 6, 7].map((n) => `| IC-00${n} | Contract ${n} | f | schema | Live |`), '',
+  '**Detail**', '',
+  ...[1, 2, 3, 4, 5, 6, 7].flatMap((n) => [`#### IC-00${n}: Contract ${n}`, '', `body ${n}`, '']),
+  '## 2. History', '',
+].join('\n');
+
+test('specs.md §1 with no (C#): a component\'s design §5 Contracts line attributes ids, lists and runs', () => {
+  const design = parseDesign(TEMPLATE_DESIGN);
+  assert.equal(parseSpecs(TEMPLATE_SPECS, design.components), true);
+  const headings = (id: string) => design.components.get(id).declared.map((d: any) => d.heading);
+  assert.deepEqual(headings('C1'), ['IC-001: Contract 1']);
+  assert.deepEqual(headings('C2'), ['IC-002: Contract 2', 'IC-004: Contract 4', 'IC-005: Contract 5', 'IC-007: Contract 7']);
+});
+
+test('a template-shaped specs.md and design §5 Contracts line: the stub quotes the contract, no gap', (t) => {
+  const { featureDir, repoRoot } = feature(t, { design: TEMPLATE_DESIGN, specs: TEMPLATE_SPECS });
+  const result = generateScaffold({ featureDir, repoRoot });
+  assert.deepEqual(gapNames(result), []);
+  assert.deepEqual(result.shapeUndeclared, []);
+  const stub = fs.readFileSync(path.join(featureDir, SCAFFOLD_DIR_NAME, 'src', 'src', 'resolver.js.stub'), 'utf8');
+  assert.match(stub, /declared interface — specs\.md "IC-001: Contract 1", verbatim:/);
+});
+
+test('the placeholder reason says no contract is attributed to the file\'s component', (t) => {
+  const { featureDir, repoRoot } = feature(t);
+  const result = generateScaffold({ featureDir, repoRoot });
+  assert.match(result.shapeUndeclared[0].why, /no contract is attributed to this file's component/);
+});

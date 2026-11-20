@@ -373,7 +373,7 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
       // Not a skip — the file was emitted. Conflating the two would let 29 "we wrote it, but the
       // design never said what it should look like" rows hide inside a skip count, which is the
       // opposite of what the manifest is for.
-      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'neither design.md nor specs.md §1 declares an interface for this file\'s component — the signature below is a placeholder, not a contract' });
+      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'no contract is attributed to this file\'s component — the signature below is a placeholder, not a contract' });
     }
 
     const pkg = snake(words(path.basename(path.dirname(file)) || 'scaffold')).replace(/_/g, '');
