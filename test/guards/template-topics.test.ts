@@ -1,15 +1,15 @@
 'use strict';
 
-// G90 — one owner per topic across the chain templates (row 179, design §2). A topic is the question a
+// G92 — one owner per topic across the chain templates (row 179, design §2). A topic is the question a
 // reader brings to a section, not the heading's wording. TOPICS below maps every topic to the template
 // that owns it and the heading titles that answer it; every `## ` heading of every file in
 // core/shared/templates/doflow/ is read (outside fenced code and HTML comments, the `N. ` number
 // stripped, titles compared case-insensitively, a question-log `Question N — <text>` heading read as
 // `Question N`) and looked up there. A cross-reference is at most one line inside an owning section,
 // never a heading of its own, so it never reaches this check.
-//   G90.1  every heading of every template has a TOPICS row; the template carrying it is that topic's
+//   G92.1  every heading of every template has a TOPICS row; the template carrying it is that topic's
 //          owner; every TOPICS owner still carries one of the row's titles; every template file has a row.
-//   G90.2  a topic with more than one owner is allowed only while PENDING names the open question that
+//   G92.2  a topic with more than one owner is allowed only while PENDING names the open question that
 //          would remove the overlap, and a PENDING topic that is down to one owner must leave PENDING.
 //   Controls: each finding kind fails on a planted in-memory copy, never on the tree.
 
@@ -142,17 +142,17 @@ function shipped(): Map<string, string> {
     .map((n: string) => [n, fs.readFileSync(path.join(TEMPLATES, n), 'utf8')]));
 }
 
-test('G90.1/G90.2: every template heading has one owning template', () => {
+test('G92.1/G92.2: every template heading has one owning template', () => {
   assert.deepEqual(findings(shipped()), []);
 });
 
-test('G90 control: a pointer section for a topic another template owns is caught', () => {
+test('G92 control: a pointer section for a topic another template owns is caught', () => {
   const files = shipped();
   files.set(DES, `${files.get(DES)}\n## 9. Data Model\n\nSee ./data-model.md §1.\n`);
   assert.match(findings(files).join('\n'), /design-template\.md: heading "data model" answers "data model", which data-model-template\.md owns/);
 });
 
-test('G90 control: a heading with no TOPICS row, and a template with none, are caught', () => {
+test('G92 control: a heading with no TOPICS row, and a template with none, are caught', () => {
   const files = shipped();
   files.set(PLN, files.get(PLN)!.replace('## 6. Validation Strategy', '## 6. Rollout Notes'));
   files.set('ghost-template.md', '# Ghost\n\n## 1. Summary\n');
@@ -162,7 +162,7 @@ test('G90 control: a heading with no TOPICS row, and a template with none, are c
   assert.match(found, /ghost-template\.md: no TOPICS row names this template/);
 });
 
-test('G90 control: headings in fences and comments are not read; a second owner outside PENDING is caught', () => {
+test('G92 control: headings in fences and comments are not read; a second owner outside PENDING is caught', () => {
   const files = shipped();
   files.set(STA, `${files.get(STA)}\n<!--\n## Unknown in a comment\n-->\n\`\`\`markdown\n## Unknown in a fence\n\`\`\`\n`);
   assert.deepEqual(findings(files), []);
@@ -170,7 +170,7 @@ test('G90 control: headings in fences and comments are not read; a second owner 
   assert.match(findings(shipped(), twoOwners).join('\n'), /topic "questions a design reviewer must settle" has 2 owners/);
 });
 
-test('G90 control: a PENDING topic left with one owner must leave PENDING', () => {
+test('G92 control: a PENDING topic left with one owner must leave PENDING', () => {
   const settled = TOPICS.map(([t, o, h]): [string, string[], string[]] => (t === 'change history' ? [t, [REQ], h] : [t, o, h]));
   const files = shipped();
   for (const name of [DES, SPC, DM, PLN]) files.set(name, files.get(name)!.replace(/^## \d+\. History$/m, '## Archive'));

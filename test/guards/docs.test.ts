@@ -115,7 +115,7 @@ test('G6: data-model-template.md provides technical scaffolding for schemas and 
 test('G6: design-template.md points at specs.md and data-model.md in one line under Components & Boundaries instead of duplicating their content', () => {
   // Row 179: design.md carries no section of its own for contracts, the data model or the flows (the
   // user ruled out pointer sections too); the one cross-reference line lives inside §5, so the
-  // pointer assertions read that section rather than the whole file. G90 owns the one-owner rule.
+  // pointer assertions read that section rather than the whole file. G92 owns the one-owner rule.
   const dsgTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/design-template.md'), 'utf8');
   assert.ok(!dsgTmpl.includes('### Endpoints'), 'design template must not re-duplicate API Endpoints scaffolding now owned by specs.md');
   assert.ok(!dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must not re-duplicate Repository interfaces scaffolding now owned by specs.md');
