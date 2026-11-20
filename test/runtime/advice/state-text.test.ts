@@ -23,7 +23,7 @@ const { captureState, cutToBytes, resetCaptureSetting, MAX_TEXT_BYTES } = requir
 const ADVICE = loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry;
 const STORAGE = loadStorageRegistry({ repoRoot: REPO_ROOT });
 const TOKEN = `ghp_${'A1b2C3d4E5'.repeat(4)}`;
-const OTHER_HOME = '/Users/alice/secrets/plan.txt';
+const OTHER_HOME = '/Users/someone/secrets/plan.txt';
 const OWN_HOME = path.join(os.homedir(), 'work', 'notes.txt');
 const STATE = `Choose a tier. Context: token ${TOKEN}; files ${OWN_HOME} and ${OTHER_HOME}.`;
 const TIER_SET = {
@@ -99,7 +99,7 @@ test('(b) capture on in user settings: one masked line per routing pick, the pic
   assert.equal(line.textBytes, Buffer.byteLength(line.text, 'utf8'));
   assert.ok(!line.text.includes(TOKEN), line.text);
   assert.ok(!line.text.includes(os.homedir()), line.text);
-  assert.ok(!line.text.includes('alice'), line.text);
+  assert.ok(!line.text.includes('someone'), line.text);
   assert.match(line.text, /~\/work\/notes\.txt/);
   assert.match(line.text, /\/Users\/<masked>/);
   // The pick line holds no state text, as before.
