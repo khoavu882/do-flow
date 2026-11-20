@@ -404,6 +404,15 @@ test('row 175 IC-001 (a): the shipped bars validate and equal the design values;
   assert.equal(Object.hasOwn(rerankOf(result.registry), 'replay'), false);
 });
 
+test('row 180 IC-180-G2: the five routing kinds replay from captured-state, with no maxMode change', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  const routing = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need'];
+  const replaying = result.registry.kinds.filter((kind: any) => kind.replay?.source === 'captured-state').map((kind: any) => kind.id);
+  assert.deepEqual(replaying, routing);
+  for (const id of routing) assert.equal(Object.hasOwn(result.registry.kinds.find((kind: any) => kind.id === id), 'maxMode'), false, id);
+});
+
 expectInvalid('bars missing', 'bars', (r: any) => { delete r.bars; });
 expectInvalid('bars not an object', 'bars', (r: any) => { r.bars = []; });
 expectInvalid('bars.version zero', 'bars.version', (r: any) => { r.bars.version = 0; });

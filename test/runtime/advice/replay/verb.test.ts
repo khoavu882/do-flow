@@ -12,7 +12,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createScratch, childEnv } = require('../../../helper/scratch-env.ts');
-const { startFakeServer, closedEndpoint, tagsListing } = require('../../../helper/fake-decision-server.ts');
+const { startFakeServer, closedEndpoint, tagsListing, answering } = require('../../../helper/fake-decision-server.ts');
+const { loadStorageRegistry } = require('../../../../src/runtime/storage/registry.ts');
+const { resolveRoots } = require('../../../../src/runtime/storage/roots.ts');
+const { appendPick, appendOutcome } = require('../../../../src/runtime/advice/record.ts');
+const { captureState, resetCaptureSetting } = require('../../../../src/runtime/advice/state-text.ts');
 const { REPO_ROOT } = require('../../../../src/helper/repo-root.ts');
 const { renderText } = require('../../../../src/runtime/advice/replay/run.ts');
 
@@ -93,13 +97,14 @@ function snapshot(dir: string): Record<string, string> {
  * A scratch HOME and project, the decision model on at user level, and a fake server that answers each yes/no question
  * with the `answer=` probability of its passage, after `delayMs`, counting the requests in flight.
  */
-async function fixture(t: any, { settings = {}, tags = null, delayMs = 2 }: any = {}) {
+async function fixture(t: any, { settings = {}, tags = null, delayMs = 2, route = null }: any = {}) {
   const scratch = createScratch('doflow-advice-replay-');
   const project = path.join(scratch.dir, 'project');
   fs.mkdirSync(project);
   const seen: any = { inFlight: 0, maxInFlight: 0, asks: [] as any[] };
   const server = await startFakeServer({ routes: {
     'POST /v1/systemone': async ({ body }: any) => {
+      if (route) { seen.asks.push(body); return route({ body }); }
       seen.inFlight++;
       seen.maxInFlight = Math.max(seen.maxInFlight, seen.inFlight);
       seen.asks.push(body);
@@ -300,9 +305,9 @@ test('(d) each setup refusal exits 1 with nothing asked; usage faults exit 2', a
   assert.match(none.stderr, /advise: no cases for claim-support/);
   // A kind with no replay source.
   writeLedger(f.project, mainSpecs(4));
-  const tier = await f.run(['--kind', 'tier']);
-  assert.equal(tier.status, 1);
-  assert.match(tier.stderr, /no local case source: this kind's records hold only digests/);
+  const rerank = await f.run(['--kind', 'rerank']);
+  assert.equal(rerank.status, 1);
+  assert.match(rerank.stderr, /no local case source: this kind's records hold only digests/);
   // The endpoint does not answer: the provider is named by its id from data.
   const closed = await closedEndpoint();
   writeJson(f.userSettingsFile, { schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': closed, 'advice.model': 'clef-flash' });
@@ -490,4 +495,43 @@ test('a case is bounded by timeoutMs, not the kind budget: a slow answer is meas
   assert.deepEqual(m.noAnswer.byReason, { 'over-budget': 1 });
   assert.equal(m.valid, 1);
   assert.ok(m.latencyMs.first >= 1600);
+});
+
+test('180 (f) a routing kind replays from its captured states: the model is reported against the rule; with no captured line the refusal says capture is off or empty', async (t) => {
+  // The fake model answers `frontier` for a state that says so, else `standard`.
+  const f = await fixture(t, {
+    settings: { 'advice.capture.state-text': true },
+    route: ({ body }: any) => answering(() => (/pick=frontier/.test(body?.state || '') ? 'frontier' : 'standard'))({ body }),
+  });
+  const empty = await f.run(['--kind', 'tier']);
+  assert.equal(empty.status, 1, empty.stdout);
+  assert.match(empty.stderr, /advise: no cases for tier: skipped capture-off-or-empty 1; nothing was asked/);
+  assert.equal(asked(f), 0);
+
+  resetCaptureSetting();
+  const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: f.project, env: { HOME: f.scratch.home, XDG_CONFIG_HOME: f.scratch.xdg } });
+  const question = { name: 'tier', type: 'choice', instructions: 'Choose a tier.', options: { light: 'Light', standard: 'Normal', frontier: 'Frontier' } };
+  const answer = { name: 'tier', type: 'choice', pick: 'standard', probabilities: { light: 0.1, standard: 0.8, frontier: 0.1 }, confidence: 0.7 };
+  for (let i = 0; i < 6; i += 1) {
+    // The rule answered standard every time; people moved two tasks to frontier.
+    const actual = i < 2 ? 'frontier' : 'standard';
+    const state = `${SENTINEL} task ${i} pick=${i < 3 ? 'frontier' : 'standard'}`;
+    const written = appendPick({ roots, kind: 'tier', answer, question, staticAnswer: 'standard', state, caller: 'brief-tools' });
+    assert.ok(captureState({ roots, pickId: written.pickId, kind: 'tier', state, store: written.store }));
+    assert.ok(appendOutcome({ roots, pickId: written.pickId, actual, source: 'orchestrator' }));
+  }
+  const r = await f.run(['--kind', 'tier', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.kind, 'tier');
+  assert.equal(body.source, 'captured-state');
+  assert.equal(body.caseSet.eligible, 6);
+  assert.equal(body.caseSet.replayed, 6);
+  assert.equal(asked(f), 6, 'one call per case');
+  // Against the labels: the rule is right on 4 of 6; the model on 5 (it says frontier for task 2, which stayed standard).
+  assert.equal(body.metrics.n, 6);
+  assert.equal(body.metrics.valid, 6);
+  assert.deepEqual(body.metrics.accuracy, { model: 5 / 6, rule: 4 / 6 });
+  assert.deepEqual([body.metrics.better, body.metrics.worse], [2, 1]);
+  assert.ok(!r.stdout.includes(SENTINEL), 'no case text in the report');
 });

@@ -9,6 +9,7 @@ const { checkEndpoint } = require('./endpoint-guard.ts');
 const { strengthOf } = require('./strength.ts');
 const { validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
 const { appendPick, appendMiss } = require('./record.ts');
+const { captureState } = require('./state-text.ts');
 
 // Keep this map literal: module reachability must be auditable without dynamic require paths.
 const ADAPTERS: Record<string, any> = Object.freeze({
@@ -308,6 +309,7 @@ function createAdviceClient({
             durationMs: durationSince(startedAt),
           });
           if (written) result.pickId = written.pickId;
+          if (written) captureState({ roots, fsImpl, pickId: written.pickId, kind: effectiveKind, at: clock, state: questionSet.state, store: written.store });
         }
         return result;
       });

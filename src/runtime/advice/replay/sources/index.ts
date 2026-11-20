@@ -22,11 +22,13 @@ interface CaseSource {
   build(input: { projectRoot: string; roots: Record<string, string | null>; kind: any; fsImpl?: any }): { cases: ReplayCase[]; skipped: Record<string, number> };
 }
 
+const { source: capturedState } = require('./captured-state.ts');
 const { source: claimLedger } = require('./claim-ledger.ts');
 const { source: instructsReaderCorpus } = require('./instructs-reader-corpus.ts');
 const { source: reviewFindings } = require('./review-findings.ts');
 
 const SOURCES: Readonly<Record<string, CaseSource>> = Object.freeze({
+  'captured-state': capturedState,
   'claim-ledger': claimLedger,
   'instructs-reader-corpus': instructsReaderCorpus,
   'review-findings': reviewFindings,

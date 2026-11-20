@@ -56,6 +56,7 @@
       },
       "staticFrom": "the brief tier (062 IC-004 resolution)",
       "askedBy": ["brief-tools", "advise"],
+      "replay": { "source": "captured-state" },
       "budgetMs": 1500
     },
     {
@@ -65,6 +66,7 @@
       "criteriaFrom": "workflows.classes",
       "staticFrom": "the proposed class",
       "askedBy": ["classify"],
+      "replay": { "source": "captured-state" },
       "budgetMs": 3000
     },
     {
@@ -74,6 +76,7 @@
       "criteriaFrom": "verification.riskLevels",
       "staticFrom": "the --risk level",
       "askedBy": ["do-test"],
+      "replay": { "source": "captured-state" },
       "budgetMs": 2000
     },
     {
@@ -86,6 +89,7 @@
       },
       "staticFrom": "the IC-002 rule: single only for a light-path change at a singleRisks risk, else deep; the gate-b floor can raise seats",
       "askedBy": ["review"],
+      "replay": { "source": "captured-state" },
       "budgetMs": 1500
     },
     {
@@ -97,6 +101,7 @@
       "yes": "The trigger is due for this stage",
       "staticFrom": "whether the stage's steps name the server",
       "askedBy": ["do"],
+      "replay": { "source": "captured-state" },
       "budgetMs": 1500
     },
     {

@@ -634,6 +634,7 @@ load loudly; a `slots` value that is not an array is currently read as no slots 
 | `advice.provider` | enum | `ollama` | global-only | — | — | Decision-model provider id from advice.json. |
 | `advice.endpoint` | url | `http://127.0.0.1:11434` | global-only | — | — | Decision-model endpoint; default is the provider's defaultEndpoint. |
 | `advice.model` | string | — | project-overridable | — | — | Decision-model name; a project may choose it while advice is on. |
+| `advice.capture.state-text` | boolean | `false` | narrow-only | — | — | Keeps a masked, local copy of each routing decision's input so the routing kinds can be replayed; off by default |
 | `advice.kinds.tier` | enum | — | project-overridable | — | — | Advice mode for the tier kind: off, shadow \(record only\), show \(see an answer, never act on it; needs a passing local result\) or act; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. |
 | `advice.kinds.task-class` | enum | — | project-overridable | — | — | Advice mode for the task-class kind: off, shadow \(record only\), show \(see an answer, never act on it; needs a passing local result\) or act; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. |
 | `advice.kinds.verify-risk` | enum | — | project-overridable | — | — | Advice mode for the verify-risk kind: off, shadow \(record only\), show \(see an answer, never act on it; needs a passing local result\) or act; unset records in shadow when a decision model is configured and makes no call otherwise, the highest layer that sets it decides and an invalid value is off. |
@@ -1212,6 +1213,8 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `runs-user` | `~/.doflow/state/runs` | prune partitions older than 180 days |
 | `advice-picks-project` | `.doflow/state/advice/picks` | prune partitions older than 90 days |
 | `advice-picks-user` | `~/.doflow/state/advice/picks` | prune partitions older than 90 days |
+| `advice-state-text-project` | `.doflow/state/advice/state-text` | prune partitions older than 30 days |
+| `advice-state-text-user` | `~/.doflow/state/advice/state-text` | prune partitions older than 30 days |
 | `advice-shadow-slots-user` | `~/.doflow/state/advice/shadow-slots` | at most shadowSlots slot files (core/registry/advice.json), one per live detached shadow child, each taken before the child starts and removed when it ends, with at most one handoff file each, which the child removes on start; a stale slot (its child gone, or older than its budget plus 5 s) is reclaimed in place by one call, with its handoff |
 | `slots-user` | `~/.doflow/state/slots` | keep newest 64; prune entries older than 30 days |
 | `recovery-user` | `~/.doflow/state/recovery` | keep newest 3, plus the snapshot named by the ledger |
