@@ -2865,7 +2865,7 @@
       "bytes": 3253
     },
     {
-      "path": "test/runtime/advice-brief-tools.test.js",
+      "path": "test/runtime/brief-tools-advice.test.js",
       "corpus": "code",
       "blob": "09fef4f30dbe120f6b374cba48901c4fad3d7a76",
       "bytes": 6482
