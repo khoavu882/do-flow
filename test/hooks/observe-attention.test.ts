@@ -75,6 +75,16 @@ test('(b) a PermissionRequest appends one line with kind permission and the tool
   assert.deepEqual(shapes(s), ['PermissionRequest:permission:Bash', 'PermissionRequest:permission:Write']);
 });
 
+test('(b) under a permissive umask the session folder the step creates is mode 0700, and the log 0600', { skip: !POSIX }, (t) => {
+  const s = scratch(t);
+  assert.equal(fs.existsSync(s.sessions), false, 'no session folder before the ask');
+  const r = spawnSync(bashPath(), ['-c', 'umask 022; exec "$0" "$@"', bashPath(), path.join(DOORS, 'attention-audit.sh'), 'PermissionRequest'],
+    { cwd: s.cwd, env: baseEnv(s), input: JSON.stringify(permission('Bash')), encoding: 'utf8' });
+  assert.equal(r.status, 0);
+  assert.equal(fs.statSync(path.dirname(s.log)).mode & 0o777, 0o700);
+  assert.equal(fs.statSync(s.log).mode & 0o777, 0o600);
+});
+
 test('(c) Notification types map to permission, question, idle and other; skipped types write nothing; no message or title is read', (t) => {
   const cases: Array<[any, string | null]> = [
     ['permission_prompt', 'permission'], ['elicitation_dialog', 'question'], ['elicitation_url_dialog', 'question'], ['idle_prompt', 'idle'],

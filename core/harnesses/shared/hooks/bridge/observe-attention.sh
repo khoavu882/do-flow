@@ -85,8 +85,8 @@ doflow_observe_attention() {
       *"\"kind\":\"$kind\","*) [ -n "$tool" ] || return 0 ;;
     esac
   fi
-  [ -d "$SESSION_DIR/$session" ] || mkdir -p "$SESSION_DIR/$session" || return 0
   umask 077
+  [ -d "$SESSION_DIR/$session" ] || mkdir -p "$SESSION_DIR/$session" || return 0
   printf '%s\n' "$line" >>"$log" || :
   return 0
 }
