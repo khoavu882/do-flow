@@ -4,7 +4,7 @@
 
 - What it produces
 - Two cases, one output tree
-- Part 1 — in-scope scaffold from the three artifacts
+- Part 1 — in-scope scaffold from the chain artifacts
 - Part 2 — external dependencies (cross-service contract frames)
 - Constraints (carried from the design — do not relax these)
 
@@ -63,7 +63,7 @@ Two rules deserve their reasoning, because both are easy to "improve" into a def
 
 | | Part 1 — in-scope | Part 2 — external dependency |
 |---|---|---|
-| Input | `requirement.md`, `design.md`, `plan.md` | a `depends-on:` value with no owning task |
+| Input | `requirement.md`, `design.md`, `design/specs.md` when present, `plan.md` | a `depends-on:` value with no owning task |
 | Produced by | `src/runtime/scaffold/generate.ts`, deterministically | this file's algorithm, executed by you |
 | Lands in | `scaffold/src/`, `scaffold/test/`, `scaffold/MANIFEST.md` | `scaffold/contracts/<service>/` |
 | Answers | what shape does my own plan imply | what shape must I code against at the boundary |
@@ -74,7 +74,7 @@ boundaries itself — the walk-up rules in Part 2 handle nested `.git` boundarie
 and `external-contract:` targets, and a second implementation of that walk would be one more thing to
 keep in sync. Read the table, then run Part 2 for every row whose disposition is `external`.
 
-## Part 1 — in-scope scaffold from the three artifacts
+## Part 1 — in-scope scaffold from the chain artifacts
 
 Deterministic, so it is executed rather than reasoned through. Run it, then report what it returns —
 do not restate its counts from memory or re-derive them by reading the tree.
@@ -98,7 +98,7 @@ useful than no report at all.
 
 What the generator does, so you can read its output rather than guess at it:
 
-1. **Reads all three artifacts** and records each one's SHA-256 in `MANIFEST.md`. A missing one, or
+1. **Reads the four documents** (`requirement.md`, `design.md`, `design/specs.md` when the feature has one, `plan.md`) and records each one's SHA-256 in `MANIFEST.md`. A missing one of the other three, or
    a `plan.md` with no parseable task list, is `BLOCKED`: no source files are written.
 2. **Builds the traceability chain** — a task's `[US#]` resolves through `requirement.md`'s FR index
    to its requirements, and through `design.md` Components & Boundaries to the components serving them. That chain is
@@ -108,7 +108,7 @@ What the generator does, so you can read its output rather than guess at it:
    already lives in `src/`, that reads as `scaffold/src/src/runtime/thing.js.stub`; the doubling is
    deliberate, so a path can never collide with `MANIFEST.md` or `contracts/`.
 4. **Emits per-file frames** in the language of the file's own extension — the plan already stated
-   it, so nothing is inferred. Where `design.md` API / Interface Contracts declares an interface for the file's component,
+   it, so nothing is inferred. Where `specs.md` §1 Interface Contracts (or, in an older design, `design.md`'s API / Interface Contracts) declares an interface for the file's component (an `IC-###` heading or index row that names its `C#`, or an id on the component's `- **Contracts:**` line in design §5 Components & Boundaries, where a run `IC-003 to IC-006` counts every id in it),
    that block is carried through verbatim as a quoted comment; where it does not, the file gets one
    clearly labelled placeholder signature and is listed under **Emitted without a declared shape**.
    No API nobody wrote down is ever invented.

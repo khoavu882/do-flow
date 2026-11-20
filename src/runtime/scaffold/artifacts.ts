@@ -3,8 +3,8 @@
 /**
  * Artifact parsing — turns the text of `requirement.md`, `design.md` and `plan.md` into the
  * structures `scaffold.js`'s generator reads: a requirement index and acceptance criteria, a
- * component index and whatever API / Interface Contracts declares as an interface, and the task list that is where the
- * intended file layout actually comes from.
+ * component index and whatever interface contracts declare as an interface (`specs.md` §1, or an older design.md's
+ * API / Interface Contracts section), and the task list that is where the intended file layout actually comes from.
  *
  * Pure text-in, structure-out: nothing here touches the filesystem or knows about the scaffold
  * output tree, so it is exercised directly in tests without an `fsImpl` seam.
@@ -91,8 +91,36 @@ function parseRequirement(text: string): any {
 }
 
 /**
- * `design.md` → the component index (traceability) and whatever API / Interface Contracts declares as an interface
- * (carried through verbatim rather than paraphrased).
+ * The `- **Contracts:** …` line of each `- **C#:** …` entry in design §5 names the `IC-###` ids that component serves
+ * (the design template's own attribution). A run `IC-003 to IC-006` stands for every id between, and a list names each.
+ * A wrapped line, or an indented `- IC-…` list item under the line (one per contract), is read to its end; ids of a
+ * component the index does not list are ignored.
+ */
+function collectContractLines(body: string, components: Map<string, any>): void {
+  const lines = body.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const entry = lines[i].match(/^\s*-\s+\*\*(C\d+):\*\*/);
+    if (!entry) continue;
+    for (let j = i + 1; j < lines.length && !/^\s*-\s+\*\*C\d+:\*\*/.test(lines[j]) && !/^#{1,6}\s/.test(lines[j]); j += 1) {
+      if (!/^\s*-\s+\*\*Contracts:\*\*/.test(lines[j])) continue;
+      let text = lines[j];
+      while (j + 1 < lines.length && /^\s+(?:[^\s-]|-\s+IC-\d)/.test(lines[j + 1])) { j += 1; text += ` ${lines[j].trim()}`; }
+      const target = components.get(entry[1]);
+      if (!target) break;
+      for (const [, from, to] of text.matchAll(/IC-(\d+)(?:\s*(?:to|through|–|—|\.\.)\s*IC-(\d+))?/g)) {
+        const low = Number(from);
+        const high = to === undefined ? low : Number(to);
+        for (let n = low; n <= high && n - low < 1000; n += 1) target.contracts.add(`IC-${String(n).padStart(from.length, '0')}`);
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * `design.md` → the component index (traceability) and whatever an API / Interface Contracts section declares as an
+ * interface (carried through verbatim rather than paraphrased). A design written after the interface contracts moved to
+ * `specs.md` §1 has no such section; `hasContracts` says whether this one did, and `parseSpecs` reads the other source.
  */
 function parseDesign(text: string): any {
   const gaps: any[] = [];
@@ -105,8 +133,9 @@ function parseDesign(text: string): any {
     const id = cells[0].replace(/`/g, '').trim();
     if (!/^C\d+$/.test(id)) continue;
     const serves = [...new Set(cells[3].match(/N?FR-\d+/g) || [])].sort();
-    components.set(id, { id, name: cells[1].replace(/`/g, ''), kind: cells[2], serves, declared: [] });
+    components.set(id, { id, name: cells[1].replace(/`/g, ''), kind: cells[2], serves, declared: [], contracts: new Set<string>() });
   }
+  collectContractLines(body, components);
   if (components.size === 0) {
     gaps.push({ artifact: 'design.md', what: 'component index', why: 'no `| Cn | … |` table row found under a "Components & Boundaries" heading' });
   }
@@ -115,9 +144,7 @@ function parseDesign(text: string): any {
   // That attribution is what lets a declared interface reach the file that implements it, instead
   // of being restated from memory somewhere downstream.
   const contractBody = section(text, /API\s*\/?\s*Interface Contracts|Interface Contracts/i);
-  if (contractBody === null) {
-    gaps.push({ artifact: 'design.md', what: 'interface contracts', why: 'no "API / Interface Contracts" section — every emitted file falls back to a placeholder signature' });
-  } else {
+  if (contractBody !== null) {
     const lines = contractBody.split('\n');
     let heading: string | null = null;
     let fence: string | null = null;
@@ -130,7 +157,7 @@ function parseDesign(text: string): any {
       if (fence !== null && line.trim().startsWith(fence)) {
         const owners = [...new Set(heading?.match(/C\d+/g) || [])];
         for (const owner of owners) {
-          if (components.has(owner)) components.get(owner).declared.push({ heading, block: buffer.join('\n') });
+          if (components.has(owner)) components.get(owner).declared.push({ heading, block: buffer.join('\n'), source: 'design.md' });
         }
         fence = null;
         buffer = [];
@@ -140,7 +167,54 @@ function parseDesign(text: string): any {
     }
   }
 
-  return { components, gaps };
+  return { components, gaps, hasContracts: contractBody !== null };
+}
+
+/**
+ * `specs.md` §1 → the interface contracts, attributed to components. An `#### IC-###: <summary>` detail heading counts
+ * only when the same id is in the first column of the index (the template's rule), and it names its component the way
+ * design.md's subsections did: `(C16)` in the heading, or a `C16` in the index row's other cells, or the id in a
+ * component's design §5 `Contracts:` line (the template's own attribution). The contract text is
+ * the whole detail entry, carried through verbatim. Returns whether §1 exists, so "N/A: no interface" is a declaration
+ * and only a missing section is a gap.
+ */
+function parseSpecs(text: string, components: Map<string, any>): boolean {
+  const body = section(text, /Interface Contracts/i);
+  if (body === null) return false;
+  const indexRows = new Map<string, string>();
+  const entries: { id: string; heading: string; lines: string[] }[] = [];
+  let current: { id: string; heading: string; lines: string[] } | null = null;
+  let fence: string | null = null;
+  for (const line of body.split('\n')) {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fence === null) {
+      const cells = row(line);
+      const id = cells ? cells[0].replace(/`/g, '').trim() : '';
+      if (cells && /^IC-\d+$/.test(id)) indexRows.set(id, cells.slice(1).join(' '));
+      if (/^#{3,4}\s/.test(line)) {
+        const idMatch = line.match(/^#{3,4}\s+(IC-\d+)\b/);
+        current = idMatch ? { id: idMatch[1], heading: line.replace(/^#+\s+/, '').trim(), lines: [] } : null;
+        if (current) entries.push(current);
+        continue;
+      }
+      if (fenceMatch) fence = fenceMatch[1];
+    } else if (line.trim().startsWith(fence)) {
+      fence = null;
+    }
+    if (current) current.lines.push(line);
+  }
+  for (const entry of entries) {
+    if (!indexRows.has(entry.id)) continue;
+    const owners = [...new Set([
+      ...(`${entry.heading} ${indexRows.get(entry.id)}`.match(/\bC\d+\b/g) || []),
+      ...[...components.values()].filter((c: any) => c.contracts?.has(entry.id)).map((c: any) => c.id),
+    ])];
+    const block = entry.lines.join('\n').trim();
+    for (const owner of owners) {
+      if (components.has(owner)) components.get(owner).declared.push({ heading: entry.heading, block, source: 'specs.md' });
+    }
+  }
+  return true;
 }
 
 /**
@@ -265,5 +339,6 @@ module.exports = {
   joinWrapped,
   parseRequirement,
   parseDesign,
+  parseSpecs,
   parsePlan,
 };

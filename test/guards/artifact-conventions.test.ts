@@ -417,9 +417,11 @@ function declaredDesignOrder() {
   return titles;
 }
 
-test('G18: design-template.md\'s section titles equal the order ARTIFACT_FORMAT.md §10 declares, twelve of them', () => {
+test('G18: design-template.md\'s section titles equal the order ARTIFACT_FORMAT.md §10 declares, eight of them', () => {
+  // Eight since row 179: contracts, the data model, the flows and the assumptions each have one owner
+  // in another template (specs.md, data-model.md, requirement.md), so design.md carries no section for them.
   const declared = declaredDesignOrder();
-  assert.equal(declared.length, 12, `ARTIFACT_FORMAT.md §10 should declare 12 design.md sections, found ${declared.length}`);
+  assert.equal(declared.length, 8, `ARTIFACT_FORMAT.md §10 should declare 8 design.md sections, found ${declared.length}`);
   assert.deepEqual(templateTitles(), declared,
     'ARTIFACT_FORMAT.md §10 declares the design.md section order; templates/doflow/design-template.md must carry the same titles in the same order');
 });
@@ -427,7 +429,9 @@ test('G18: design-template.md\'s section titles equal the order ARTIFACT_FORMAT.
 test('G18: every design.md row of the §4 slot registry names a template section that carries its diagram type', () => {
   const registry = section(declaration(), /^## 4\. Diagrams/);
   const rows = [...registry.matchAll(/^\|\s*`design\.md`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$/gm)].map(([, title, slot]) => [title, slot]);
-  assert.ok(rows.length >= 3, `the slot registry should carry design.md rows for System Overview, Concepts and Journeys, found ${rows.length}`);
+  // Two since row 179 (A-04): the concept relationship chart left design.md Concepts for data-model.md §1
+  // Conceptual domain map, which owns it, so Concepts is a glossary with no diagram slot.
+  assert.ok(rows.length >= 2, `the slot registry should carry design.md rows for System Overview and Journeys, found ${rows.length}`);
   const titles = templateTitles();
   for (const [title, slot] of rows) {
     assert.ok(titles.includes(title), `the slot registry names design.md section "${title}", but the template has no such title`);

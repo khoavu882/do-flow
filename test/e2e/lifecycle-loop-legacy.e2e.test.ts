@@ -120,13 +120,21 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
   }
 
   /** FU-afkns5: an unmet scope_clear, scope_verified or invariants_captured requirement used to recommend the generic
-   * "Gather evidence" action; it now names the flag that satisfies it. The one deliberate change to a printed value. */
+   * "Gather evidence" action; it now names the flag that satisfies it. One of two deliberate changes to a printed value. */
   function isNamedInputAction(at: any, old: any, neu: any) {
     if (at !== '$.requirements[].recommendedAction.action' || typeof old !== 'string' || typeof neu !== 'string') return false;
     const generic = /^Gather evidence for requirement '(scope_clear|scope_verified|invariants_captured)'/.exec(old);
     if (!generic) return false;
     const flag = generic[1] === 'invariants_captured' ? '--invariants "<invariants>"' : '--scope "<boundary>"';
     return neu.includes(`requirement '${generic[1]}'`) && neu.includes(flag);
+  }
+
+  /** Row 179 (owner ruling A-06): the design stage's purpose now says where interface contracts (design/specs.md) and the
+   * data model (design/data-model.md) live, since they moved out of design.md. Accepts that one exact old and new text. */
+  function isDesignPurposeRewrite(at: any, old: any, neu: any) {
+    return at === '$.workflow.stages[].purpose'
+      && old === 'Turn requirement.md into architecture, interface, and data-contract decisions in design.md.'
+      && neu === 'Turn requirement.md into architecture decisions in design.md, interface contracts in design/specs.md and the data model in design/data-model.md.';
   }
 
   /** Every leaf of `old` is present, unchanged, in `neu`; returns the paths only `neu` has. */
@@ -140,7 +148,7 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       return [];
     }
     if (old === null || typeof old !== 'object') {
-      if (isNamedInputAction(at, old, neu)) return [];
+      if (isNamedInputAction(at, old, neu) || isDesignPurposeRewrite(at, old, neu)) return [];
       assert.deepEqual(neu, old, `${at} changed`);
       return [];
     }

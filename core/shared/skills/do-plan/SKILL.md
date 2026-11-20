@@ -52,7 +52,7 @@ Branch on `outcome`, not the exit code.
 - **Exit 2** — surface the message verbatim and stop.
 
 This skill is the accepted workflow's `planning` stage: state the class and the signal it rests on
-in one line. Its `stageIds` are also what §8's phases must decompose toward, and its implementation
+in one line. Its `stageIds` are also what §7's phases must decompose toward, and its implementation
 stage's `readinessTemplate` names the contract `/do-execute-plan` will be graded against — read them
 off the returned object rather than assuming the six-stage feature chain. If the accepted `stageIds`
 contain no `planning` stage, say so and hand off to the first stage they do name. Only `feature`
@@ -77,12 +77,11 @@ not have.
    pack cannot claim prior evidence. When non-empty, read it alongside `requirement.md`,
    `design.md`, and the constitution.
    **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
-   check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
-   interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
-   entries, so on a feature that has one, `design.md`'s API / Interface Contracts and Data Model sections are a pointer and the contracts this
-   plan must decompose toward live only in `specs.md`. Planning from `design.md` alone on such a
-   feature plans against a pointer. When `has_specs` is false, the contracts are still in `design.md` (API / Interface Contracts, Data Model) and there is nothing extra to
-   read. Read
+   check of your own, and read the `specs` path the resolver returned. `/do-design` writes the
+   interface contracts to `specs.md` §1 as numbered `IC-###` entries and the data model to
+   `data-model.md`; `design.md` carries one line pointing at them and no section of its own, so the
+   contracts this plan must decompose toward live only in `specs.md`. Planning from `design.md`
+   alone plans against a pointer. Read
    `constitution_base`,
    then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,
    never a filesystem check of your own (path math belongs to the resolver). You then reconcile the
@@ -97,21 +96,21 @@ The template is `templates/doflow/plan-template.md` in the install step 1 resolv
    fields, verbatim (repo-root-relative, exactly as the resolver returns them) — never hand-written
    `./` links, which assume the artifact sits next to `plan.md`; it
    instead sits in a sibling subdirectory, and only the resolver's own field says which.
-   Fill it: approach, research/decisions that resolve every `[NEEDS CLARIFICATION]` from the
-   requirement, components, data/contracts, risks, validation strategy.
-   §5 "Data / Contracts" cites contracts by id, not by pointer: when step 4 read a `specs.md`, name
-   the `IC-###` ids that this plan's tasks implement or consume, one per contract, so a task can be
-   traced to the contract it satisfies. Pointing §5 at `design.md` is only correct when `has_specs`
-   is false and the contracts genuinely still live there.
+   Fill it: implementation approach, research/decisions that resolve every `[NEEDS CLARIFICATION]`
+   from the requirement, components and changes, delivery risks, validation strategy.
+   The plan has no section of its own for contracts or the data model: each §4 Components & Changes
+   detail entry cites contracts by id, not by pointer. When step 4 read a `specs.md`, name the
+   `IC-###` ids that change implements or consumes, and carry them into its tasks' `acceptance:`,
+   so a task can be traced to the contract it satisfies.
    When the feature has a `data-model.md` (check the resolver's `has_data_model` flag, the same way
-   `has_specs` is already checked), also name any entities/tables from its schema catalog that this
-   plan's tasks touch, citing them by the name the schema catalog already gives them — never
+   `has_specs` is already checked), also name in that entry any entities/tables from its schema
+   catalog the change touches, citing them by the name the schema catalog already gives them — never
    inventing a new id scheme, since `data-model.md` carries no `ID`-bearing index the way `specs.md`
    does.
 **Stop when** every `[NEEDS CLARIFICATION]` marker / open decision the contract names has an answer or a stated gap, **and** the last round produced no new `[NEEDS CLARIFICATION]` marker / open decision. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
-Filling §8's task dependency graph, read the guidance tree's `references/DIAGRAM_GUIDE.md` first — §4 above names the slot, that file governs what goes in it: the `flowchart` node and edge ceilings, the direction convention, and the rule for splitting a graph that outgrows them.
-   Its §5 governs §8's `### Task Summary` rollup — the per-task `- [ ]` checklist stays the single
+Filling §7's task dependency graph, read the guidance tree's `references/DIAGRAM_GUIDE.md` first — §4 above names the slot, that file governs what goes in it: the `flowchart` node and edge ceilings, the direction convention, and the rule for splitting a graph that outgrows them.
+   Its §5 governs §7's `### Task Summary` rollup — the per-task `- [ ]` checklist stays the single
    source of truth and is never mirrored into a per-task index.
    Read `references/ARTIFACT_VOICE.md` at the same point: it carries the prose rules the artifact's sentences follow, and the carve-outs where one of those rules meets a construct the checker parses.
    This stage fills the plan from requirement + design + constitution rather than by eliciting, so
@@ -127,7 +126,7 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    without a row refuses step 11's handoff; a SHOULD FAIL is a note. That refusal is the runtime's,
    beside the advisory hook on artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
    There is no waiver: revise the plan, or a person amends the constitution with `/do-constitution`.
-7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
+7. **Decompose into Tasks (section 7)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
    Read the guidance tree's `references/ORCHESTRATION.md` and
    `references/MODEL_SELECTION.md` before assigning agent owners and write sets.
@@ -163,7 +162,7 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    `depends-on:`. A single-repo result → `N/A: single-repo feature`. Derivation only — no branch is
    created here (`/do-execute-plan`'s job, lazily, per repo).
 9. **Self-review, then validate** — reread the plan against itself and fix it inline: every
-   requirement id and `[US#]` story is traced to a task or a §7 row, no TBD/TODO/"later" placeholder
+   requirement id and `[US#]` story is traced to a task or a §6 row, no TBD/TODO/"later" placeholder
    is left, and no task is coarser than `--depth` sets (split one that is). `plan-check` scans the
    first two and prints each one as a `findings` entry with its `path:line`. Fix every entry, then run
    the advisory consistency check and surface its findings verbatim:
@@ -214,7 +213,7 @@ For an external fact gap or request, follow the Gap or request protocol in `../d
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read requirement + design + specs
-(when `has_specs`) + constitution, cite `specs.md`'s `IC-###` contracts in §5, write `plan.md`
+(when `has_specs`) + constitution, cite `specs.md`'s `IC-###` contracts in §4, write `plan.md`
 including its embedded task checklist and Repo Branch Plan, run the
 Constitution Check, resolve clarifications, batch the stage's evidence and claims at the boundary,
 and record the stage handoff through `orchestrate`/`render-audit`.

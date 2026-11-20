@@ -4,9 +4,10 @@
 **Created:** [DATE] · **Owner:** [OWNER] · **Ticket:** [PBI/ticket ID, or "none"]
 **Intent:** [agent-docs/intent/<name>.md, or "none"]
 
-> WHAT and WHY only — no tech or implementation detail. Zero unresolved clarification markers at
-> hand-off — every ambiguity is resolved via the question tool before this file is written;
-> deferred answers become assumptions in §8.
+> WHAT and WHY only — no tech or implementation detail, except in §8 rows whose Stage is not
+> `requirement`. Zero unresolved clarification markers at hand-off — every ambiguity is resolved
+> via the question tool before this file is written; deferred answers become assumptions in §8,
+> which holds the assumptions of every stage.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
 > `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level
@@ -108,18 +109,23 @@ checked for its absence, and a template that quotes it makes every correct artif
 
 ## 8. Assumptions
 
-<!-- With a decision register, a row from a "Decide for me" pick cites its DEC-### in Basis: see ARTIFACT_FORMAT.md §12. -->
+<!-- The one place for the feature's assumptions, from every stage. A question any stage's loop
+     resolved through the defer escape hatch becomes one row here. Stage names the stage that raised
+     the row: requirement or design. Affects names what the row bears on: an FR-###, an NFR-###, a
+     design component (C#) or a contract (IC-###). A later stage appends its rows below the earlier
+     ones and numbers on from the last A#. With a decision register, a row from a "Decide for me"
+     pick cites its DEC-### in Basis: see ARTIFACT_FORMAT.md §12. -->
 
-| ID | Assumption | Affects | Basis |
-|---|---|---|---|
-| A1 | [assumption stated] | FR-001 | [why this default, or "user deferred"] |
+| ID | Assumption | Stage | Affects | Basis |
+|---|---|---|---|---|
+| A1 | [assumption stated] | requirement | FR-001 | [why this default, or "user deferred"] |
 
 **Detail**
 
 - **A1** — [the reasoning, and what would change if the assumption turns out wrong].
 
-<!-- Write "None — no clarification questions were deferred." in place of the table and detail if
-     every ambiguity was resolved by a direct answer rather than the defer escape hatch. -->
+<!-- Write "None — no clarification questions were deferred." in place of the table and detail
+     while no stage has deferred a question; the stage that adds the first row replaces that line. -->
 
 ## 9. History
 

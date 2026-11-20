@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const vm = require('node:vm');
 const { bashPath } = require('../helper/bash-locator.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
 const { buildPage, documentHtml, inline, stripComments, splitRow, MERMAID_SCRIPT, MERMAID_INTEGRITY } = require('../../src/runtime/page-project.ts');
@@ -76,9 +77,9 @@ test('a table row splits on a pipe, but not inside a code span or after a backsl
   assert.deepEqual(splitRow('| a | `x | y` | b \\| c |'), ['a', '`x | y`', 'b | c']);
   const out = html('| ID | Rule |\n|---|:--|\n| R1 | `a|b` |\n| R2 |\n\nafter\n');
   assert.match(out, /<th>ID<\/th><th>Rule<\/th>/);
-  assert.match(out, /<td>R1<\/td><td><code>a\|b<\/code><\/td>/);
+  assert.match(out, /<td id="d-R1">R1<\/td><td><code>a\|b<\/code><\/td>/);
   // A short row is padded to the header's width.
-  assert.match(out, /<td>R2<\/td><td><\/td>/);
+  assert.match(out, /<td id="d-R2">R2<\/td><td><\/td>/);
   assert.match(out, /<p>after<\/p>/);
 });
 
@@ -145,11 +146,11 @@ test('buildPage writes the documents that exist, in chain order, and reports the
   assert.ok(page.indexOf('id="doc-requirement"') < page.indexOf('id="doc-design"'));
   assert.ok(page.indexOf('id="doc-design"') < page.indexOf('id="doc-plan"'));
   assert.match(page, /<a href="#doc-plan">the plan<\/a>/);
-  assert.match(page, /<li><a href="#requirement-1-summary">1\. Summary<\/a><\/li>/);
-  assert.match(page, /3 documents · 3 diagrams shown as source · generated 2026-11-14 10:20 UTC/);
+  assert.match(page, /<li class="nav-sec" data-section="requirement-1-summary"><a href="#requirement-1-summary" data-section-link="requirement-1-summary" data-view="requirement"><span class="num">1\.<\/span> Summary<\/a><\/li>/);
+  assert.match(page, /<footer class="foot">Generated 2026-11-14 10:20 UTC from <code>agent-docs\/doflow\/001-x<\/code><\/footer>/);
   assert.match(page, /A\[&quot;&lt;b&gt;x&lt;\/b&gt;&quot;\]/);
-  // A source page carries no script at all.
-  assert.ok(!page.includes('<script'));
+  // A source page loads nothing: its only script is its own, inline.
+  assert.ok(!/<script[^>]*\ssrc=/.test(page));
   assert.deepEqual(fs.readdirSync(path.join(root, dir)).filter((f: string) => f.endsWith('.tmp')), []);
 });
 
@@ -157,7 +158,7 @@ test('buildPage in cdn mode loads the pinned Mermaid build, and only when the pa
   const withDiagram = feature({ 'design/design.md': `# Design\n\n${DIAGRAM}` });
   const page = fs.readFileSync(buildPage({ paths: withDiagram.paths, root: withDiagram.root, mode: 'cdn', now: NOW }).file, 'utf8');
   assert.match(page, /<pre class="mermaid">flowchart LR/);
-  assert.equal(page.split('<script').length - 1, 2);
+  assert.equal((page.match(/<script[^>]*\ssrc=/g) || []).length, 1);
   assert.ok(page.includes(`<script src="${MERMAID_SCRIPT}" integrity="${MERMAID_INTEGRITY}" crossorigin="anonymous"></script>`));
   assert.match(page, /"securityLevel":"strict"/);
   // One pinned file with its hash, at or past the release that closed GHSA-8gwm-58g9-j8pw (11.10.0).
@@ -169,7 +170,7 @@ test('buildPage in cdn mode loads the pinned Mermaid build, and only when the pa
 
   const without = feature({ 'plan.md': '# Plan\n' });
   const plain = fs.readFileSync(buildPage({ paths: without.paths, root: without.root, mode: 'cdn', now: NOW }).file, 'utf8');
-  assert.ok(!plain.includes('<script'));
+  assert.ok(!/<script[^>]*\ssrc=/.test(plain) && !plain.includes('mermaid.initialize'));
 });
 
 test('buildPage in inline mode embeds each rendered diagram, and a block the renderer fails on stays as source', () => {
@@ -182,7 +183,6 @@ test('buildPage in inline mode embeds each rendered diagram, and a block the ren
   const page = fs.readFileSync(result.file, 'utf8');
   assert.match(page, /<img alt="Design diagram 1" src="data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+">/);
   assert.match(page, /Diagram source, not rendered/);
-  assert.match(page, /1 of 2 diagrams rendered/);
 });
 
 test('buildPage without the renderer shows source and says how to get diagrams, for auto and for inline alike', () => {
@@ -448,4 +448,641 @@ test('a long run of blank lines inside a list item is read once, not once per bl
   const elapsed = Date.now() - started;
   assert.match(page, /<li>[\s\S]*first[\s\S]*still the first item[\s\S]*<\/li>\s*<li>second<\/li>/);
   assert.ok(elapsed < 5000, `read in ${elapsed} ms`);
+});
+
+// Row 179: ids link to their definitions, status words are labels, History starts closed.
+test('ids are defined by an id table row, an id-led heading, a bold id-led bullet and a numbered word heading', () => {
+  const out = html([
+    '# Doc', '',
+    '| ID | Text |', '|---|---|', '| AB-1 | first |', '',
+    '| Key | Text |', '|---|---|', '| G1 | one |', '| G2 | two |', '',
+    '### CD-2: second', '',
+    '- **EF-3:** third', '',
+    '### Item 4: fourth', '',
+    'Mentions AB-1, CD-2, EF-3, G1 and Item 4; not `AB-1` or [AB-1](https://example.test/a).', '',
+    '- **AB-1:** detail of the first', '',
+  ].join('\n'));
+  assert.match(out, /<td id="d-AB-1"><a class="ref" href="#d-AB-1-2">AB-1<\/a><\/td>/, 'the primary row links down to the later definition');
+  assert.match(out, /<td id="d-G1">G1<\/td>/, 'a first column of ids defines without an ID header');
+  assert.match(out, /<h3 id="design-cd-2-second"><span id="d-CD-2"><\/span>CD-2: second<\/h3>/);
+  assert.match(out, /<li id="d-EF-3"><strong>EF-3:<\/strong> third<\/li>/, 'the defining spot is not a link');
+  assert.match(out, /<h3 id="design-item-4-fourth"><span id="d-Item_4"><\/span>Item 4: fourth<\/h3>/);
+  assert.match(out, /<li id="d-AB-1-2"><strong>AB-1:<\/strong> detail/);
+  for (const [id, anchor] of [['AB-1', 'd-AB-1'], ['CD-2', 'd-CD-2'], ['EF-3', 'd-EF-3'], ['G1', 'd-G1'], ['Item 4', 'd-Item_4']]) {
+    assert.ok(out.includes(`<a class="ref" href="#${anchor}">${id}</a>`), id);
+  }
+  assert.ok(out.includes('not <code>AB-1</code> or <a href="https://example.test/a">AB-1</a>.'), 'no link inside code or a link');
+});
+
+test('a leading run of ids in a bold bullet or an id-led heading defines every id of the run', () => {
+  const { root, paths } = feature({
+    'design/design.md': '# D\n\n- **IC-060, IC-061:** Before, the path said one thing\n\n### CD-2 and CD-3 — a heading\n\nSee IC-061 and CD-3.\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const data = JSON.parse(/id="page-ids">([\s\S]*?)<\/script>/.exec(page)![1]);
+  for (const [first, second, summary] of [['IC-060', 'IC-061', 'Before, the path said one thing'], ['CD-2', 'CD-3', 'a heading']]) {
+    assert.equal(data[first]?.[0].summary, summary, first);
+    assert.equal(data[second]?.[0].summary, summary, second);
+    assert.ok(page.includes(`id="d-${first}"`) && page.includes(`id="d-${second}"`), `${first} and ${second} anchors`);
+  }
+  assert.ok(page.includes('<li id="d-IC-060">'), 'the first id keeps its anchor');
+  assert.ok(page.includes('See <a class="ref" href="#d-IC-061">IC-061</a> and <a class="ref" href="#d-CD-3">CD-3</a>.'), 'a later id of the run is linked to');
+});
+
+test('a mention links to the definition in its own document, else to the first one on the page', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': '# R\n\n| ID | Text |\n|---|---|\n| AB-1 | first |\n',
+    'design/design.md': '# D\n\n- **AB-1:** again\n\nSee AB-1.\n',
+    'plan.md': '# P\n\nSee AB-1.\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const doc = (key: string) => page.slice(page.indexOf(`id="doc-${key}"`), page.indexOf('</section>', page.indexOf(`id="doc-${key}"`)));
+  assert.ok(doc('design').includes('See <a class="ref" href="#d-AB-1">AB-1</a>.'), doc('design'));
+  assert.ok(doc('plan').includes('See <a class="ref" href="#r-AB-1">AB-1</a>.'), doc('plan'));
+});
+
+test('an undefined id and an unhyphenated short id defined in two documents stay plain', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': '# R\n\n| ID | Text |\n|---|---|\n| K1 | one |\n| S1 | only here |\n',
+    'design/design.md': '# D\n\n| ID | Text |\n|---|---|\n| K1 | another one |\n',
+    'plan.md': '# P\n\nK1, S1 and ZZ-9 here.\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  assert.ok(page.includes('<p>K1, <a class="ref" href="#r-S1">S1</a> and ZZ-9 here.</p>'), page);
+});
+
+test('a run of ids renders as one compact row and drops an empty item', () => {
+  const out = html('| ID | Text |\n|---|---|\n| AB-1 | first |\n| AB-2 | second |\n\n| Covers |\n|---|\n| AB-1; . |\n| AB-2, ZZ-9 |\n');
+  assert.ok(out.includes('<td><span class="ids"><a class="ref" href="#d-AB-1">AB-1</a></span></td>'), out);
+  assert.ok(out.includes('<td><span class="ids"><a class="ref" href="#d-AB-2">AB-2</a> ZZ-9</span></td>'), out);
+});
+
+test('the page carries one JSON block mapping each id to its document, summary and status', () => {
+  const long = 'word '.repeat(60).trim();
+  const { root, paths } = feature({
+    'intention/requirement.md': `# R\n\n| ID | Text | Status |\n|---|---|---|\n| AB-1 | first </script> <b>x</b> | Live |\n| AB-2 | ${long} | Draft |\n`,
+    'design/design.md': '# D\n\n### CD-2: a heading\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const blocks = page.match(/<script type="application\/json" id="page-ids">([\s\S]*?)<\/script>/g) || [];
+  assert.equal(blocks.length, 1);
+  assert.ok(!blocks[0].slice(0, -9).includes('<', 10), 'every < inside the block is escaped');
+  const data = JSON.parse(/id="page-ids">([\s\S]*?)<\/script>/.exec(page)![1]);
+  assert.deepEqual(data['AB-1'], [{ doc: 'Requirement', anchor: 'r-AB-1', summary: 'first </script> <b>x</b>', status: 'Live' }]);
+  assert.deepEqual(data['CD-2'], [{ doc: 'Design', anchor: 'd-CD-2', summary: 'a heading' }]);
+  assert.ok(data['AB-2'][0].summary.length <= 140 && data['AB-2'][0].summary.endsWith('…'), data['AB-2'][0].summary);
+});
+
+test('a status word and the values of an enumerated column render as labels', () => {
+  const out = html([
+    '| Item | State | Kind | Note | Size |', '|---|---|---|---|---|',
+    '| a | Live | alpha | a long note that runs well past twenty four characters | 3 |',
+    '| b | Superseded → AB-9 | beta | short | 12 |',
+    '| c | In review | alpha | short | 7 |', '',
+  ].join('\n'));
+  assert.ok(out.includes('<td><span class="tag tag--good">Live</span></td>'), out);
+  assert.ok(out.includes('<td><span class="tag tag--quiet">Superseded → AB-9</span></td>'), out);
+  assert.ok(out.includes('<td><span class="tag tag--info">In review</span></td>'), out);
+  const alpha = out.match(/<span class="tag tag--(n\d)">alpha<\/span>/g) || [];
+  assert.equal(alpha.length, 2);
+  assert.equal(alpha[0], alpha[1], 'one value always takes the same tone');
+  assert.match(out, /<span class="tag tag--n\d">beta<\/span>/);
+  assert.ok(out.includes('<td>short</td>'), 'a column with a long value is not enumerated');
+  assert.ok(out.includes('<td>12</td>'), 'a number column is not enumerated');
+  assert.ok(out.includes('<td>a</td>'), 'the first column is never a set of labels');
+  assert.match(out, /<div class="table-wrap" data-cols="5"><table>/);
+});
+
+test('a History section, up to the next heading of its level, starts closed', () => {
+  const out = html('# D\n\n## 3. History\n\nfirst\n\n### Older\n\n```text\n## not a heading\n```\n\n## 4. Next\n\n### History\n\nlast\n');
+  assert.match(out, /<details class="history"><summary><h2 id="design-3-history"><span class="num">3\.<\/span> History<\/h2><\/summary>\n<p>first<\/p>\n<h3 id="design-older">Older<\/h3>\n<pre><code>## not a heading<\/code><\/pre>\n<\/details>\n<h2 id="design-4-next"><span class="num">4\.<\/span> Next<\/h2>/);
+  assert.match(out, /<details class="history"><summary><h3 id="design-history">History<\/h3><\/summary>\n<p>last<\/p>\n<\/details>$/);
+});
+
+test('buildPage collects per-document counts on a field the --json result does not carry', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': '# R\n\n## 1. One\n\nfour words of text\n\n| ID | Text |\n|---|---|\n| AB-1 | x |\n| AB-2 | y |\n\n## 2. Two\n\n### Item 1: z\n\n- **R1:** w\n',
+    'design/design.md': `# D\n\n${DIAGRAM}`,
+  });
+  const result = buildPage({ paths, root, mode: 'source', now: NOW });
+  assert.deepEqual(result.counts, [
+    { key: 'requirement', label: 'Requirement', h2: 2, words: 20, tables: 1, diagrams: 0, ids: { AB: 2, Item: 1, R: 1 }, open: 0 },
+    { key: 'design', label: 'Design', h2: 0, words: 1, tables: 0, diagrams: 1, ids: {}, open: 0 },
+  ]);
+  assert.ok(!('counts' in JSON.parse(JSON.stringify(result))), 'the --json result shape is unchanged');
+});
+
+// Row 179: the page opens on an overview of the feature; state.md is the overview, not a document view.
+const STATE = [
+  '# State: 001-x (Pay with a code)', '',
+  '**Updated:** 2026-11-19 · **Stage:** design; FR-001 settled · **Next:** data-team meeting', '',
+  'The design was rebuilt.', '',
+  '## Status', '', '| Stage | State |', '|---|---|', '| Requirement | Baseline |', '',
+  '## Open, for decision owners', '', '| Item | Owner |', '|---|---|',
+  ...Array.from({ length: 9 }, (_v, k) => `| question ${k} | Product |`), '',
+  '## Next steps', '', '1. Meet the data team.', '2. Design the next part.', '',
+].join('\n');
+const REQUIREMENT = [
+  '# Feature Requirement: Pay with a <b>code</b>', '',
+  '**Feature:** 001-x · **Maturity:** Draft  ', '**Created:** 2026-11-04 · **Owner:** Kai', '',
+  '## 1. Summary', '', '| ID | Text |', '|---|---|', '| FR-001 | one |', '| FR-002 | two |', '| NFR-001 | fast |', '',
+  '## 7. Open Questions', '', '- first open question', '- second open question', '',
+].join('\n');
+const between = (page: string, from: string, to: string) => page.slice(page.indexOf(from), page.indexOf(to, page.indexOf(from)));
+
+test('the overview is the first view of main: name from an H1, state facts, Next and Open cards, one card per document', () => {
+  const { root, paths } = feature({
+    'state.md': STATE, 'intention/requirement.md': REQUIREMENT,
+    'design/design.md': '# Design: Pay with a code\n\n**Maturity:** In review\n\n## 1. Approach\n\n- **R1:** risk\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const main = page.slice(page.indexOf('<main'));
+  assert.match(main, /^<main id="main">\n<section class="view overview" id="overview" data-view="overview">/);
+  const overview = between(main, 'id="overview"', '</section>');
+  assert.ok(overview.includes('<h1 id="overview-name">Pay with a &lt;b&gt;code&lt;/b&gt;</h1>'), 'the name is the requirement title after its kind, escaped');
+  assert.ok(overview.includes('<code>001-x</code>'), 'the slug shows small');
+  assert.match(page, /<title>Pay with a &lt;b&gt;code&lt;\/b&gt;<\/title>/);
+  assert.ok(overview.includes('<div class="fact"><dt>Updated</dt><dd>2026-11-19</dd></div>'), overview);
+  assert.ok(overview.includes('<dt>Stage</dt><dd>design; <a class="ref" href="#r-FR-001">FR-001</a> settled</dd>'), 'an id in a fact links to its definition');
+  assert.ok(overview.includes('<dt>Next</dt><dd>data-team meeting</dd>'));
+  // The chain strip: one step per document, with its maturity label.
+  assert.match(overview, /<ol class="chain"[^>]*><li><a href="#doc-requirement" data-view-link="requirement">Requirement<span class="tag tag--warn">Draft<\/span><\/a><\/li><li><a href="#doc-design" data-view-link="design">Design<span class="tag tag--info">In review<\/span><\/a><\/li><\/ol>/);
+  // Next before Open, each its state section rendered in place; the long Open card clamps with a control that needs no script.
+  const next = overview.indexOf('data-card="next"');
+  const open = overview.indexOf('data-card="open"');
+  assert.ok(next > 0 && open > next, 'Next card then Open card');
+  assert.match(overview, /<div class="card card--next" data-card="next">\n<div class="clamp">\n<h2 id="state-next-steps">Next steps<\/h2>\n<ol>\n<li>Meet the data team\.<\/li>/);
+  assert.match(overview, /<div class="card card--open card--long" data-card="open">[\s\S]*question 8[\s\S]*<details class="more"><summary>/);
+  // One card per document, with ids per prefix and open items.
+  const cards = overview.match(/<a class="doc-card"[\s\S]*?<\/a>/g) || [];
+  assert.equal(cards.length, 2);
+  const [requirement = '', design = ''] = cards;
+  assert.ok(requirement.includes('<ul class="id-counts" aria-label="Ids defined"><li>FR <b>2</b></li><li>NFR <b>1</b></li></ul>'), requirement);
+  assert.ok(requirement.includes('<li>2 open</li>'), 'the items under Open Questions are counted');
+  assert.ok(requirement.includes('<li>2 sections</li>'));
+  assert.match(design, /<li>R <b>1<\/b><\/li>/);
+  // The rest of state.md follows, in its own order; the cards' sections are not repeated.
+  const rest = between(overview, '<div class="state-rest">', '</div>\n</section>');
+  assert.ok(rest.includes('The design was rebuilt.') && rest.includes('id="state-status"'), rest);
+  assert.ok(!rest.includes('state-next-steps') && !rest.includes('state-open-for-decision-owners'));
+});
+
+test('state.md is the overview, not a document view or a sidebar entry', () => {
+  const { root, paths } = feature({ 'state.md': STATE, 'intention/requirement.md': REQUIREMENT });
+  const result = buildPage({ paths, root, mode: 'source', now: NOW });
+  const page = fs.readFileSync(result.file, 'utf8');
+  assert.ok(!page.includes('id="doc-state"'));
+  assert.ok(!page.includes('data-view="state"') && !page.includes('data-view-link="state"'));
+  assert.equal(page.split('<h1 id="state-').length - 1, 0, 'the state title is not rendered');
+  assert.deepEqual(result.documents.map((d: any) => d.key), ['requirement', 'state'], 'the --json result still lists it');
+});
+
+test('a page without state or design still opens on an overview with the name, the chain and the document cards', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT, 'plan.md': '# Plan\n\n## 1. Tasks\n' });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const overview = between(page, 'id="overview"', '</section>');
+  assert.ok(overview.includes('<h1 id="overview-name">Pay with a &lt;b&gt;code&lt;/b&gt;</h1>'));
+  assert.ok(overview.includes('<dt>Created</dt><dd>2026-11-04</dd>'), 'without state, the requirement header facts');
+  assert.equal((overview.match(/<a class="doc-card"/g) || []).length, 2);
+  assert.ok(!overview.includes('data-card='), 'no Next or Open card without state');
+  const bare = feature({ 'plan.md': '# Plan\n' });
+  const plain = fs.readFileSync(buildPage({ paths: bare.paths, root: bare.root, mode: 'source', now: NOW }).file, 'utf8');
+  assert.ok(plain.includes('<h1 id="overview-name">001-x</h1>'), 'a title without a name falls back to the slug');
+});
+
+test('a document opens on a header band: label, its own H1 promoted once, its facts, maturity label and path', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const doc = between(page, 'id="doc-requirement"', '</section>');
+  assert.match(doc, /^id="doc-requirement" data-view="requirement">\n<header class="doc-head">\n<p class="kicker">Requirement<\/p>\n<h1 id="requirement-feature-requirement-pay-with-a-bcodeb">Feature Requirement: Pay with a &lt;b&gt;code&lt;\/b&gt;<\/h1>/);
+  assert.equal(doc.split('<h1').length - 1, 1, 'the H1 is not repeated in the body');
+  assert.ok(doc.includes('<dl class="facts"><div class="fact"><dt>Feature</dt><dd>001-x</dd></div><div class="fact"><dt>Created</dt>'), 'facts strip without the maturity');
+  assert.ok(doc.includes('<p class="doc-meta"><span class="tag tag--warn">Draft</span><code class="path">intention/requirement.md</code></p>'));
+  assert.ok(!doc.includes('**Feature:**') && !doc.includes('<p><strong>Feature:'), 'the facts paragraph is not in the body');
+  assert.match(doc, /<h2 id="requirement-1-summary"><span class="num">1\.<\/span> Summary<\/h2>/);
+  // Sidebar: the document with its level-2 sections, marked for the next task's script.
+  assert.match(page, /<li class="nav-doc" data-view="requirement"><a href="#doc-requirement" data-view-link="requirement"><span>Requirement<\/span><span class="tag tag--warn">Draft<\/span><\/a><ol class="nav-secs">/);
+});
+
+test('the app bar carries the name, the slug and the controls, and no render counts or generation details', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT, 'design/design.md': `# Design\n\n${DIAGRAM}` });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const bar = between(page, '<header class="appbar">', '</header>');
+  assert.ok(bar.includes('<span class="name">Pay with a &lt;b&gt;code&lt;/b&gt;</span><code class="slug">001-x</code>'));
+  assert.ok(bar.includes('placeholder="Filter sections and ids"') && bar.includes('data-theme-toggle'));
+  assert.ok(!/document|diagram|generated|UTC|\d{4}-\d{2}-\d{2}/i.test(bar.replace(/data-[a-z-]+/g, '')), bar);
+  assert.match(page, /<footer class="foot">Generated 2026-11-14 10:20 UTC/);
+});
+
+// Row 179: the page's own script moves the reader through it; without the script every view stays visible.
+const pageScript = (page: string) => /<script>\n([\s\S]*?)\n<\/script>/.exec(page)?.[1] ?? '';
+
+test('the page carries exactly one inline script, holding view switching, scroll tracking, the filter and the viewer', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': REQUIREMENT,
+    'design/design.md': `# Design\n\nA <img src=x onerror=alert(1)> and <a href="#" onclick="x()">y</a>.\n\n${DIAGRAM}`,
+  });
+  const render = () => '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
+  for (const mode of ['source', 'inline']) {
+    const page = fs.readFileSync(buildPage({ paths, root, mode, render, now: NOW }).file, 'utf8');
+    const executable = (page.match(/<script\b[^>]*>/g) || []).filter((tag: string) => !tag.includes('type="application/json"'));
+    assert.deepEqual(executable, ['<script>'], mode);
+    assert.ok(!/<script[^>]*\ssrc=/.test(page), 'no external script outside cdn');
+    const body = pageScript(page);
+    assert.doesNotThrow(() => new Function(body), 'the script parses');
+    for (const piece of ["'until-found'", "'beforematch'", "addEventListener('scroll'", "'[data-filter]'", 'showModal()', 'Open full size', "'wheel'"]) {
+      assert.ok(body.includes(piece), `${mode}: ${piece}`);
+    }
+    assert.ok(!/\beval\(|new Function|innerHTML|outerHTML|insertAdjacentHTML|document\.write/.test(body), 'text reaches the page only through textContent');
+    // The views ship visible; only the script hides all but the current one.
+    assert.ok(!/<section class="view[^>]*\shidden/.test(page));
+    const markup = page.replace(/<script>[\s\S]*?<\/script>/, '');
+    assert.ok(!/<[a-z][^>]*\son[a-z]+\s*=/i.test(markup), 'no inline event-handler attribute');
+  }
+});
+
+test('the filter and theme controls ship hidden and the script shows them; the theme applies before the body', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const bar = between(page, '<header class="appbar">', '</header>');
+  assert.match(bar, /<input class="filter" type="search"[^>]*data-filter hidden>/);
+  assert.match(bar, /<button class="theme" type="button"[^>]*data-theme-toggle hidden>/);
+  assert.match(bar, /<a class="nav-toggle" href="#sidebar"[^>]*data-nav-toggle>/, 'the drawer opens through :target without the script');
+  const body = pageScript(page);
+  assert.ok(body.includes("filter.removeAttribute('hidden')") && body.includes("toggle.removeAttribute('hidden')"));
+  // The script sits in the head and applies the stored theme before it waits for the document.
+  assert.ok(page.indexOf('<script>') < page.indexOf('<body>'));
+  assert.ok(body.indexOf('applyTheme(storedTheme())') < body.indexOf("'DOMContentLoaded'"));
+  assert.match(body, /try \{ var t = localStorage\.getItem/, 'storage is guarded: a file page may refuse it');
+});
+
+// A small DOM stand-in for running the page script on a built page: the page's markup parsed into
+// elements, the selectors the script uses, events through capture and bubble, and focus that lands only
+// on a focusable element. Layout is absent: every box is empty unless a test gives an element rects.
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+const decode = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+
+class FakeNode {
+  nodeType = 0;
+  parentNode: any = null;
+  listeners: any[] = [];
+  addEventListener(type: string, fn: any, opts?: any) { this.listeners.push({ type, fn, capture: opts === true || !!(opts && opts.capture) }); }
+  get nextSibling(): any { const p = this.parentNode; return p ? p.childNodes[p.childNodes.indexOf(this) + 1] || null : null; }
+}
+class FakeText extends FakeNode {
+  data: string;
+  constructor(data: string) { super(); this.nodeType = 3; this.data = data; }
+  get textContent() { return this.data; }
+}
+class FakeElement extends FakeNode {
+  doc: any;
+  tagName: string;
+  attrs = new Map<string, string>();
+  childNodes: any[] = [];
+  style: any = {};
+  rects: any[] = [];
+  typed = '';
+  constructor(doc: any, tag: string) { super(); this.nodeType = 1; this.doc = doc; this.tagName = tag.toUpperCase(); }
+  getAttribute(name: string) { return this.attrs.has(name) ? this.attrs.get(name)! : null; }
+  setAttribute(name: string, value: any) { this.attrs.set(name, String(value)); }
+  removeAttribute(name: string) { this.attrs.delete(name); }
+  hasAttribute(name: string) { return this.attrs.has(name); }
+  toggleAttribute(name: string, force?: boolean) {
+    const on = force === undefined ? !this.attrs.has(name) : !!force;
+    if (!on) this.attrs.delete(name); else if (!this.attrs.has(name)) this.attrs.set(name, '');
+    return on;
+  }
+  get id(): any { return this.getAttribute('id') || ''; }
+  set id(v: any) { this.setAttribute('id', v); }
+  get className(): any { return this.getAttribute('class') || ''; }
+  set className(v: any) { this.setAttribute('class', v); }
+  get title(): any { return this.getAttribute('title') || ''; }
+  set title(v: any) { this.setAttribute('title', v); }
+  get type(): any { return this.getAttribute('type') || ''; }
+  set type(v: any) { this.setAttribute('type', v); }
+  get tabIndex(): any { return Number(this.getAttribute('tabindex') ?? -1); }
+  set tabIndex(v: any) { this.setAttribute('tabindex', v); }
+  get hidden(): any { return this.hasAttribute('hidden'); }
+  set hidden(v: any) { this.toggleAttribute('hidden', !!v); }
+  get open(): any { return this.hasAttribute('open'); }
+  set open(v: any) { this.toggleAttribute('open', !!v); }
+  get value(): any { return this.typed; }
+  set value(v: any) { this.typed = String(v); }
+  get classList() {
+    const names = () => this.className.split(/\s+/).filter(Boolean);
+    return {
+      contains: (c: string) => names().includes(c),
+      toggle: (c: string, force?: boolean) => {
+        const on = force === undefined ? !names().includes(c) : !!force;
+        this.className = [...names().filter((n: string) => n !== c), ...(on ? [c] : [])].join(' ');
+        return on;
+      },
+    };
+  }
+  get children(): any[] { return this.childNodes.filter((n) => n.nodeType === 1); }
+  get firstElementChild(): any { return this.children[0] || null; }
+  get firstChild(): any { return this.childNodes[0] || null; }
+  get parentElement(): any { return this.parentNode && this.parentNode.nodeType === 1 ? this.parentNode : null; }
+  get textContent(): any { return this.childNodes.map((n) => n.textContent).join(''); }
+  set textContent(v: any) {
+    for (const n of this.childNodes) n.parentNode = null;
+    this.childNodes = [];
+    if (v != null && v !== '') this.appendChild(new FakeText(String(v)));
+  }
+  insertBefore(node: any, ref: any) {
+    if (node.parentNode) node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1);
+    const at = ref ? this.childNodes.indexOf(ref) : -1;
+    if (at < 0) this.childNodes.push(node); else this.childNodes.splice(at, 0, node);
+    node.parentNode = this;
+    return node;
+  }
+  appendChild(node: any) { return this.insertBefore(node, null); }
+  append(...nodes: any[]) { for (const n of nodes) this.appendChild(typeof n === 'string' ? new FakeText(n) : n); }
+  contains(node: any) { for (let x = node; x; x = x.parentNode) if (x === this) return true; return false; }
+  matches(sel: string) { return matchesSelector(this, sel, null); }
+  closest(sel: string) { for (let x: any = this; x && x.nodeType === 1; x = x.parentNode) if (x.matches(sel)) return x; return null; }
+  querySelectorAll(sel: string): any[] { return descendants(this).filter((el) => matchesSelector(el, sel, this)); }
+  querySelector(sel: string): any { return this.querySelectorAll(sel)[0] || null; }
+  getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
+  getClientRects() { return this.rects; }
+  scrollIntoView() {}
+  focus() {
+    const focusable = this.hasAttribute('tabindex') || /^(INPUT|BUTTON|SELECT|TEXTAREA)$/.test(this.tagName) || (this.tagName === 'A' && this.hasAttribute('href'));
+    const was = this.doc.activeElement;
+    if (!focusable || was === this) return;
+    this.doc.activeElement = this;
+    if (was && was !== this.doc.body) fire(was, 'focusout');
+    fire(this, 'focusin');
+  }
+  blur() {
+    if (this.doc.activeElement !== this) return;
+    this.doc.activeElement = this.doc.body;
+    fire(this, 'focusout');
+  }
+  showModal() { this.open = true; }
+  close() { if (this.open) { this.open = false; fire(this, 'close', {}, false); } }
+}
+class FakeDocument extends FakeElement {
+  readyState = 'complete';
+  activeElement: any = null;
+  defaultView: any = null;
+  documentElement: any = null;
+  body: any = null;
+  constructor() { super(null, '#document'); this.nodeType = 9; this.doc = this; }
+  createElement(tag: string) { return new FakeElement(this, tag); }
+  getElementById(id: string) { return descendants(this).find((el) => el.getAttribute('id') === id) || null; }
+}
+class FakeWindow extends FakeNode {
+  innerHeight = 800;
+  scrollY = 0;
+  scrollTo() {}
+}
+
+function descendants(root: any): any[] {
+  const out: any[] = [];
+  const walk = (node: any) => { for (const child of node.children) { out.push(child); walk(child); } };
+  walk(root);
+  return out;
+}
+/** A selector list split at its top-level commas, with each `:is(a,b)` expanded into its alternatives. */
+function alternatives(sel: string): string[] {
+  const parts: string[] = [];
+  let depth = 0, part = '';
+  for (const ch of sel) {
+    if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth--;
+    if (ch === ',' && depth === 0) { parts.push(part); part = ''; } else part += ch;
+  }
+  parts.push(part);
+  const expand = (s: string): string[] => {
+    const m = /:is\(([^()]*)\)/.exec(s);
+    return m ? m[1].split(',').flatMap((alt) => expand(s.slice(0, m.index) + alt.trim() + s.slice(m.index + m[0].length))) : [s.trim()];
+  };
+  return parts.flatMap(expand);
+}
+function matchesCompound(el: any, compound: string, scope: any): boolean {
+  let rest = compound;
+  const tag = /^(?:[a-zA-Z][\w-]*|\*)/.exec(rest);
+  if (tag) {
+    if (tag[0] !== '*' && el.tagName !== tag[0].toUpperCase()) return false;
+    rest = rest.slice(tag[0].length);
+  }
+  while (rest) {
+    let m: RegExpExecArray | null;
+    if ((m = /^\.([\w-]+)/.exec(rest))) { if (!el.classList.contains(m[1])) return false; }
+    else if ((m = /^#([\w-]+)/.exec(rest))) { if (el.getAttribute('id') !== m[1]) return false; }
+    else if ((m = /^\[([\w-]+)(?:=(?:"([^"]*)"|([^\]]*)))?\]/.exec(rest))) {
+      const value = el.getAttribute(m[1]);
+      const want = m[2] ?? m[3];
+      if (value === null || (want !== undefined && value !== want)) return false;
+    } else if ((m = /^:not\(([^()]*)\)/.exec(rest))) { if (matchesCompound(el, m[1], scope)) return false; }
+    else if ((m = /^:scope/.exec(rest))) { if (el !== scope) return false; }
+    else throw new Error(`the DOM stand-in does not read the selector ${compound}`);
+    rest = rest.slice(m[0].length);
+  }
+  return true;
+}
+function matchesSelector(el: any, sel: string, scope: any): boolean {
+  return alternatives(sel).some((alt) => {
+    const steps: Array<{ compound: string; combinator: string }> = [];
+    let combinator = ' ';
+    for (const token of alt.split(/\s*(>)\s*|\s+/)) {
+      if (!token) continue;
+      if (token === '>') { combinator = '>'; continue; }
+      steps.push({ compound: token, combinator });
+      combinator = ' ';
+    }
+    const match = (node: any, i: number): boolean => {
+      if (!matchesCompound(node, steps[i].compound, scope)) return false;
+      if (i === 0) return true;
+      if (steps[i].combinator === '>') return !!node.parentElement && match(node.parentElement, i - 1);
+      for (let p = node.parentElement; p; p = p.parentElement) if (match(p, i - 1)) return true;
+      return false;
+    };
+    return match(el, steps.length - 1);
+  });
+}
+/** Dispatch an event: capture listeners from the window down, the target's own, then bubble back up. */
+function fire(target: any, type: string, init: any = {}, bubbles = true) {
+  const event: any = { type, target, button: 0, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; }, ...init };
+  const path: any[] = [];
+  for (let x = target; x; x = x.parentNode) path.push(x);
+  if (path[path.length - 1].defaultView) path.push(path[path.length - 1].defaultView);
+  const call = (node: any, capture: boolean | null) => node.listeners
+    .filter((l: any) => l.type === type && (capture === null || l.capture === capture)).forEach((l: any) => l.fn.call(node, event));
+  for (let i = path.length - 1; i > 0; i--) call(path[i], true);
+  call(path[0], null);
+  if (bubbles) for (let i = 1; i < path.length; i++) call(path[i], false);
+  return event;
+}
+/** The page's markup as stand-in elements; generated markup is well formed, so no repair is needed. */
+function parseHtml(page: string) {
+  const doc = new FakeDocument();
+  let at: any = doc;
+  const token = /<!--[\s\S]*?-->|<!doctype[^>]*>|<\/([a-zA-Z][\w-]*)\s*>|<([a-zA-Z][\w-]*)((?:\s+[^\s=>]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>|[^<]+|</gi;
+  for (let m = token.exec(page); m; m = token.exec(page)) {
+    if (m[1]) {
+      const tag = m[1].toUpperCase();
+      for (let x = at; x && x !== doc; x = x.parentNode) if (x.tagName === tag) { at = x.parentNode; break; }
+    } else if (m[2]) {
+      const el = doc.createElement(m[2]);
+      for (const a of (m[3] || '').matchAll(/([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) el.setAttribute(a[1].toLowerCase(), decode(a[2] ?? a[3] ?? a[4] ?? ''));
+      at.appendChild(el);
+      const tag = m[2].toLowerCase();
+      if (tag === 'script' || tag === 'style') {
+        const end = page.indexOf(`</${tag}>`, token.lastIndex);
+        el.appendChild(new FakeText(page.slice(token.lastIndex, end)));
+        token.lastIndex = end + tag.length + 3;
+      } else if (!VOID_TAGS.has(tag) && !m[0].endsWith('/>')) at = el;
+    } else if (!m[0].startsWith('<!')) at.appendChild(new FakeText(decode(m[0])));
+  }
+  doc.documentElement = doc.querySelector('html');
+  doc.body = doc.querySelector('body');
+  doc.activeElement = doc.body;
+  return doc;
+}
+/** Run a built page's script on the stand-in; `flush` runs the animation frames and timers it queued. */
+function runPage(page: string) {
+  const document = parseHtml(page);
+  const window = new FakeWindow();
+  document.defaultView = window;
+  const location = { hash: '' };
+  const frames: any[] = [];
+  const timers = new Map<number, any>();
+  let timer = 0;
+  vm.runInNewContext(pageScript(page), {
+    document, window, location, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
+    history: { pushState(_s: any, _t: any, hash: string) { location.hash = hash; }, replaceState(_s: any, _t: any, hash: string) { location.hash = hash; } },
+    requestAnimationFrame: (fn: any) => frames.push(fn),
+    setTimeout: (fn: any) => { timers.set(++timer, fn); return timer; },
+    clearTimeout: (id: number) => { timers.delete(id); },
+  });
+  const flush = () => {
+    for (const fn of frames.splice(0)) fn();
+    for (const [id, fn] of [...timers]) { timers.delete(id); fn(); }
+  };
+  const navigate = (hash: string) => { location.hash = hash; fire(window, 'hashchange', {}, false); };
+  return { document, window, flush, navigate, $: (sel: string) => document.querySelector(sel), $$: (sel: string) => document.querySelectorAll(sel) };
+}
+const builtPage = (files: Record<string, string>) => {
+  const { root, paths } = feature(files);
+  return fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+};
+
+test('a filter that matches only ids leaves the sidebar whole, and the ids stay in the list', () => {
+  const p = runPage(builtPage({ 'intention/requirement.md': REQUIREMENT }));
+  const filter = p.$('[data-filter]');
+  const type = (text: string) => { filter.value = text; fire(filter, 'input'); };
+  const missing = () => p.$$('.sidebar li.nav-doc[data-miss]').map((li: any) => li.getAttribute('data-view'));
+  type('summary');
+  assert.deepEqual(missing(), ['overview'], 'a section match still narrows the sidebar');
+  type('FR-001');
+  assert.deepEqual(missing(), [], 'no document is hidden when only ids match');
+  assert.equal(p.$$('.sidebar li.nav-sec[data-miss]').length, 0);
+  assert.ok(p.$('#filter-results a[href="#r-FR-001"]'), 'the id match is in the list');
+});
+
+test('the brand link keeps the feature name as its accessible name when the narrow bar hides the name', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  assert.ok(page.includes('<a class="brand" href="#overview" data-view-link="overview" aria-label="Pay with a &lt;b&gt;code&lt;/b&gt;">'), between(page, '<header class="appbar">', '</header>'));
+});
+
+test('print shows every History section and closes again the ones the reader had closed', () => {
+  const page = builtPage({ 'design/design.md': '# D\n\n## 1. History\n\nold\n\n## 2. Other\n\n### History\n\nolder\n' });
+  const p = runPage(page);
+  const [first, second] = p.$$('details.history');
+  second.open = true;
+  fire(p.window, 'beforeprint', {}, false);
+  assert.ok(first.open && second.open, 'both open for print');
+  fire(p.window, 'afterprint', {}, false);
+  assert.ok(!first.open, 'the closed one closes again');
+  assert.ok(second.open, 'the one the reader opened stays open');
+  // Without the script, a browser that knows ::details-content still prints the content.
+  assert.ok(between(page, '@media print{', '\n}').includes('details.history::details-content{content-visibility:visible}'));
+});
+
+test('every label tone in light mode reads at 4.5:1 or more against its own background', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  const luminance = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((sum, v, k) => sum + v * [0.2126, 0.7152, 0.0722][k], 0);
+  const tones = [...page.matchAll(/\.tag--(\w+)\{--tb:(#[0-9a-f]{6});--tf:(#[0-9a-f]{6});/g)];
+  assert.ok(tones.length >= 11, `${tones.length} tones`);
+  for (const [, tone, bg, fg] of tones) {
+    const [hi, lo] = [luminance(bg), luminance(fg)].sort((a, b) => b - a);
+    const ratio = (hi + 0.05) / (lo + 0.05);
+    assert.ok(ratio >= 4.5, `${tone}: ${ratio.toFixed(2)}:1`);
+  }
+});
+
+test('the viewer stage, which takes focus so arrow keys pan it, shows a focus ring for the keyboard', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  assert.ok(page.includes('.viewer-stage:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}'));
+});
+
+const RUNS = '# D\n\n## 1. Approach\n\n- **IC-060, IC-061:** Before, the path said one thing\n\n### CD-2 and CD-3 — a heading\n\nSee IC-061 and CD-3.\n';
+
+test('reaching an id anchored by an empty span marks its item or heading, not the empty span', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const hits = () => p.$$('[data-hit]').map((el: any) => `${el.tagName}#${el.id}`);
+  p.navigate('#d-IC-061');
+  assert.deepEqual(hits(), ['LI#d-IC-060'], 'a later id of a bullet run marks the bullet');
+  p.navigate('#d-CD-2');
+  assert.deepEqual(hits(), ['H3#design-cd-2-and-cd-3-a-heading'], 'an id-led heading is marked');
+  p.navigate('#d-IC-060');
+  assert.deepEqual(hits(), ['LI#d-IC-060']);
+  p.navigate('#design-cd-2-and-cd-3-a-heading');
+  assert.deepEqual(hits(), [], 'a heading reached as a section is not marked');
+});
+
+test('Escape hides the hover card an id link shows', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const link = p.$('p a.ref[href="#d-IC-061"]');
+  const card = p.document.getElementById('ref-card');
+  link.focus();
+  assert.equal(card.hidden, false, 'focus shows the card');
+  assert.equal(link.getAttribute('aria-describedby'), 'ref-card');
+  fire(link, 'keydown', { key: 'Escape' });
+  assert.equal(card.hidden, true);
+  assert.equal(link.getAttribute('aria-describedby'), null);
+});
+
+test('a filter match taken by Enter or a click moves focus to its target, not to the page body', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const filter = p.$('[data-filter]');
+  const focused = () => `${p.document.activeElement.tagName}#${p.document.activeElement.id}`;
+  filter.focus();
+  filter.value = 'IC-061';
+  fire(filter, 'input');
+  fire(filter, 'keydown', { key: 'Enter' });
+  assert.equal(focused(), 'LI#d-IC-060', 'the item the id is anchored in takes focus');
+  assert.equal(p.$('#d-IC-060').getAttribute('tabindex'), '-1');
+  filter.focus();
+  filter.value = 'approach';
+  fire(filter, 'input');
+  fire(p.$('#filter-results a[href="#design-1-approach"]'), 'click');
+  assert.equal(focused(), 'H2#design-1-approach', 'a section match focuses its heading');
+});
+
+test('the current view and section carry aria-current, set and removed with data-current', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const current = () => p.$$('.sidebar [aria-current]').map((a: any) => `${a.getAttribute('href')}=${a.getAttribute('aria-current')}`);
+  assert.deepEqual(current(), ['#overview=page']);
+  p.navigate('#d-IC-061');
+  assert.deepEqual(current(), ['#doc-design=page']);
+  const heading = p.$('#design-1-approach');
+  heading.rects = [{ top: 50 }];
+  fire(p.window, 'scroll', {}, false);
+  p.flush();
+  assert.deepEqual(current(), ['#doc-design=page', '#design-1-approach=location']);
+  assert.ok(p.$('li.nav-sec[data-section="design-1-approach"]').hasAttribute('data-current'));
+  heading.rects = [{ top: 500 }];
+  fire(p.window, 'scroll', {}, false);
+  p.flush();
+  assert.deepEqual(current(), ['#doc-design=page']);
+});
+
+test('smooth scrolling applies only when the reader has not asked for reduced motion', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  assert.ok(page.includes('@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}'));
+  assert.equal(page.split('scroll-behavior:smooth').length - 1, 1, 'nowhere else');
 });

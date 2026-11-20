@@ -96,7 +96,7 @@ Branch on `outcome`, not the exit code.
      ```bash
      "$DOFLOW" evidence --task-id "<slug>" --action add --batch <batch>.json --json
      "$DOFLOW" readiness --task-class "<template from step 2>" --task-id "<slug>" --mode workflow \
-       --verification-plan "<plan.md §7 Validation Strategy>" --scope "<comma-separated paths from plan.md §4>" --json
+       --verification-plan "<plan.md §6 Validation Strategy>" --scope "<comma-separated paths from plan.md §4>" --json
      ```
      The batch holds one item: `kind` `structural` or `semantic-retrieval`, `provenance`
      `extracted`, `locator` a file in this repository (`plan.md`), `establishes`

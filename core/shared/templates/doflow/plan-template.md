@@ -7,11 +7,11 @@
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
 > `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level
-> `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §9.
+> `Status` is only `Live` or `Superseded → <ref>`, and superseded prose moves to §8.
 
-## 1. Approach
+## 1. Implementation Approach
 
-[Chosen approach in 2–4 sentences; the key technical decisions.]
+[How the work is built, in 2–4 sentences: the order and the strategy. Each decision it rests on is a §3 row.]
 
 ## 2. Constitution Check (GATE)
 
@@ -38,13 +38,9 @@
 
 **Detail**
 
-- **CH1** → [what changes and why, in full].
+- **CH1** → [what changes and why, in full; the `IC-###` contracts of specs.md and the data-model.md entities it implements or touches, by id and name].
 
-## 5. Data / Contracts
-
-[schema, API, or interface pointers — or `N/A: [why]`.]
-
-## 6. Risks & Mitigations
+## 5. Delivery Risks & Mitigations
 
 | ID | Risk | Mitigation | Status |
 |---|---|---|---|
@@ -54,13 +50,13 @@
 
 - **RK1** → [how it would actually manifest, and what the mitigation does or does not cover].
 
-## 7. Validation Strategy
+## 6. Validation Strategy
 
 | Requirement | Verified by |
 |---|---|
 | FR-001 | [test, manual check, or gate] |
 
-## 8. Tasks
+## 7. Tasks
 
 > Dependency-ordered. `[P]` = parallel-safe with its phase siblings — siblings marked `[P]` must
 > write disjoint `files:`, or they are not parallel-safe. `[US#]` = traces to a
@@ -144,7 +140,7 @@ flowchart LR
 - [ ] Validation gates pass
 - [ ] state.md updated
 
-## 9. History
+## 8. History
 
 <!-- Superseded decisions or tasks move here; the index row above stays as a tombstone with
      `Superseded → <ref>`. -->

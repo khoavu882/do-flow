@@ -231,6 +231,16 @@ describe('single-task mode', () => {
     noEmptyBodies(bare);
   });
 
+  test('the Validation Strategy rows are found by title when the plan numbers it 6 and Tasks 7', () => {
+    const f = fixture();
+    const renumbered = PLAN.replace('## 7. Validation Strategy', '## 6. Validation Strategy').replace('## 8. Tasks', '## 7. Tasks');
+    assert.match(renumbered, /^## 6\. Validation Strategy$/m);
+    fs.writeFileSync(path.join(f.project, 'agent-docs', 'doflow', FEATURE, 'plan.md'), renumbered);
+    const res = f.brief(['--task=A.1', `--slug=${FEATURE}`]);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(f.read(`${EXEC}/task-A.1-brief.md`), /## Success criteria\n- \| FR-001 \| integration test on the login route \|\n/);
+  });
+
   test('a document that holds frame tags cannot close or open a section of the brief', () => {
     const f = fixture();
     const reqPath = path.join(f.project, 'agent-docs', 'doflow', FEATURE, 'intention', 'requirement.md');

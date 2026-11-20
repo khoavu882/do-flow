@@ -7,12 +7,12 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 # prose sections. It is COMPOSED from six sources (design §5.2), plus specs.md when the
 # feature has one:
 #
-#   where this fits    plan.md §1 Approach + the task's own "### Phase X" heading
+#   where this fits    plan.md §1 Implementation Approach + the task's own "### Phase X" heading
 #   requirements       requirement.md §3 FR detail for the FRs the task's [US#] traces
 #   why                requirement.md §2 story text for that [US#]
 #   global constraints requirement.md §4 — ALL NFR detail; NFRs bind every task
 #   component boundary design.md "Components & Boundaries" detail for components serving those FRs
-#   verification bar   plan.md §7 rows for those FRs + the phase's Checkpoints line
+#   verification bar   plan.md Validation Strategy rows for those FRs + the phase's Checkpoints line
 #   interface contracts specs.md §1 in full — only when the resolver reports has_specs
 #
 # The brief becomes the single source of the task's exact values, so no subagent needs
@@ -226,9 +226,9 @@ specs_text() {
   section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
 }
 
-bar_rows() { # bar_rows <FR ids> <phase letter>: plan.md section 7 rows of those FRs, then the phase's checkpoint line
+bar_rows() { # bar_rows <FR ids> <phase letter>: plan.md Validation Strategy rows (found by title, under either numbering) of those FRs, then the phase's checkpoint line
   local fr
-  for fr in $1; do section "$plan_abs" '^## 7[.]' | grep -F "| $fr |" || true; done
+  for fr in $1; do section "$plan_abs" '^## [0-9]+[.] Validation' | grep -F "| $fr |" || true; done
   if [ -n "$2" ]; then grep -F "After Phase $2:" "$plan_abs" | sed 's/^- //' || true; fi
 }
 
@@ -505,7 +505,7 @@ if [ "$mode" = "task" ]; then
   task_line="$(awk -v id="$task_id" '
     $0 ~ "^- \\[[ x]\\] " id "([^0-9]|$)" { print; exit }' "$plan_abs")"
   if [ -z "$task_line" ]; then
-    jq -n --arg id "$task_id" '{error:"task-not-found", task_id:$id, hint:"no \"- [ ] <id>\" line in plan.md section 8"}'
+    jq -n --arg id "$task_id" '{error:"task-not-found", task_id:$id, hint:"no \"- [ ] <id>\" line in the plan.md Tasks section"}'
     exit 3
   fi
   phase_heading="$(awk -v id="$task_id" '

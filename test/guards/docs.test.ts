@@ -99,7 +99,8 @@ test('G6: specs-template.md provides technical scaffolding for endpoints and rep
   // split by feature 027-design-artifact-restructure: the schema/ER/UX scaffolding below moved out
   // of specs-template.md §2 into its own data-model-template.md, checked separately below.
   const specsTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/specs-template.md'), 'utf8');
-  assert.ok(specsTmpl.includes('endpoint / cli-verb / schema / file-format'), 'specs template must scaffold the endpoint/cli-verb/schema Kind vocabulary');
+  // Row 179 widened the template header to UI component props and events and model tool or prompt schemas, so the Kind list names them too.
+  assert.ok(specsTmpl.includes('endpoint / cli-verb / schema / file-format / ui-component / tool-schema'), 'specs template must scaffold the endpoint/cli-verb/schema/file-format/ui-component/tool-schema Kind vocabulary');
   assert.ok(specsTmpl.includes('repository/service interface'), 'specs template must scaffold Repository/service interfaces');
 });
 
@@ -112,12 +113,17 @@ test('G6: data-model-template.md provides technical scaffolding for schemas and 
   assert.ok(dataModelTmpl.includes('### UX / UI Specifications'), 'data-model template must scaffold UX/UI specifications');
 });
 
-test('G6: design-template.md points API / Interface Contracts at specs.md and Data Model / Sequence at data-model.md instead of duplicating their content', () => {
+test('G6: design-template.md points at specs.md and data-model.md in one line under Components & Boundaries instead of duplicating their content', () => {
+  // Row 179: design.md carries no section of its own for contracts, the data model or the flows (the
+  // user ruled out pointer sections too); the one cross-reference line lives inside §5, so the
+  // pointer assertions read that section rather than the whole file. G92 owns the one-owner rule.
   const dsgTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/design-template.md'), 'utf8');
   assert.ok(!dsgTmpl.includes('### Endpoints'), 'design template must not re-duplicate API Endpoints scaffolding now owned by specs.md');
   assert.ok(!dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must not re-duplicate Repository interfaces scaffolding now owned by specs.md');
-  assert.ok(dsgTmpl.includes('specs.md'), 'design template API / Interface Contracts must point at specs.md');
-  assert.ok(dsgTmpl.includes('data-model.md'), 'design template Data Model and Sequence / Data Flow must point at data-model.md');
+  const components = dsgTmpl.split(/^## /m).find((part: string) => /^\d+\. Components & Boundaries/.test(part)) ?? '';
+  const line = components.split('\n').find((l: string) => l.includes('./specs.md') && l.includes('./data-model.md')) ?? '';
+  assert.match(line, /specs\.md` §1/, 'design template Components & Boundaries must point at specs.md §1 for the interface contracts');
+  assert.match(line, /data-model\.md` §1 and §2/, 'design template Components & Boundaries must point at data-model.md §1 and §2 for the data model and its flows');
 });
 
 
