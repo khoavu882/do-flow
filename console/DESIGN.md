@@ -278,7 +278,7 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.layers-crumb`, `.layers-foot`, `.layers-head`, `.layers-inspect`, `.layers-lanes`, `.layers-link`
 `.layers-none`, `.layers-note`, `.layers-section`, `.layers-sections`, `.layers-stream`
 `.layers-title`, `.layers-unreadable`, `.logpane`, `.lrow`, `.masked`, `.matrix`, `.model-chip`
-`.mono`, `.more`, `.mtable`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`
+`.mono`, `.more`, `.mtable`, `.navrail`, `.noscript`, `.ov-check`, `.ov-cross`, `.ov-forced`
 `.page`, `.pair`, `.palette`, `.pause`, `.project-list`, `.rail`, `.rail-detail`, `.rail-fallback`
 `.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
 `.run-rail`, `.run-row`, `.run-section`, `.saved-filters`, `.sbar`, `.segmented`, `.sessions`
