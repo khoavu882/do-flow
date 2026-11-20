@@ -16,6 +16,7 @@ import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle, pairFailure,
 } from './states.js';
 import { parsePairFragment, createPairPage } from './views/pair.js';
+import { syncWatch } from './views/home.js';
 import { CORE_RANGE, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
 import { onRefetch, closeConfirm, isConfirmOpen, pruneActionAreas, releaseActionAreas } from './views/confirm.js';
@@ -1120,6 +1121,8 @@ function boot() {
         Promise.resolve().then(refreshStatus);
       }
     });
+    // A stored notification opt-in, still allowed, follows the gates from app start, whichever view opens first (180 review B-4).
+    syncWatch();
     startView(parseRoute(globalThis.location.hash), { first: true });
     if (!document.hidden) startTick();
   } finally {

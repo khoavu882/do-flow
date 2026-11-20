@@ -172,7 +172,8 @@ function connectHome(local, params, hooks) {
 /**
  * The page's store closes its stream while the tab is hidden (store.js, DEC-016), so a hidden tab hears nothing. Once the person
  * switched notifications on, a second store follows `machine` only while the tab is hidden: its visibility is the page's, turned
- * over, so it is never open beside the page's own; it stops following when the switch goes off. It lives for the page, not for Now.
+ * over, so it is never open beside the page's own; it stops following when the switch goes off. It lives for the page, not for Now:
+ * app start begins it for a stored opt-in (180 review B-4), and Now's start finds it running and starts no second one.
  */
 const watch = { store: /** @type {any} */ (null), off: /** @type {(() => void) | null} */ (null) };
 
@@ -804,5 +805,5 @@ function skeletonHome() {
 }
 
 export {
-  loadHome, homeOf, connectHome, renderHome, skeletonHome, homeKey, tickHome, teardownHome, resetHome, shownRuns, homeEmpty, FINISHED_CAP, WORKFLOWS_RETRY_MS, LOOK_MS,
+  loadHome, homeOf, connectHome, renderHome, skeletonHome, homeKey, tickHome, teardownHome, resetHome, syncWatch, shownRuns, homeEmpty, FINISHED_CAP, WORKFLOWS_RETRY_MS, LOOK_MS,
 };

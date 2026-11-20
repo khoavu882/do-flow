@@ -187,7 +187,7 @@ function tags(node: any): string[] {
   return node.children.flatMap((c: any) => (c instanceof El ? [c.tagName.toLowerCase(), ...tags(c)] : []));
 }
 
-const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource', 'matchMedia'];
+const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource', 'matchMedia', 'Notification'];
 let saved: Map<string, PropertyDescriptor | undefined> | null = null;
 
 function setGlobal(name: string, value: unknown) {
@@ -209,7 +209,7 @@ type Page = {
 };
 
 /** The page of index.html as the shell finds it, a fake window around it, and a scripted fetch. */
-function installPage(opts: { hash?: string, stored?: string | null, throwStorage?: boolean, eventSource?: unknown, width?: number, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
+function installPage(opts: { hash?: string, stored?: string | null, storage?: Record<string, string>, notification?: unknown, throwStorage?: boolean, eventSource?: unknown, width?: number, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
   saved = new Map(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const doc: any = { activeElement: null, focusLog: [], hidden: false, title: '', listeners: new Map<string, Function[]>() };
   const el = (tag: string, attrs: Record<string, string> = {}, children: any[] = []) => {
@@ -258,6 +258,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const location: any = { hash: opts.hash ?? '', pathname: '/', search: '', reload() { page.reloads += 1; } };
   const store = new Map<string, string>();
   if (opts.stored) store.set('doflow-console-theme', opts.stored);
+  for (const [key, value] of Object.entries(opts.storage ?? {})) store.set(key, value);
   const winListeners = new Map<string, Function[]>();
   const history: string[] = [];
   const calls: Call[] = [];
@@ -274,6 +275,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   });
   setGlobal('navigator', { platform: 'Linux', clipboard: undefined });
   if ('eventSource' in opts) setGlobal('EventSource', opts.eventSource); // V.10: a fake stream, or none
+  if ('notification' in opts) setGlobal('Notification', opts.notification);
   if (opts.width !== undefined) {
     // 149 D.1: a viewport width the shell reads through matchMedia; page.media.resize(w) fires each list's change.
     const lists: any[] = [];
@@ -6327,6 +6329,26 @@ test('180 C5 j and k: Follow-ups moves along the rows’ links; the state field 
   select.focus();
   assert.equal(root.fire('keydown', { key: 'j', target: select }).defaultPrevented, false);
   same(page.doc.activeElement, select, 'the state field keeps the focus');
+});
+
+test('180 B-4 a stored notification opt-in starts the hidden-tab watcher at app start, with Now never shown; a later visit to Now starts no second one', async () => {
+  const Granted = class { static permission = 'granted'; static requestPermission() { return Promise.resolve('granted'); } };
+  FakeES.all = [];
+  const page = await start({ hash: '#/sessions', fetch: liveRoute(sessionsRoute(BUSY)), eventSource: FakeES, storage: { 'doflow-console-notify': 'on' }, notification: Granted }, freshWeb());
+  const watchers = () => FakeES.all.filter((e) => e.url === '/api/live?ch=machine' && !e.closed);
+  assert.equal(page.main.querySelector('.home'), null, 'Now was never rendered');
+  setHidden(page, true);
+  await advance(200);
+  assert.equal(watchers().length, 1, 'hidden: the watcher follows machine');
+  setHidden(page, false);
+  await advance(200);
+  page.location.hash = '#/';
+  page.win.dispatch('hashchange');
+  await advance(200);
+  assert.ok(page.main.querySelector('.home'), 'Now is shown');
+  setHidden(page, true);
+  await advance(200);
+  assert.equal(watchers().length, 1, 'one watcher, not two');
 });
 
 test('180 C5 saved filters on Now: save the filter shown, apply it with one click, from the palette, and delete it; kept under one storage key', async () => {
