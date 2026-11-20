@@ -556,7 +556,7 @@
     .tile[data-state="done"] .tile__sub { white-space: normal; }
   }
 
-  .filter-status {
+  .filter-status, .saved-filters {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -565,6 +565,7 @@
     font: var(--type-sm);
     color: var(--text-muted);
   }
+  .saved-filters .pair__input { width: auto; }
 
   /* Sections and the run list. */
   .run-section { margin-top: var(--space-6); }
@@ -1177,6 +1178,7 @@
   .activity__cmd .cmd { width: 100%; }
   .activity__cmdlabel { margin-bottom: var(--space-1); font: var(--type-xs); font-weight: 600; color: var(--text-muted); }
   .activity__note { font: var(--type-sm); }
+  .activity__explain { margin-top: var(--space-5); }
   .activity__tasks { font: var(--type-sm); }
   .activity__tasks .attempts__link { margin-top: 0; min-height: 0; }
   .activity--done .activity__title, .activity--rejected .activity__title, .activity--closed .activity__title { margin-top: var(--space-2); }

@@ -5463,8 +5463,8 @@ test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps i
   const head = page.main.querySelector('.run-head');
   assert.deepEqual(head.children.map((c: El) => c.className), ['run-head__crumb', 'run-head__title', 'run-head__metawrap', 'run-head__aside']);
   const aside = head.querySelector('.run-head__aside');
-  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back', 'run-head__acts'], 'Chain sits beside the step counter, in its grid area (IC-020); the place of Close run (162 IC-010) follows it');
-  assert.deepEqual(linksOf(head), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back', 'graph__back', 'run-head__acts'], 'Chain sits beside the step counter, in its grid area (IC-020), then Export JSON (180 IC-180-B1); the place of Close run (162 IC-010) follows them');
+  assert.deepEqual(linksOf(head), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain'], ['/api/runs/feat-a/run-1/export', 'Export JSON']]);
   assert.equal(text(page.main.querySelector('.run-head__step')), 'step 5 of 5', 'the step counter is unchanged');
   assert.equal(mods.views.parseRoute(head.querySelectorAll('a')[1].getAttribute('href')).id, 'session');
   uninstallPage();
@@ -5472,7 +5472,7 @@ test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps i
 
   mods.home.resetHome();
   const waiting = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
-  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain']], 'the link is there before the data, from the route params');
+  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain'], ['/api/runs/feat-a/run-1/export', 'Export JSON']], 'the links are there before the data, from the route params');
 });
 
 test('150 C.6 Tasks head: a Chain link follows Back to the run, on the board and on each no-graph note', async () => {
@@ -6136,4 +6136,233 @@ test('165 start: a prompt over the limit turns the count red and keeps Start shu
   assert.equal(page.main.querySelector('#start-count').dataset.over, 'true');
   assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), '');
   assert.equal(radios165(page, 'start-harness').some((i: El) => i.getAttribute('value') === 'copilot'), false);
+});
+
+// ---- 180 C5: export link, saved filters, failure explainer, j and k (IC-180-B1..B4) ------------------------------------
+
+/** The elements `j` and `k` walk on Now: each row's link, in the order drawn. */
+const nowLinks = (page: Page) => page.main.querySelectorAll('[data-focus-key]').filter((el: El) => /^(run|other):/.test(el.dataset.focusKey));
+const savedForm = (page: Page) => page.main.querySelector('form[aria-label="Saved filters"]');
+const savedChips = (page: Page) => savedForm(page).querySelectorAll('.chip').map((chip: El) => [text(chip), chip.getAttribute('aria-pressed')]);
+const saveAs = (page: Page, name: string) => {
+  const form = savedForm(page);
+  form.querySelector('input').value = name;
+  return form.fire('submit');
+};
+
+test('180 C5 run head: an Export JSON link to the export route, downloaded as doflow-run-<taskId>.json', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(5, 'start', null)])) });
+  const link = page.main.querySelector('.run-head__aside').querySelectorAll('a').find((a: El) => text(a) === 'Export JSON');
+  assert.ok(link, 'the run head has the link');
+  if (!link) return;
+  assert.equal(link.getAttribute('href'), '/api/runs/feat-a/run-1/export');
+  assert.equal(link.getAttribute('download'), 'doflow-run-run-1.json');
+  const { matchPath } = require('../src/routes.ts');
+  assert.deepEqual(matchPath('/api/runs/:slug/:taskId/export', link.getAttribute('href')), { slug: 'feat-a', taskId: 'run-1' }, 'the href is the C4 route');
+});
+
+test('180 C5 explainer: a rejected run says which gate, when and by whom, as recorded, and gives the timeline command; a healthy run shows none', async () => {
+  mods.home.resetHome();
+  const events = [ev(30, 'start', null), ev(10, 'decide-gate', 'gate-a', { decision: 'reject', by: 'console' })];
+  let page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4, { state: 'REJECTED' }), WF_FEATURE, events)) });
+  const block = page.main.querySelector('.activity__explain');
+  assert.ok(block);
+  assert.equal(text(block.querySelector('h3')), 'Why it stopped');
+  assert.deepEqual(block.querySelectorAll('dt').map(text), ['Gate', 'Rejected']);
+  assert.equal(text(block.querySelectorAll('dd')[0]), 'gate-a');
+  assert.match(text(block.querySelectorAll('dd')[1]), /, from the Console on this machine$/);
+  assert.equal(text(block.querySelector('.cmd__text')), 'doflow orchestrate --action timeline --task-id run-1 --slug feat-a');
+  uninstallPage();
+  mock.timers.reset();
+  page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(5, 'start', null)])) });
+  assert.equal(page.main.querySelector('.activity__explain'), null, 'a running, fresh run has no explainer');
+});
+
+test('180 C5 j and k: Now moves along the row links without wrapping; never while typing, with a modifier, or with a dialog open', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const root = page.main.querySelector('.home');
+    const links = nowLinks(page);
+    assert.ok(links.length >= 3, 'the gate card and the run rows have links');
+    const press = (key: string, target: any, extra: any = {}) => root.fire('keydown', { key, target, ...extra });
+    links[0].focus();
+    assert.equal(press('j', links[0]).defaultPrevented, true);
+    same(page.doc.activeElement, links[1], 'j moves to the next row');
+    press('j', links[1]);
+    same(page.doc.activeElement, links[2], 'j again');
+    press('k', links[2]);
+    same(page.doc.activeElement, links[1], 'k moves back');
+    links[0].focus();
+    press('k', links[0]);
+    same(page.doc.activeElement, links[0], 'no wrap at the start');
+    const last = links[links.length - 1];
+    last.focus();
+    press('j', last);
+    same(page.doc.activeElement, last, 'no wrap at the end');
+    // Typing a j in the saved-filter name field never moves the focus.
+    const field = savedForm(page).querySelector('input');
+    field.focus();
+    const typed = press('j', field);
+    assert.equal(typed.defaultPrevented, false);
+    same(page.doc.activeElement, field, 'typing stays in the field');
+    links[0].focus();
+    press('j', links[0], { ctrlKey: true });
+    press('j', links[0], { metaKey: true });
+    same(page.doc.activeElement, links[0], 'a held modifier is no step');
+    keydownOn(page, '?');
+    const help = page.doc.getElementById('help');
+    assert.equal(help.getAttribute('hidden'), null);
+    const blocked = press('j', links[0]);
+    assert.equal(blocked.defaultPrevented, false, 'the help list is modal');
+    keydownOn(page, 'Escape');
+    keydownOn(page, 'k', { ctrlKey: true });
+    assert.equal(paletteOf(page).getAttribute('hidden'), null);
+    press('j', links[0]);
+    assert.equal(paletteOf(page).getAttribute('hidden'), null, 'the palette stays open');
+    assert.notEqual(page.doc.activeElement, links[1], 'the palette is modal');
+    paletteInput(page).fire('keydown', { key: 'Escape' });
+    links[0].focus();
+    press('j', links[0]);
+    same(page.doc.activeElement, links[1], 'with the dialogs closed, j works again');
+  });
+});
+
+test('180 C5 j and k: the ? help lists both from the shortcut table, with the views they work in', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    keydownOn(page, '?');
+    const help = page.doc.getElementById('help');
+    const rows = help.querySelectorAll('dt').map((dt: El, index: number) => [dt.querySelectorAll('kbd').map(text).join('+'), text(help.querySelectorAll('dd')[index])]);
+    const keys = await import(url('keys.js'));
+    for (const id of ['next', 'prev']) {
+      const entry = keys.SHORTCUTS.find((item: any) => item.id === id);
+      assert.ok(rows.some(([kbd, label]: string[]) => kbd === entry.keys[0] && label === `${entry.label} (${entry.where})`), id);
+    }
+    assert.deepEqual(rows.filter(([kbd]: string[]) => kbd === 'j' || kbd === 'k'), [
+      ['j', 'Move to the next row (Now, Sessions, Follow-ups, Run rail)'],
+      ['k', 'Move to the previous row (Now, Sessions, Follow-ups, Run rail)'],
+    ]);
+  });
+});
+
+test('180 C5 j and k: Sessions walks the row heads, as Down and Up do', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+  const host = page.main.querySelector('.sessions__rows');
+  const press = (from: El, key: string, extra: any = {}) => host.fire('keydown', { key, target: from, ...extra }).defaultPrevented;
+  assert.equal(press(srowHeads(page)[0], 'j'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `row:${sk(2)}`);
+  assert.deepEqual(srowHeads(page).map((h: El) => h.getAttribute('tabindex')), ['-1', '0', '-1'], 'the tab stop moves with it');
+  assert.equal(press(srowHeads(page)[1], 'k'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `row:${sk(1)}`);
+  assert.equal(press(srowHeads(page)[2], 'j'), false, 'the last row does not move');
+  assert.equal(press(srowHeads(page)[0], 'j', { altKey: true }), false, 'a held modifier is no step');
+});
+
+test('180 C5 j and k: the run rail steps as Right and Left do, and not while the help list is open', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  buttons()[2].focus();
+  buttons()[2].fire('keydown', { key: 'j' });
+  same(page.doc.activeElement, buttons()[3], 'j');
+  buttons()[3].fire('keydown', { key: 'k' });
+  same(page.doc.activeElement, buttons()[2], 'k');
+  keydownOn(page, '?');
+  const blocked = buttons()[2].fire('keydown', { key: 'j' });
+  assert.equal(blocked.defaultPrevented, false);
+  assert.notEqual(page.doc.activeElement, buttons()[3], 'the help list is modal');
+});
+
+test('180 C5 j and k: Follow-ups moves along the rows’ links; the state field is typing', async () => {
+  mods.home.resetHome();
+  const items = ['FU-000001', 'FU-000002', 'FU-000003'].map((id) => ({ id, state: 'open', statement: `Statement of ${id}` }));
+  const body = { v: 1, sections: { list: { ok: true, at: agoIso(0), data: { items, count: 3, shown: 3, nextCursor: null, unreadable: { n: 0, rows: [] }, conflicts: { n: 0, rows: [] } } }, overview: { ok: false, code: 'core-lacks-verb' } } };
+  const page = await start({ hash: '#/followups', fetch: (target, init) => (target.startsWith('/api/followups') ? reply(200, body) : standard(target, init)) });
+  const links = page.main.querySelectorAll('a').filter((a: El) => /^#\/followups\/FU-/.test(a.getAttribute('href') ?? ''));
+  assert.equal(links.length, 3);
+  let root: any = links[0];
+  while (root && !(root.listeners.get('keydown') ?? []).length) root = root.parent;
+  assert.ok(root, 'the view listens for keys');
+  root.fire('keydown', { key: 'j', target: links[0] });
+  same(page.doc.activeElement, links[1], 'j');
+  root.fire('keydown', { key: 'k', target: links[1] });
+  same(page.doc.activeElement, links[0], 'k');
+  const select = page.main.querySelector('select');
+  select.focus();
+  assert.equal(root.fire('keydown', { key: 'j', target: select }).defaultPrevented, false);
+  same(page.doc.activeElement, select, 'the state field keeps the focus');
+});
+
+test('180 C5 saved filters on Now: save the filter shown, apply it with one click, from the palette, and delete it; kept under one storage key', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const tile = (id: string) => page.main.querySelector(`[data-focus-key="tile:${id}"]`);
+    tile('running').fire('click');
+    assert.equal(tile('running').getAttribute('aria-pressed'), 'true');
+    assert.equal(saveAs(page, '   ').defaultPrevented, true, 'the form never navigates');
+    assert.match(text(savedForm(page).querySelector('[role="status"]')), /1 to 40 characters/);
+    saveAs(page, 'Busy');
+    assert.deepEqual(savedChips(page), [['Busy', 'true']], 'the filter shown is the one saved');
+    assert.equal(text(page.region), 'Filter saved.');
+    assert.deepEqual(JSON.parse(page.store.get('doflow-console-filters') as string), { v: 1, views: { runs: [{ name: 'Busy', filter: { chips: ['running'], scope: 'every' } }], sessions: [] } });
+    tile('running').fire('click');
+    assert.deepEqual(savedChips(page), [['Busy', 'false']]);
+    savedForm(page).querySelectorAll('.chip')[0].fire('click');
+    assert.equal(tile('running').getAttribute('aria-pressed'), 'true', 'one click applies it');
+    tile('running').fire('click');
+    // The palette lists it and applies it on the Now that is shown (the address stays #/).
+    keydownOn(page, 'k', { ctrlKey: true });
+    paletteType(page, 'busy');
+    assert.deepEqual(paletteOptions(page), ['Filter: Busy']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/');
+    assert.equal(tile('running').getAttribute('aria-pressed'), 'true', 'the palette applied it');
+    savedForm(page).querySelector('[aria-label="Delete the saved filter Busy"]').fire('click');
+    assert.deepEqual(savedChips(page), []);
+    assert.deepEqual(JSON.parse(page.store.get('doflow-console-filters') as string).views.runs, []);
+  });
+});
+
+test('180 C5 saved filters: chosen in the palette on another screen, the filter waits for its view; without storage they hold for the page load', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: (target, init) => (target === '/api/sessions' ? reply(200, BUSY()) : standard(target, init)), throwStorage: true });
+    page.main.querySelector('[data-focus-key="tile:needs"]').fire('click');
+    saveAs(page, 'Waiting');
+    assert.deepEqual(savedChips(page), [['Waiting', 'true']], 'saved for this page load');
+    page.main.querySelector('[data-focus-key="tile:needs"]').fire('click');
+    page.location.hash = '#/sessions';
+    page.win.dispatch('hashchange');
+    await settle();
+    assert.ok(page.main.querySelector('.sessions__rows'));
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'filter');
+    assert.deepEqual(paletteOptions(page), ['Filter: Waiting']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/');
+    page.win.dispatch('hashchange');
+    await settle();
+    assert.equal(page.main.querySelector('[data-focus-key="tile:needs"]').getAttribute('aria-pressed'), 'true', 'Now took the filter when it mounted');
+  });
+});
+
+test('180 C5 saved filters on Sessions: the chip shown is saved, applied and listed in the palette', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+    const chip = (id: string) => page.main.querySelector(`[data-focus-key="chip:${id}"]`);
+    chip('records').fire('click');
+    saveAs(page, 'Recorded');
+    assert.deepEqual(savedChips(page), [['Recorded', 'true']]);
+    chip('all').fire('click');
+    assert.deepEqual(savedChips(page), [['Recorded', 'false']]);
+    savedForm(page).querySelectorAll('.chip')[0].fire('click');
+    assert.equal(chip('records').getAttribute('aria-checked'), 'true');
+    chip('all').fire('click');
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'recorded');
+    assert.deepEqual(paletteOptions(page), ['Filter: Recorded']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(chip('records').getAttribute('aria-checked'), 'true', 'the palette applied it to the Sessions shown');
+  });
 });

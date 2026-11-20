@@ -1,16 +1,17 @@
-// The command palette (149 IC-021, DEC-011, DEC-037): a modal combobox that jumps to a screen, a run, a session lane or a
+// The command palette (149 IC-021, DEC-011, DEC-037): a modal combobox that jumps to a screen, a run, a session lane, a saved filter (180 IC-180-B2) or a
 // Layers project the page has already loaded. It never fetches: `targets()` reads what the shell holds in memory, and a
 // choice only sets `location.hash` through `go`. keys.js opens it (Ctrl K or Cmd K); its own input handles the keys inside it,
 // asking keys.js which key is "move" and which is "close". Nothing here runs at import time.
 
 import { h, mount } from './dom.js';
 import { isKey } from './keys.js';
+import { filterTargets } from './filters.js';
 
 /** At most this many options are listed. */
 const MAX_OPTIONS = 50;
 
-/** The order of the kinds in the list: screens first, then actions, runs, sessions and projects. */
-const KIND_ORDER = Object.freeze(['screen', 'action', 'run', 'session', 'project']);
+/** The order of the kinds in the list: screens first, then actions, saved filters, runs, sessions and projects. */
+const KIND_ORDER = Object.freeze(['screen', 'action', 'filter', 'run', 'session', 'project']);
 
 /**
  * The options for `query`: a case-insensitive substring match over `label` and `hint`, in kind order and, within a kind, in
@@ -47,14 +48,14 @@ function createPalette(options) {
   let none = null;
   /** @type {any} */
   let opener = null;
-  /** @type {Array<{ kind: string, label: string, hint: string, hash: string }>} */
+  /** @type {Array<{ kind: string, label: string, hint: string, hash: string, apply?: () => void }>} */
   let shown = [];
   let active = 0;
 
   const optionId = (/** @type {number} */ index) => `palette-opt-${index}`;
 
   function render() {
-    shown = matchTargets(targets(), String(input.value ?? ''));
+    shown = matchTargets([...targets(), ...filterTargets()], String(input.value ?? ''));
     if (active >= shown.length) active = Math.max(0, shown.length - 1);
     const items = shown.map((target, index) => h('li', {
       id: optionId(index), class: 'palette__option', role: 'option', 'aria-selected': String(index === active), dataset: { kind: target.kind },
@@ -77,6 +78,8 @@ function createPalette(options) {
     const target = shown[index];
     if (!target) return;
     close();
+    // A saved filter asks its view for the filter first; when that view is the one shown, the address does not change.
+    if (typeof target.apply === 'function') target.apply();
     go(target.hash);
   }
 
@@ -112,7 +115,7 @@ function createPalette(options) {
       // A press anywhere in the panel but the input keeps the focus in the input, so the keys keep working.
       on: { mousedown: (/** @type {any} */ event) => { if (event.target !== input) event.preventDefault(); } },
     }, [
-      h('h2', { class: 'palette__title', id: 'palette-title' }, 'Go to a screen, run, session or project'),
+      h('h2', { class: 'palette__title', id: 'palette-title' }, 'Go to a screen, run, session, project or saved filter'),
       input,
       list,
       none,

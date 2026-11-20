@@ -12,7 +12,8 @@ import { deriveTimeline, axisDomain, tickMarks, mergeMarkers, position, rowCopy 
 import { withReplay, isReplaying, releaseReplay } from './replay.js';
 import { actionArea, actionButton, notAllowedLine } from './confirm.js';
 import { currentProject } from '../actions.js';
-import { buildConfirmation } from '../derive/actions.js';
+import { buildConfirmation, byWords } from '../derive/actions.js';
+import { explain } from '../derive/explain.js';
 
 /** A change mark lasts one poll interval (reduced motion shows it as an outline), or until its animation ends. */
 const CHANGED_MS = 3000;
@@ -295,6 +296,32 @@ function finishedSlot(model, ctx) {
   };
 }
 
+/** The words of each reason kind: the term of the recorded node, and of the recorded time. */
+const REASON_TERMS = Object.freeze({ rejected: ['Gate', 'Rejected'], closed: ['Closed at', 'Closed'], stale: ['Stage', 'Last update'] });
+
+/**
+ * Why the run stopped and what to run next (180 IC-180-B3): the record's own fields as they are, who decided in the timeline's
+ * words, and the command of the fixed table with its reason. Null for a run that did not stop early.
+ * @param {any} row @param {any} timeline @param {number} nowMs
+ */
+function explainBlock(row, timeline, nowMs) {
+  const explained = explain(row, timeline, nowMs);
+  if (explained === null) return null;
+  const { reason, next } = explained;
+  const [nodeTerm, timeTerm] = REASON_TERMS[/** @type {'rejected'} */ (reason.kind)];
+  const at = stampOf(reason.at, nowMs);
+  const when = [at === null ? 'time not recorded' : at, reason.kind === 'stale' ? null : `, ${byWords(reason.by)}`];
+  return h('div', { class: 'activity__explain' }, [
+    h('h3', { class: 'activity__cmdlabel' }, 'Why it stopped'),
+    h('dl', { class: 'activity__facts' }, [
+      h('dt', {}, nodeTerm), h('dd', {}, reason.text === null ? 'not recorded' : h('span', { class: 'mono' }, reason.text)),
+      h('dt', {}, timeTerm), h('dd', {}, when),
+    ]),
+    h('p', { class: 'activity__lead' }, next.why),
+    commandBlock(next.command, 'the next command'),
+  ]);
+}
+
 // ---- the timeline ---------------------------------------------------------------------------------------------
 
 /** The list view (E.2 section 9.4): newest first, 20 until asked. @param {any} tl @param {any} memory @param {number} nowMs @param {number} fresh how many items are new since the previous poll */
@@ -546,6 +573,8 @@ function renderRunBody(data, params, local) {
   memory.act = isReplaying(local) ? null : { row, model };
   if (headActs !== null) mount(headActs, closeArea(() => memory.act ?? null));
   const slot = buildSlot(model, { nowMs, params, live: liveTexts, changed, flash, row, tasksReason: data.tasksReason, startIso, rail: tl.rail, act: () => memory.act ?? null });
+  const explained = explainBlock(row, timeline, nowMs);
+  if (explained !== null) slot.el.append(explained);
   if (flash) expire(slot.el);
   const card = timelineCard(tl, memory, { nowMs, row, fresh });
 

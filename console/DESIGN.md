@@ -281,12 +281,12 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.mono`, `.more`, `.mtable`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`
 `.page`, `.pair`, `.palette`, `.pause`, `.project-list`, `.rail`, `.rail-detail`, `.rail-fallback`
 `.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
-`.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
-`.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
-`.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.start`, `.start-view`, `.started`
-`.started-here`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`, `.tile`, `.timeline`
-`.tl`, `.tl-item`, `.tl-list`, `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`
-`.view-title`, `.wf`, `.wf-list`, `.wtabs`
+`.run-rail`, `.run-row`, `.run-section`, `.saved-filters`, `.sbar`, `.segmented`, `.sessions`
+`.sfilter`, `.sfoot`, `.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`
+`.skip`, `.slane`, `.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.start`
+`.start-view`, `.started`, `.started-here`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`
+`.tile`, `.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.ttable`, `.vh`, `.view-enter`, `.view-head`
+`.view-note`, `.view-title`, `.wf`, `.wf-list`, `.wtabs`
 <!-- /generated -->
 
 What an agent most often touches:

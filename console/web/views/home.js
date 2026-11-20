@@ -16,6 +16,8 @@ import { createLiveStore } from '../store.js';
 import { createLiveAdapter } from '../live.js';
 import { sinceLooked, nextSeen, ownRows, machineRows, machineRuns } from '../derive/digest.js';
 import { readSeen, writeSeen, setNotify, canNotify, permission, notifyActive, ask, notifyWaiting } from '../notify.js';
+import { savedBar, take, follow } from '../filters.js';
+import { stepFocus } from '../keys.js';
 
 /** How many finished runs the list shows before "Show all". */
 const FINISHED_CAP = 10;
@@ -573,6 +575,19 @@ function homeEmpty(data) {
 /** The words of a run state in the digest. @param {string} state */
 const stateWords = (state) => runWord({ state, updatedAt: null }, 0);
 
+/** The filter Now shows, as a saved filter keeps it (FR-B2): the pressed tile and the project scope. */
+const currentFilter = () => ({ chips: page.filter === null ? [] : [page.filter], scope: page.scope });
+
+/** Shows a saved filter: a chip id Now does not have shows every section. @param {any} filter */
+function setFilter(filter) {
+  const chip = filter.chips[0];
+  page.filter = typeof chip === 'string' && Object.hasOwn(SECTIONS, chip) ? chip : null;
+  if (filter.scope === 'every' || filter.scope === 'this') page.scope = filter.scope;
+}
+
+/** The rows `j` and `k` move along (FR-B4): each row's link, in the order drawn. @param {any} root */
+const rowLinks = (root) => [...root.querySelectorAll('[data-focus-key]')].filter((/** @type {any} */ el) => /^(run|other):/.test(el.dataset.focusKey));
+
 /** The scope chips and the notification switch (FR-A3, FR-A5). @param {any} machine @param {any} context */
 function toolbar(machine, context) {
   const chip = (/** @type {'every' | 'this'} */ id, /** @type {string} */ label) => h('button', {
@@ -656,6 +671,11 @@ function homeContent(data, context) {
   const unreadable = data.unreadableCount;
   return [
     toolbar(machine, context),
+    savedBar('runs', {
+      current: currentFilter,
+      apply: (filter, focusKey) => { setFilter(filter); context.rerender(focusKey); context.retitle(); },
+      redraw: (focusKey) => context.rerender(focusKey),
+    }),
     digestStrip(data, machine, context),
     h('div', { class: 'summary', role: 'group', 'aria-label': 'Filter runs by state' }, SECTION_ORDER.map((id) => tile(id, counts[/** @type {'needs'} */ (id)], facts[id], context, id === 'running' ? counts.stale : 0))),
     filter
@@ -692,6 +712,9 @@ function renderHome(data, { badge, local, retitle = () => {} }) {
   /** @type {any} */
   const context = { now, local, badge, rowIndex: 0, changed, retitle };
   const build = (at = Date.now()) => {
+    // A saved filter chosen in the palette (FR-B2) waits here until Now draws.
+    const asked = take('runs');
+    if (asked !== null) setFilter(asked);
     context.rowIndex = 0;
     context.loop = true;
     context.changed = changed;
@@ -713,6 +736,13 @@ function renderHome(data, { badge, local, retitle = () => {} }) {
     const target = root.querySelector(`[data-focus-key="${focusKey}"]`);
     if (target) target.focus({ preventScroll: true });
   };
+  // The palette asks the Now that is shown; a Now no longer on the page leaves the request to the next one.
+  follow('runs', () => {
+    if (root.isConnected === false) return;
+    local.homeRebuild(Date.now());
+    retitle();
+  });
+  root.addEventListener('keydown', (/** @type {any} */ event) => { stepFocus(event, rowLinks(root)); });
   build();
   return root;
 }

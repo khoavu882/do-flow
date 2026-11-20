@@ -2,6 +2,7 @@
 import { h, mount } from '../dom.js';
 import { renderSection, figure } from '../figures.js';
 import { showPanel, hidePanel } from '../shell.js';
+import { stepFocus } from '../keys.js';
 
 const STATES = ['open', 'taken', 'done', 'dismissed', 'all'];
 const CURSOR = /^[0-9]{1,15}:[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/;
@@ -130,6 +131,8 @@ function renderFollowups(data, _params, local) {
     const overviewNode = renderSection(currentData.sections?.overview, { noun: 'goals and release readiness', onRetry, render: overview });
     mount(root, [h('label', { for: 'followup-state' }, 'State'), stateFilter, list, overviewNode]);
   };
+  // j and k (FR-B4) move along the rows' links, in the order drawn.
+  root.addEventListener('keydown', (/** @type {any} */ event) => { stepFocus(event, [...owners.values()]); });
   draw();
   if (local.route?.item || memory.selected) local.reselectFollowup();
   return root;

@@ -5,7 +5,8 @@
 // the open rows, the selected lane, the element that holds the tab stop, which conflicts were seen) lives in `local.sessions`.
 // No main session has a heartbeat, so nothing here says a session is active, online or idle: it says what was recorded.
 
-import { isKey } from '../keys.js';
+import { isKey, stepOf } from '../keys.js';
+import { savedBar, take, follow } from '../filters.js';
 import { showPanel, hidePanel } from '../shell.js';
 import { h, icon, mount, announce } from '../dom.js';
 import { clockTime, reltime, commandBlock } from '../states.js';
@@ -35,6 +36,9 @@ const BLIND_SPOTS = Object.freeze([
 ]);
 
 const FILTERS = Object.freeze([['conflicts', 'Conflicts'], ['records', 'With records'], ['all', 'All']]);
+
+/** A saved filter as the chip it names (FR-B2): All when it names none, or one Sessions does not have. @param {any} filter */
+const chipOf = (filter) => (FILTERS.some(([id]) => id === filter.chips[0]) ? filter.chips[0] : 'all');
 
 /** The default for a disclosure on a phone: closed below 768 px, open above. */
 function narrow() {
@@ -378,6 +382,9 @@ function renderSessions(data, params, local) {
   // The selected lane starts as the route names it (IC-019); later it changes with a selection or a reroute.
   const memory = local.sessions ?? (local.sessions = { mode: 'live', filter: 'all', open: new Map(), selected: routeLane(local.route), focusKey: null, seen: null, hadConflicts: new Set(), barOpen: !narrow() });
   memory.mode = 'live';
+  // A saved filter chosen in the palette while another view was shown waits here.
+  const asked = take('sessions');
+  if (asked !== null) memory.filter = chipOf(asked);
   const result = deriveSessions(data, nowMs);
 
   // The conflicts that are new since the previous read are announced once and flash once; the first read does neither.
@@ -445,17 +452,31 @@ function renderSessions(data, params, local) {
     });
   }
 
+  const savedHost = h('div');
+  /** The saved filters (FR-B2), which show the chip pressed; `focusKey` is where the focus goes after a save, a delete or an apply. @param {string} [focusKey] */
+  function drawSaved(focusKey) {
+    mount(savedHost, savedBar('sessions', {
+      current: () => ({ chips: memory.filter === 'all' ? [] : [memory.filter] }),
+      apply: (filter, key) => { memory.filter = chipOf(filter); drawChips(key); draw(); },
+      redraw: (key) => drawSaved(key),
+    }));
+    const target = focusKey ? savedHost.querySelector(`[data-focus-key="${focusKey}"]`) : null;
+    if (target) /** @type {any} */ (target).focus({ preventScroll: true });
+  }
+
   const chips = h('div', { class: 'sfilter', role: 'radiogroup', 'aria-label': 'Show checkouts' });
   const chipEls = FILTERS.map(([id, text]) => h('button', {
     type: 'button', role: 'radio', class: 'sfilter__opt', dataset: { filter: id, focusKey: `chip:${id}` },
     on: { click: () => { memory.filter = id; drawChips(); draw(); } },
   }, text));
-  function drawChips() {
+  /** @param {string} [savedFocus] where the focus goes in the saved filters */
+  function drawChips(savedFocus) {
     for (const el of chipEls) {
       const on = el.dataset.filter === memory.filter;
       el.setAttribute('aria-checked', on ? 'true' : 'false');
       el.setAttribute('tabindex', on ? '0' : '-1');
     }
+    drawSaved(savedFocus);
   }
   chips.append(...chipEls);
   chips.addEventListener('keydown', (/** @type {any} */ event) => {
@@ -610,7 +631,9 @@ function renderSessions(data, params, local) {
         return lane >= 0 ? { row: index, lane } : found;
       }, /** @type {any} */ (null));
     if (!where || where.row < 0) return;
-    const to = moveFocus(layout, where, event.key);
+    // j and k (FR-B4) walk as Down and Up do: the rows from a row, the lanes from a lane.
+    const step = stepOf(event);
+    const to = moveFocus(layout, where, step > 0 ? 'ArrowDown' : step < 0 ? 'ArrowUp' : event.key);
     if (to === null) return;
     event.preventDefault();
     const row = shown[to.row];
@@ -672,11 +695,20 @@ function renderSessions(data, params, local) {
     memory.selected = routeLane(local.route);
     draw();
   };
+  // The palette asks the Sessions that is shown; one no longer on the page leaves the request to the next.
+  follow('sessions', () => {
+    if (root.isConnected === false) return;
+    const wanted = take('sessions');
+    if (wanted === null) return;
+    memory.filter = chipOf(wanted);
+    drawChips();
+    draw();
+  });
   draw();
   drawChips();
   local.startedHost = h('div', { class: 'started-here__host' });
   paintStarted(local);
-  const top = [tabNav, h('div', { class: 'sessions__top' }, [summary, chips, legend]), local.startedHost, ...notes, absent, bar];
+  const top = [tabNav, h('div', { class: 'sessions__top' }, [summary, chips, savedHost, legend]), local.startedHost, ...notes, absent, bar];
   const layout = h('div', { class: 'sessions__layout' }, [rowsHost]);
   mount(root, [...top, layout, footer]);
   return root;

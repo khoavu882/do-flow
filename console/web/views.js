@@ -83,7 +83,8 @@ const awaitingCount = (/** @type {any} */ data) => shownRuns(data).filter((/** @
 
 /**
  * The run head (CD-B8): crumb to Now, the title with a muted task id, the meta line, and the step counter with, beside it in
- * the same grid area, the link to the run's Session screen (150 IC-020) and the place of the Close run button (162 IC-010). @param {any} params
+ * the same grid area, the link to the run's Session screen (150 IC-020), the Export JSON link (180 IC-180-B1) and the place of the
+ * Close run button (162 IC-010). @param {any} params
  */
 function buildRunHead(params) {
   const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
@@ -94,7 +95,9 @@ function buildRunHead(params) {
   const step = h('p', { class: 'run-head__step', hidden: true });
   const chainHref = hashFor({ id: 'session', params: { slug: params.slug, taskId: params.taskId } });
   const chain = chainHref === null ? null : h('a', { class: 'graph__back', href: chainHref }, 'Chain');
-  const aside = h('div', { class: 'run-head__aside' }, [step, chain, runHeadActs()]);
+  // 180 IC-180-B1: the run as one masked JSON file, from the export route; the route's parameters already passed PARAM_PATTERN.
+  const exported = h('a', { class: 'graph__back', href: `/api/runs/${params.slug}/${params.taskId}/export`, download: `doflow-run-${params.taskId}.json` }, 'Export JSON');
+  const aside = h('div', { class: 'run-head__aside' }, [step, chain, exported, runHeadActs()]);
   return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, aside]), h1, meta, step };
 }
 

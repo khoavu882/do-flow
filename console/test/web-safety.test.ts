@@ -657,3 +657,44 @@ test('control: a view that names Notification turns the notify guard red', () =>
   fs.writeFileSync(path.join(copy, 'views', 'quiet.js'), '// a comment may say Notification\nexport const x = 1;\n');
   assert.deepEqual(notificationUsers(copy), ['notify.js', 'views/home.js'], 'a comment is not code');
 });
+
+// ---- 180 C5: saved filters stay in this browser, inside try/catch; the explainer is pure ---------------------------------
+
+/** Code only: `//` and block comments dropped. */
+const codeOf = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+/** The files that name the saved-filter key, and every storage call of filters.js not opened by the `try {` line just above it. */
+function filterStoreFindings(root: string): { owners: string[], unguarded: string[], impure: string[] } {
+  const js = files(root).filter((file) => path.extname(file) === '.js');
+  const rel = (file: string) => path.relative(root, file).split(path.sep).join('/');
+  const owners = js.filter((file) => codeOf(fs.readFileSync(file, 'utf8')).includes('doflow-console-filters')).map(rel).sort();
+  const lines = codeOf(fs.readFileSync(path.join(root, 'filters.js'), 'utf8')).split('\n');
+  const unguarded: string[] = [];
+  lines.forEach((line, index) => {
+    if (!/\blocalStorage\b/.test(line)) return;
+    const above = lines.slice(0, index).reverse().find((prior) => prior.trim() !== '');
+    if (!above || !/\btry\s*\{\s*$/.test(above)) unguarded.push(`filters.js:${index + 1}`);
+  });
+  const explain = codeOf(fs.readFileSync(path.join(root, 'derive', 'explain.js'), 'utf8'));
+  const impure = ['document', 'localStorage', 'sessionStorage', 'Date.now', 'fetch'].filter((name) => new RegExp(`\\b${name.replace('.', '\\.')}\\b`).test(explain));
+  return { owners, unguarded, impure };
+}
+
+test('180 C5: only filters.js names the saved-filter key, each of its storage calls opens a try block, and the explainer reads no DOM, storage, clock or network', () => {
+  assert.deepEqual(filterStoreFindings(WEB_ROOT), { owners: ['filters.js'], unguarded: [], impure: [] });
+  for (const name of LAYERS_FILES) assert.doesNotMatch(fs.readFileSync(path.join(WEB_ROOT, name), 'utf8'), /filters\.js/, `${name} does not use saved filters`);
+});
+
+test('control: a view naming the key, a storage call outside try, or a clock read in the explainer turns the saved-filter guard red', () => {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-websafety-filters-'));
+  tmp.push(copy);
+  fs.cpSync(WEB_ROOT, copy, { recursive: true });
+  assert.deepEqual(filterStoreFindings(copy), { owners: ['filters.js'], unguarded: [], impure: [] });
+  fs.appendFileSync(path.join(copy, 'views', 'home.js'), "\nexport const peek = () => globalThis.localStorage.getItem('doflow-console-filters');\n");
+  fs.appendFileSync(path.join(copy, 'filters.js'), '\nexport const raw = () => globalThis.localStorage.getItem(FILTERS_KEY);\n');
+  fs.appendFileSync(path.join(copy, 'derive', 'explain.js'), '\nexport const at = () => Date.now();\n');
+  const found = filterStoreFindings(copy);
+  assert.deepEqual(found.owners, ['filters.js', 'views/home.js']);
+  assert.equal(found.unguarded.length, 1);
+  assert.deepEqual(found.impure, ['Date.now']);
+});

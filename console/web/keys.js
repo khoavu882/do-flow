@@ -1,5 +1,5 @@
 // The one keyboard-shortcut registry (feature 133, FR-6; design.md D7). Every key binding of the Console is named here: the global
-// ones (go to a view, pause, help, the command palette), the view-scoped Escape that closes a panel (views ask `isKey(event, 'close')`), and the
+// ones (go to a view, pause, help, the command palette), the view-scoped Escape that closes a panel (views ask `isKey(event, 'close')`) and j and k that move along a list's rows (`stepFocus`), and the
 // roving-tabindex arrow groups, which stay with their widgets and are listed so the `?` help shows them. The help overlay is built
 // from this table, so the list cannot differ from what is bound. Nothing here runs at import time.
 
@@ -20,6 +20,8 @@ const SHORTCUTS = Object.freeze([
   { id: 'go.sessions', scope: 'global', keys: ['g', 's'], chord: true, label: 'Go to Sessions' },
   { id: 'go.layers', scope: 'global', keys: ['g', 'l'], chord: true, label: 'Go to Layers' },
   { id: 'close', scope: 'view', keys: ['Escape'], label: 'Close the open details panel (or this list)', where: 'Run rail, Tasks board, Sessions, Layers' },
+  { id: 'next', scope: 'view', keys: ['j'], label: 'Move to the next row', where: 'Now, Sessions, Follow-ups, Run rail' },
+  { id: 'prev', scope: 'view', keys: ['k'], label: 'Move to the previous row', where: 'Now, Sessions, Follow-ups, Run rail' },
   { id: 'move', scope: 'widget', keys: ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'], label: 'Move between items; the focused item is the one tab stop', where: 'Run rail, Tasks board, Sessions, Workers matrix, theme control, filter chips' },
 ]);
 
@@ -54,6 +56,36 @@ function helpRows() {
           : item.keys.map(keyName),
     })),
   }));
+}
+
+/**
+ * The row step of `event` (180 IC-180-B4): 1 for `next`, -1 for `prev`, else 0. Always 0 while typing in a field, with a
+ * modifier held, or while a modal dialog of the page is open (the help list, the palette, the action confirmation, the
+ * inspector as drawer or sheet), so typing a j never moves the focus.
+ * @param {any} event
+ */
+function stepOf(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey || isTyping(event.target)) return 0;
+  const step = isKey(event, 'next') ? 1 : isKey(event, 'prev') ? -1 : 0;
+  if (step === 0) return 0;
+  const doc = globalThis.document;
+  const modals = doc && typeof doc.querySelectorAll === 'function' ? Array.from(doc.querySelectorAll('[aria-modal="true"]')) : [];
+  return modals.some((el) => el.closest('[hidden]') === null) ? 0 : step;
+}
+
+/**
+ * Moves the focus one row along `rows` (in order) for a `next` or `prev` key, without wrapping; from outside the rows, `next`
+ * goes to the first and `prev` to the last. Returns the row focused, or null when the key is no step (nothing is done then).
+ * @param {any} event @param {any[]} rows
+ */
+function stepFocus(event, rows) {
+  const step = stepOf(event);
+  if (step === 0 || rows.length === 0) return null;
+  const at = rows.findIndex((row) => row === event.target || row.contains(event.target));
+  const to = at < 0 ? (step > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + step));
+  event.preventDefault();
+  rows[to].focus();
+  return rows[to];
 }
 
 /** Typing in a field must never trigger a shortcut. @param {any} target */
@@ -211,4 +243,4 @@ function installShortcuts(options) {
   };
 }
 
-export { SHORTCUTS, CHORD_MS, isKey, helpRows, installShortcuts };
+export { SHORTCUTS, CHORD_MS, isKey, stepOf, stepFocus, helpRows, installShortcuts };

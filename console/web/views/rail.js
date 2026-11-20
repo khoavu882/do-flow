@@ -2,7 +2,7 @@
 // the full rail of the run route with its keyboard walk, node detail, edge fades and change marks. Elements are built
 // with `h`, `icon` and `mount` only; every string from the API reaches the page as text.
 
-import { isKey } from '../keys.js';
+import { isKey, stepOf } from '../keys.js';
 import { h, icon, mount, announce } from '../dom.js';
 import { showPanel, hidePanel } from '../shell.js';
 import { clockTime } from '../states.js';
@@ -354,7 +354,12 @@ function renderRunRail(data, params, local) {
       const last = nodes.length - 1;
       /** @type {Record<string, number>} */
       const moves = { ArrowRight: Math.min(index + 1, last), ArrowDown: Math.min(index + 1, last), ArrowLeft: Math.max(index - 1, 0), ArrowUp: Math.max(index - 1, 0), Home: 0, End: last };
-      if (isKey(event, 'close')) {
+      // j and k (FR-B4) step as Right and Left do.
+      const step = stepOf(event);
+      if (step !== 0) {
+        event.preventDefault();
+        select(step > 0 ? moves.ArrowRight : moves.ArrowLeft, true);
+      } else if (isKey(event, 'close')) {
         if (local.openId !== null) {
           event.preventDefault();
           close(true);
