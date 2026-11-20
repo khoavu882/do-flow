@@ -67,20 +67,14 @@ test('storedEffortReader reads under the config home of the env it is given, and
   const file = path.join(env.XDG_CONFIG_HOME, 'doflow', 'session-env', 'effort', `${KEY}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(record())}\n`);
-  const before = Date.parse('2026-11-20T09:00:00Z');
-  assert.deepEqual(storedEffortReader(env, { startedAt: before })({ harness: 'alpha', sessionKey: KEY }), { level: 'xhigh', observedAt: '2026-11-20T10:00:00Z' });
-  assert.equal(storedEffortReader({ HOME: '', XDG_CONFIG_HOME: '' }, { startedAt: before })({ harness: 'alpha', sessionKey: KEY }), null);
+  assert.deepEqual(storedEffortReader(env)({ harness: 'alpha', sessionKey: KEY }), { level: 'xhigh', observedAt: '2026-11-20T10:00:00Z' });
+  assert.equal(storedEffortReader({ HOME: '', XDG_CONFIG_HOME: '' })({ harness: 'alpha', sessionKey: KEY }), null);
 });
 
-test('storedEffortReader takes a record observed since the reading process started (whole seconds), and none from before', () => {
+test('storedEffortReader counts the latest record whenever it was observed, before this process started included', () => {
   const env = scratch.env();
   const file = path.join(env.XDG_CONFIG_HOME, 'doflow', 'session-env', 'effort', `${KEY}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(record())}\n`);
-  const at = (iso: string) => storedEffortReader(env, { startedAt: Date.parse(iso) })({ harness: 'alpha', sessionKey: KEY });
-  assert.equal(at('2026-11-20T10:00:00.900Z')?.level, 'xhigh', 'observed in the second the process started');
-  assert.equal(at('2026-11-20T10:00:01Z'), null, 'observed before the process started: the environment is newer');
-  const recent = { ...record(), observedAt: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace('.000Z', 'Z') };
-  fs.writeFileSync(file, `${JSON.stringify(recent)}\n`);
-  assert.equal(storedEffortReader(env)({ harness: 'alpha', sessionKey: KEY })?.level, 'xhigh', 'by default, since this process started');
+  fs.writeFileSync(file, `${JSON.stringify(record({ observedAt: '2020-01-01T00:00:00Z' }))}\n`);
+  assert.deepEqual(storedEffortReader(env)({ harness: 'alpha', sessionKey: KEY }), { level: 'xhigh', observedAt: '2020-01-01T00:00:00Z' });
 });

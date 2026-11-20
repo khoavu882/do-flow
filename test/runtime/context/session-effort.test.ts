@@ -140,7 +140,7 @@ const readDelta = (env: any, readStored: any) => readSessionEffort({ registry: D
 test('(c) 180: a stored level beats the env variable, origin hook-state; the reader gets the hashed key only', () => {
   const calls: any[] = [];
   const answer = readDelta({ DELTA_SESSION_ID: 'sess-1', DELTA_EFFORT: 'high' }, stored({ [sessionKeyOf('sess-1')]: 'xhigh' }, calls));
-  assert.deepEqual(answer, { state: 'known', harness: 'delta', level: 'xhigh', origin: 'hook-state', mode: null });
+  assert.deepEqual(answer, { state: 'known', harness: 'delta', level: 'xhigh', origin: 'hook-state', mode: null, observedAt: '2026-11-20T10:00:00Z' });
   assert.deepEqual(calls, [{ harness: 'delta', sessionKey: sessionKeyOf('sess-1') }]);
 });
 

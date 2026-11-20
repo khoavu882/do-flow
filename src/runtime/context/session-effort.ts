@@ -7,7 +7,8 @@
 // never returned: the answer names the variable (`origin`), not the value.
 // 180 IC-180-E3: a `hook-state` source is the level a hook stored for this session, read through the injected
 // `readStored` (the file reader is effort-store.ts) by the session key, the first 16 hex of the sha256 of the id the
-// source's `sessionIdEnv` holds; the id itself never leaves this module. Its origin is `hook-state`.
+// source's `sessionIdEnv` holds; the id itself never leaves this module. Its origin is `hook-state`, and a known answer
+// from it carries the record's `observedAt`.
 
 const crypto = require('node:crypto');
 const { EFFORT_RE } = require('../../registry/model-parts.ts');
@@ -16,7 +17,7 @@ type LoginMode = 'subscription' | 'api-key';
 type SessionReason = 'worker-role' | 'no-session-harness' | 'several-markers' | 'contradicted' | 'no-source'
   | 'mode-unknown' | 'mode-not-evidenced' | 'not-set' | 'level-not-declared';
 type SessionEffort =
-  | { state: 'known'; harness: string; level: string; origin: string; mode: LoginMode | null }
+  | { state: 'known'; harness: string; level: string; origin: string; mode: LoginMode | null; observedAt?: string }
   | { state: 'unknown'; harness: string | null; reason: SessionReason; origin: string | null; mode: LoginMode | null };
 type Env = Record<string, string | undefined>;
 type StoredEffort = { level: string; observedAt: string };
@@ -36,14 +37,15 @@ const HOOK_STATE = 'hook-state';
 /** The name an answer gives a source: an env source's variable, or `hook-state`. */
 const originOf = (source: any): string => (source.kind === HOOK_STATE ? HOOK_STATE : source.name);
 
-/** A source's value: the variable, or the stored level of the session `sessionIdEnv` names (absent or empty id: not set). */
-function valueOf(source: any, harness: string, env: Env, readStored: ReadStored | null): string | undefined {
-  if (source.kind !== HOOK_STATE) return env[source.name];
+/** A source's value: the variable, or the latest stored level of the session `sessionIdEnv` names (absent or empty id: not
+ * set), with the time the hook observed it. */
+function valueOf(source: any, harness: string, env: Env, readStored: ReadStored | null): { value: string | undefined; observedAt?: string } {
+  if (source.kind !== HOOK_STATE) return { value: env[source.name] };
   const id = env[source.sessionIdEnv];
-  if (id === undefined || id === '' || readStored === null) return undefined;
+  if (id === undefined || id === '' || readStored === null) return { value: undefined };
   const sessionKey = crypto.createHash('sha256').update(id).digest('hex').slice(0, 16);
-  const level = readStored({ harness, sessionKey })?.level;
-  return typeof level === 'string' ? level : undefined;
+  const stored = readStored({ harness, sessionKey });
+  return typeof stored?.level === 'string' ? { value: stored.level, observedAt: stored.observedAt } : { value: undefined };
 }
 
 /** Design §4.2 steps 1-6; 180 IC-180-E3 for a hook-state source. */
@@ -72,12 +74,12 @@ function readSessionEffort({ registry, env, declaredHarness = null, loginModeOf,
       skipped ??= { reason: mode === null ? 'mode-unknown' : 'mode-not-evidenced', origin: originOf(source) };
       continue;
     }
-    const value = valueOf(source, harness.id, env, readStored);
+    const { value, observedAt } = valueOf(source, harness.id, env, readStored);
     if (value === undefined || value === '') continue;
     const levels = harness.worker?.effort?.levels;
     const declaredLevel = EFFORT_RE.test(value) && (levels === 'per-model' || (Array.isArray(levels) && levels.includes(value)));
     return declaredLevel
-      ? { state: 'known', harness: harness.id, level: value, origin: originOf(source), mode }
+      ? { state: 'known', harness: harness.id, level: value, origin: originOf(source), mode, ...(observedAt === undefined ? {} : { observedAt }) }
       : unknownOf(harness.id, 'level-not-declared', originOf(source), mode);
   }
   // not-set names the first variable a person can set; a harness with only a hook-state source names that.

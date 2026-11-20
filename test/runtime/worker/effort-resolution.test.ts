@@ -141,5 +141,5 @@ test('(l) 180: effortPlanFor reads a hook-state level stored under the env\'s co
   assert.deepEqual(call({ SESS_ID: 'sess-id-1' }), { pass: 'c', source: 'session', harness: 'sess', level: 'c', origin: 'hook-state', mapped: null, check: 'listed' });
   assert.equal(call({ SESS_ID: 'another-session' }).origin, 'SESS_EFFORT', 'another session\'s id finds no stored level');
   fs.writeFileSync(file, `${JSON.stringify({ schema: 1, harness: 'sess', level: 'c', event: 'PreToolUse', observedAt: '2020-01-01T00:00:00Z', session: key })}\n`);
-  assert.equal(call({ SESS_ID: 'sess-id-1' }).origin, 'SESS_EFFORT', 'a level stored before this process started is older than the env variable');
+  assert.equal(call({ SESS_ID: 'sess-id-1' }).origin, 'hook-state', 'the latest stored level counts, observed before this process started or not');
 });

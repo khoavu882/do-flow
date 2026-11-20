@@ -7,10 +7,8 @@
 // A record of another shape, harness or session, a link in place of the file, or any read error is nothing stored.
 // The level is passed on as written: the session reader checks it against the harness's levels. The
 // `effort-observations` store in core/registry/storage.json owns the folder's lifetime.
-// Freshness: an environment level is the level when this process (or the shell it came from) started, and the file is
-// written only when the level changes, so a record observed before this process started is older than the environment's
-// level and is nothing stored (the env source decides); one observed since is newer and wins. observedAt has whole
-// seconds, so the start is compared at whole seconds too.
+// Freshness: the hook writes on every prompt, so the latest record of a session id is the session's current level; it
+// counts whenever it was observed, and its `observedAt` travels with the answer.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -41,15 +39,10 @@ function readStoredEffort({ root, harness, sessionKey, fsImpl = fs }: {
   }
 }
 
-/** A `readStored` bound to the config home of `env` (none: every read is nothing stored) that takes only a record
- * observed since `startedAt` (ms; default this process's start). */
-function storedEffortReader(env: Record<string, string | undefined>, { startedAt = Date.now() - process.uptime() * 1000 }: { startedAt?: number } = {}): ReadStored {
+/** A `readStored` bound to the config home of `env` (none: every read is nothing stored). */
+function storedEffortReader(env: Record<string, string | undefined>): ReadStored {
   const root = stateDir(env);
-  const since = Math.floor(startedAt / 1000) * 1000;
-  return ({ harness, sessionKey }) => {
-    const stored = readStoredEffort({ root, harness, sessionKey });
-    return stored !== null && Date.parse(stored.observedAt) >= since ? stored : null;
-  };
+  return ({ harness, sessionKey }) => readStoredEffort({ root, harness, sessionKey });
 }
 
 module.exports = { readStoredEffort, storedEffortReader };
