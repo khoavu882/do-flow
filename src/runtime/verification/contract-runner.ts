@@ -45,6 +45,17 @@ const HEAD_KEEP_CHARS = 400;
  * special-case 124 from the Python keep working. */
 const TIMEOUT_EXIT_CODE = 124;
 
+/** A check starts as its own process-group leader where POSIX groups exist (not on Windows). */
+const GROUPED = process.platform !== 'win32';
+
+/** On a timeout, kills the check's whole process group (the negative pid): spawnSync reaped only the shell. */
+function killGroupOnTimeout(res: any): any {
+  if (GROUPED && res && res.error && res.error.code === 'ETIMEDOUT' && Number.isInteger(res.pid) && res.pid > 1) {
+    try { process.kill(-res.pid, 'SIGKILL'); } catch { /* group already gone */ }
+  }
+  return res;
+}
+
 /**
  * @param {*} value
  * @returns {string}
@@ -704,8 +715,11 @@ class VerificationContractRunner {
 
     let res: any;
     try {
-      const execute = () => this.exec(command, {
+      const execute = () => killGroupOnTimeout(this.exec(command, {
         shell: true,
+        // FU-rfbjrm: its own process group, so a timeout can kill the check's grandchildren too.
+        // Ceiling: a detached child has no controlling terminal, so Ctrl-C no longer reaches it.
+        detached: GROUPED,
         cwd: this.cwd,
         // The key hashed this.env; with sharing or reuse on the command runs in exactly that env.
         ...(this.inflightContext?.enabled || this.reuseStore ? { env: this.env } : {}),
@@ -716,7 +730,7 @@ class VerificationContractRunner {
         // kill a chatty-but-passing check and report it as a failure, so raise the ceiling well
         // past anything a check legitimately prints. Only the first 2,000 chars are ever kept.
         maxBuffer: 64 * 1024 * 1024,
-      });
+      }));
       if (this.inflightContext?.enabled && checkKeyVal) {
         sharing = runInflight({ dir: this.inflightContext.dir, key: checkKeyVal, timeoutMs,
           execute, summarize: (result: any) => this.summarizeExecution(result, checkName, command), fsImpl: this.fsImpl });
