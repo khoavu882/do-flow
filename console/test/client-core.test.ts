@@ -3368,8 +3368,8 @@ const layersBody = (over: any = {}) => ({
     sessions: lok([]),
     traffic: lok({ v: 1, projectKey: P1, windowMin: 10, agents: [], models: [], pairs: [], notChecked: 0 }),
     coverage: lok([
-      { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: false, reason: 'no-harness-record' } },
-      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
+      { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: true } },
+      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: false, reason: 'no-harness-record' } },
     ]),
     ...over,
   },
@@ -3545,7 +3545,12 @@ test('161 layers project: the page reads layers:<pk> and machine; checkouts hold
   const es = liveES();
   assert.deepEqual(channelsOf(es), [`layers:${P1}`, 'machine'].sort());
   es.open();
-  es.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody({ gates: lok([{ runKey: `${WK_MAIN}/run-1/main`, slug: 'feat-a', taskId: 'T-1', gateId: 'g-design', name: 'Design approval', state: 'awaiting', at: AT(5), by: null }]) }))));
+  // 180 IC-180-D4: a claude session with an open permission ask, and an opencode session whose harness records no asks.
+  const sessions = lok([
+    { sessionKey: 'cc11dd22ee33ff44', harness: 'claude', audit: never, denials: never, attention: { observed: true, pending: { kind: 'permission', tool: 'Bash', at: AT(4) }, count: 1, recent: [{ kind: 'permission', tool: 'Bash', at: AT(4) }] } },
+    { sessionKey: 'cc11dd22ee33ff55', harness: 'opencode', audit: never, denials: never, attention: { observed: false, reason: 'no-harness-record' } },
+  ]);
+  es.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody({ sessions, gates: lok([{ runKey: `${WK_MAIN}/run-1/main`, slug: 'feat-a', taskId: 'T-1', gateId: 'g-design', name: 'Design approval', state: 'awaiting', at: AT(5), by: null }]) }))));
   es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody())));
   await settle();
   assert.equal(page.doc.title, 'example-project · Layers · DoFlow Console');
@@ -3564,7 +3569,14 @@ test('161 layers project: the page reads layers:<pk> and machine; checkouts hold
   assert.match(text(opencode), /no audit hook/);
   assert.doesNotMatch(text(opencode), /\bidle\b/i);
   const claude = table.querySelectorAll('tr').find((tr: El) => /claude/.test(text(tr)));
-  assert.match(text(claude!.querySelectorAll('td')[4]), /not observed/, 'questions is not observed for every harness');
+  assert.match(text(claude!.querySelectorAll('td')[4]), /^observed$/, '180: questions is observed for the harness that records asks');
+  assert.match(text(opencode!.querySelectorAll('td')[4]), /not observed no harness record/);
+  const lead = page.main.querySelector('[data-section="lead"]');
+  const ask = lead.querySelector('.lrow[data-kind="ask"]');
+  assert.match(text(ask), /asks permission for Bash/);
+  assert.match(text(ask), /claude/);
+  assert.match(text(ask), /since /);
+  assert.match(text(lead), /not observed whether opencode sessions ask you something: no harness record/);
   assert.equal(loops(page), 1);
   noReads(page);
   assert.equal(apiCalls(page, '/api/info').length, 1, 'the boot read only');
