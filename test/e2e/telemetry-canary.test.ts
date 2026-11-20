@@ -383,6 +383,22 @@ function runCanaryFixture() {
   assert.equal(invalidReviewRes.status, 1, `invalid review check: ${invalidReviewRes.stdout}\n${invalidReviewRes.stderr}`);
   assert.deepEqual(JSON.parse(invalidReviewRes.stdout).errors, ['slug']);
 
+  // Producer (e3, 143): `review --action start` is a live site of the team.verdict kind (the check no longer
+  // writes one). A task run with a FAIL verification record at HEAD makes the start refuse at its pre-check, so the
+  // refusal's verdict line holds every declared key, reason and count included.
+  const startSlug = '143-start-canary';
+  const writeState = (rel: any, text: any) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  writeState(`.doflow/state/orchestration/${startSlug}.json`, JSON.stringify({ taskId: startSlug, taskClass: 'feature', state: 'ACTIVE', program: [], history: [] }));
+  writeState(`.doflow/state/verification/runs/${startSlug}.jsonl`, `${JSON.stringify({
+    schema: 1, taskId: startSlug, head, clean: true, verdict: 'FAIL', at: '2026-10-23T00:00:00.000Z', reportSha256: 'x',
+  })}\n`);
+  const startRes = spawnSync(process.execPath, [DOFLOW, 'review', '--action', 'start', '--slug', startSlug, '--json'],
+    { cwd: root, env: childEnv(), encoding: 'utf8' });
+  assert.equal(startRes.status, 1, `review start: ${startRes.stdout}\n${startRes.stderr}`);
+
   // Producer (f, 122 B.6): `doflow package` against a scratch store under the scratch HOME. The package id is
   // the first 16 characters of the path canary (IC-003 allows 2 to 16 lowercase alphanumerics, so only the
   // 8-character prefix needle can match it); the source directory path and the summary carry full canaries.

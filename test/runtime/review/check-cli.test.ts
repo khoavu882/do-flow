@@ -167,10 +167,9 @@ test('with telemetry on, one review.run line lands in the project runs store', (
   const files = fs.readdirSync(dir).filter((name: any) => name.endsWith('.jsonl'));
   assert.equal(files.length, 1);
   const all = fs.readFileSync(path.join(dir, files[0]), 'utf8').trim().split('\n').map((line: any) => JSON.parse(line));
-  // 143: the check also records one team.verdict line (no author on this record); this test pins the review.run line.
   const lines = all.filter((line: any) => line.kind === 'review.run');
   assert.equal(lines.length, 1);
-  assert.deepEqual(all.map((line: any) => line.kind).sort(), ['review.run', 'team.verdict']);
+  assert.deepEqual(all.map((line: any) => line.kind).sort(), ['review.run']);
   assert.equal(lines[0].errors, 0);
   // C-2: review runs no upkeep (no `.doflow/state/.gitignore`, `upkeep-due` or ledger line); the
   // whole scratch tree (HOME and the project) gains exactly the one telemetry partition.
