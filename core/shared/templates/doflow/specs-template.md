@@ -13,9 +13,10 @@
 
 ## 1. Interface Contracts
 
-<!-- Document endpoints, CLI verb signatures, and repository/service interfaces that anchor
-     implementation — one IC-### entry per contract, so plan.md and downstream implementation can
-     cite a specific contract precisely instead of a paragraph of prose.
+<!-- Document endpoints, CLI verb signatures, repository/service interfaces, file formats, UI
+     component props and events, and model tool or prompt schemas that anchor implementation — one
+     IC-### entry per contract, so plan.md and downstream implementation can cite a specific
+     contract precisely instead of a paragraph of prose.
 
      The index carries a `Family` column, and the detail below is grouped under
      "#### Family: [name]" headings. Contracts are ordered within a family, and families are ordered
@@ -28,8 +29,8 @@
 
 | ID | Contract | Family | Kind | Status |
 |---|---|---|---|---|
-| IC-001 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format | Live |
-| IC-002 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format | Live |
+| IC-001 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format / ui-component / tool-schema | Live |
+| IC-002 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format / ui-component / tool-schema | Live |
 
 **Detail**
 
@@ -41,7 +42,9 @@
 payload, status codes; for a `cli-verb`: verb name, flags, arguments, exit codes; for a `schema`:
 repository/service interface (`interface` → `concrete` → `mock` pattern) or service method
 signature (`[serviceMethod](params): ReturnType`); for a `file-format`: the file's key
-fields/shape — every qualifier and exception intact].
+fields/shape; for a `ui-component`: component name, props with types and defaults, events and
+their payloads; for a `tool-schema`: the model tool or prompt name, its input schema and its output
+schema — every qualifier and exception intact].
 
 #### IC-002: [one-line summary]
 
