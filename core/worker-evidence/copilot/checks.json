@@ -41,6 +41,15 @@
       "establishes": ["model"]
     },
     {
+      "id": "help-effort",
+      "argv": ["--help"],
+      "expect": [
+        "^\\s+--reasoning-effort <level>$",
+        "Set the reasoning effort level \\[possible values: none, minimal, low, medium, high, xhigh, max\\]$"
+      ],
+      "establishes": ["effort"]
+    },
+    {
       "id": "widening-flags",
       "argv": ["--help"],
       "expect": [

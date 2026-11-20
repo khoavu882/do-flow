@@ -58,7 +58,7 @@ const { handleScaffoldCommand } = require('../runtime/scaffold/generate.ts');
 const { handleDecisionCommand, isReservedChannel, CHANNEL_RESERVED } = require('../runtime/decision-register.ts');
 const { handleIntakeCommand } = require('../runtime/intake/index.ts');
 const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli.ts');
-const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
+const { projectRoot: lifecycleProjectRoot, showToplevel } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
 const { handleStorageCommand } = require('../runtime/storage/cli.ts');
 const { handleRoadmapCommand, resolveMainRoot } = require('../runtime/roadmap/loop.ts');
@@ -456,7 +456,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
       projectRoot: retrieveProjectRoot(o) });
     case 'brief-tools': return handleBriefToolsCommand({ owner: o.owner, tier: o.tier, harness: o.harness, slug: o.slug, headingLevel: o.headingLevel, tasks: o.tasks, json: o.json, repoRoot: REPO_ROOT, projectRoot: storeRoot, buildAdapters: buildAdapterRegistry });
     case 'prompt-frame': return handlePromptFrameCommand({ action: o.actionGiven ? o.action : undefined, specFile: o.specFile, parts: o.parts, budgetLines: o.budgetLines, maxBytes: o.maxBytes, out: o.out, json: o.json, cwd: process.cwd() });
-    case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, followed: o.followed, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, write: o.write, limit: o.limit, projectRoot: evidenceRoot(o) });
+    case 'advise': return handleAdviseCommand({ action: o.action, actionGiven: o.actionGiven, kind: o.kind, server: o.server, state: o.state, stateFile: o.stateFile, staticAnswer: o.staticAnswer, questionsFile: o.questionsFile, taskId: o.taskId, pickId: o.pickId, actual: o.actual, followed: o.followed, model: o.model, endpoint: o.endpoint, off: o.off, project: o.project, force: o.force, global: o.global, json: o.json, write: o.write, limit: o.limit, projectRoot: o.global ? evidenceRoot(o) : lifecycleProjectRoot(evidenceRoot(o)), settingsRoot: o.global ? undefined : showToplevel(evidenceRoot(o)) || evidenceRoot(o) });
     case 'model-role': return handleModelRoleCommand({ role: o.role, exclude: o.exclude, excludeFamilies: o.excludeFamily, json: o.json, repoRoot: REPO_ROOT });
     case 'route': return handleRouteCommand({ intent: o.intent, query: o.query, harness: o.harness, check: o.check, json: o.json, projectRoot: evidenceRoot(o) });
     case 'claim': return handleClaimCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, statement: o.statement, claimId: o.claimId, evidenceId: o.evidenceId, replacedBy: o.replacedBy, relation: o.relation, role: o.role, json: o.json, stateRoot: storeRoot, projectRoot: evidenceRoot(o) });

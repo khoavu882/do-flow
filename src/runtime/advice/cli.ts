@@ -33,14 +33,24 @@ function loadSources(repoRoot: any) {
   };
 }
 
-function loadRuntime({ projectRoot, global = false }: any = {}) {
+/**
+ * Two roots, kept apart (review R-02): the stores (picks, results) are keyed by `projectRoot`, the main checkout, as every
+ * other advice caller keys them; the settings come from the layer projectLayerSource names for `settingsRoot`, the
+ * checkout's own toplevel (its own `.doflow`, or the main checkout's when it inherits). `roots['project-doflow']`, which
+ * advice reads only for settings, and the returned `settingsRoot` both point at that layer's checkout.
+ */
+function loadRuntime({ projectRoot, settingsRoot, global = false }: any = {}) {
   const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT });
   const storage = loadStorageRegistry({ repoRoot: REPO_ROOT });
-  const roots = resolveRoots({ registry: storage, projectRoot, global });
-  const projectLayers = projectLayerSource(projectRoot);
+  const projectLayers = projectLayerSource(settingsRoot);
+  const layerRoot = projectLayers.layersFrom ? path.dirname(projectLayers.layersFrom) : settingsRoot;
+  const roots = {
+    ...resolveRoots({ registry: storage, projectRoot, global }),
+    'project-doflow': resolveRoots({ registry: storage, projectRoot: layerRoot, global })['project-doflow'],
+  };
   const sources = loadSources(REPO_ROOT);
   const adviceRegistry = advice.ok ? advice.registry : null;
-  return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources, projectLayers };
+  return { adviceRegistry, adviceError: advice.ok ? null : advice.detail, storage, roots, sources, projectLayers, settingsRoot: layerRoot || undefined };
 }
 
 /** The JSON body of a response, with the removed-setting diagnostics (retired.ts) in `warnings` when there are any. */
@@ -286,6 +296,7 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
   const { adviceRegistry, roots, sources } = runtime;
   const env = options.env || process.env;
   const projectRoot = options.projectRoot || undefined;
+  const { settingsRoot } = runtime;
   const setting = resolveSetting({ adviceRegistry, roots, env });
   if (setting.state !== 'on') return noCallResult('off', setting.reason, setting.notes?.[0] || null, setting);
 
@@ -298,13 +309,13 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
     };
   }
   const client = createAdviceClient({ adviceRegistry, roots, sources });
-  const cap = profileAdvisorCap({ projectRoot, env });
+  const cap = profileAdvisorCap({ projectRoot: settingsRoot, env });
   if (!parsed.hasKind && capMode(cap, 'act') === 'act') {
     // No kind setting and no cap on the advisor: the direct ask, bounded by timeoutMs (client.ts).
     return client.ask({ questionSet, kind, staticAnswer: options.staticAnswer, caller: 'advise', taskId: options.taskId, record: true });
   }
   const shadowConfig = parsed.hasKind
-    ? resolveShadowConfig(kind, { projectRoot, env, roots, global: options.global })
+    ? resolveShadowConfig(kind, { projectRoot: settingsRoot, env, roots, global: options.global })
     : { kind, mode: capMode(cap, 'act') === 'shadow' ? 'shadow' : 'off', model: null };
   // The client's own reply, kept so a shown or act answer prints as it always did; the dispatcher asks through this
   // wrapper, and reads the model build's digest through the same client.
@@ -315,7 +326,7 @@ async function askThroughDispatcher({ options, runtime, parsed, questionSet, kin
   };
   const intercepted = await interceptDecisionPoint({
     kind, caller: 'advise', state: questionSet.state, staticPick: options.staticAnswer ?? '', staticAnswer: options.staticAnswer,
-    questionSet, adviceRegistry, taskId: options.taskId ?? null, projectRoot, env, surface: 'show',
+    questionSet, adviceRegistry, taskId: options.taskId ?? null, projectRoot, settingsRoot, env, surface: 'show',
   }, { adviceClient, roots, shadowConfig });
   if (intercepted.mode === 'off') return noCallResult('off', null, null, setting);
   if (intercepted.mode === 'shadow') return noCallResult('shadow', intercepted.warning || null, null, setting);
@@ -386,7 +397,7 @@ async function handleFlags(options: any, runtime: any) {
   const { adviceRegistry, adviceError, roots, sources } = runtime;
   if (adviceError || !adviceRegistry) return writeFailure(`advice registry cannot be read: ${adviceError || 'missing'}`, json);
   const answer = await flagsAnswer({
-    registry: adviceRegistry, roots, sources, projectRoot: options.projectRoot, env: options.env || process.env,
+    registry: adviceRegistry, roots, sources, projectRoot: options.projectRoot, settingsRoot: runtime.settingsRoot, env: options.env || process.env,
     global: options.global === true, limit: options.limit, kind: options.kind,
     client: createAdviceClient({ adviceRegistry, roots, sources }),
   });
@@ -406,7 +417,9 @@ async function handleAdviseCommand(options: any = {}) {
   }
   try {
     const projectRoot = options.global ? null : path.resolve(options.projectRoot || process.cwd());
-    const runtime = loadRuntime({ projectRoot, global: options.global });
+    // The checkout whose settings layer applies (its own toplevel); the stores stay keyed by projectRoot.
+    const settingsRoot = options.global ? null : path.resolve(options.settingsRoot || projectRoot);
+    const runtime = loadRuntime({ projectRoot, settingsRoot, global: options.global });
     // A removed setting key still in a settings file: said once on stderr in text mode, in `warnings` of the JSON body in --json.
     const warnings = removedKeyDiagnostics(runtime.roots, runtime.adviceRegistry);
     if (!options.json) for (const line of warnings) console.error(`advise: ${line}`);

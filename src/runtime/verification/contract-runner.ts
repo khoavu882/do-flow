@@ -45,6 +45,62 @@ const HEAD_KEEP_CHARS = 400;
  * special-case 124 from the Python keep working. */
 const TIMEOUT_EXIT_CODE = 124;
 
+/** A check runs in its own process group where POSIX groups exist (not on Windows). */
+const GROUPED = process.platform !== 'win32';
+
+/**
+ * FU-rfbjrm + review R-01: the guard a grouped check runs under. It stays in doflow's process group, so a
+ * terminal's Ctrl-C (and a TERM or HUP to the group) reaches it while spawnSync blocks doflow's own
+ * handlers; it starts the check (`/bin/sh -c`, as `shell: true` does) as the leader of a new group and
+ * SIGKILLs that whole group on INT, TERM or HUP, then exits 128+n. spawnSync's timeout sends it TERM, so
+ * a timeout kills the check's grandchildren too. It also kills the group when doflow dies under it (its
+ * parent changes or doflow's end of the output pipe breaks). Output is relayed and the guard waits for
+ * the check's pipes to close, as spawnSync does; a check killed by a signal re-raises it.
+ * Review R-08: Node ignores SIGPIPE and takes SIGUSR1 for its inspector, so a bare re-raise exited 0.
+ * Adding a listener and removing the last one puts the signal back to its default action (libuv resets
+ * it to SIG_DFL), so the guard dies by the check's own signal; the 128+n exit code keeps the result
+ * non-zero should a self-signal ever be swallowed anyway.
+ * Ceiling: one extra node start per check, and a grandchild that leaves the group escapes the kill.
+ */
+const GROUP_GUARD = `
+const { spawn } = require('node:child_process');
+const parent = process.ppid;
+let forced = 0;
+const env = process.argv.length > 2 ? { ...process.env, NODE_OPTIONS: process.argv[2] } : process.env;
+const child = spawn(process.argv[1], { shell: true, detached: true, env, stdio: ['inherit', 'pipe', 'pipe'] });
+const stop = (n) => {
+  if (!forced) forced = n;
+  try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+  setTimeout(() => process.exit(128 + forced), 1000).unref();
+};
+for (const [signal, n] of [['SIGINT', 2], ['SIGTERM', 15], ['SIGHUP', 1]]) process.on(signal, () => stop(n));
+for (const out of [process.stdout, process.stderr]) out.on('error', () => stop(13));
+const watch = setInterval(() => { if (process.ppid !== parent) stop(1); }, 250);
+child.stdout.pipe(process.stdout);
+child.stderr.pipe(process.stderr);
+child.on('error', (error) => { process.stderr.write(String(error.message) + '\\n'); process.exitCode = 127; });
+child.on('close', (code, signal) => {
+  clearInterval(watch);
+  if (forced) process.exit(128 + forced);
+  if (!signal) { process.exitCode ??= code; return; }
+  process.stdout.write('', () => process.stderr.write('', () => {
+    process.exitCode = 128 + require('node:os').constants.signals[signal];
+    try { process.on(signal, () => {}); } catch {}
+    process.removeAllListeners(signal);
+    process.kill(process.pid, signal);
+  }));
+});
+`;
+
+/** The default `exec`: spawnSync's contract, with a grouped check run under GROUP_GUARD. Review R-08b: the
+ * guard starts without the check env's NODE_OPTIONS, which it gets as an argument and hands to the check. */
+function spawnCheck(command: string, options: any): any {
+  if (!GROUPED) return spawnSync(command, options);
+  const { NODE_OPTIONS: nodeOptions, ...env } = options.env ?? process.env;
+  const args = ['-e', GROUP_GUARD, '--', command, ...(nodeOptions === undefined ? [] : [nodeOptions])];
+  return spawnSync(process.execPath, args, { ...options, env, shell: false, killSignal: 'SIGTERM' });
+}
+
 /**
  * @param {*} value
  * @returns {string}
@@ -338,7 +394,7 @@ class VerificationContractRunner {
     const opts = typeof options === 'string' ? { cwd: options } : options;
     this.cwd = opts.cwd || process.cwd();
     this.defaultTimeoutMs = opts.defaultTimeoutMs || DEFAULT_TIMEOUT_MS;
-    this.exec = opts.exec || spawnSync;
+    this.exec = opts.exec || spawnCheck;
     this.fsImpl = opts.fsImpl || fs;
     this.logDir = opts.logDir || path.join(this.cwd, '.doflow', 'state', 'verification', 'logs');
     this.platform = opts.platform || process.platform;
@@ -704,6 +760,7 @@ class VerificationContractRunner {
 
     let res: any;
     try {
+      // The default exec (spawnCheck) runs the check in its own process group under a guard.
       const execute = () => this.exec(command, {
         shell: true,
         cwd: this.cwd,

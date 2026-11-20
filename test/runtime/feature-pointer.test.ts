@@ -146,6 +146,22 @@ test('finish: a feature run that is closed, or rejected at a gate, clears its en
   assert.equal(fs.existsSync(file(rejected)), false);
 });
 
+test('finish: a close from the main checkout clears the pointer of the worktree that started the run', () => {
+  const main = makeRepo(scratch, 'fptr-main');
+  main.dir = fs.realpathSync(main.dir);
+  fs.mkdirSync(path.join(main.dir, 'agent-docs', 'doflow', A), { recursive: true });
+  const wt = path.join(scratch.dir, 'fptr-wt');
+  main.git('worktree', 'add', '-q', '-b', `feat/${A}`, wt);
+  const wtDir = fs.realpathSync(wt);
+  assert.equal(run(wtDir, ['orchestrate', '--action', 'start', '--task-class', 'feature', '--task-id', A, '--json']).status, 0);
+  const wtFile = pointer.pointerFile(main.dir, wtDir);
+  assert.ok(fs.existsSync(wtFile), 'the worktree recorded its pointer');
+  const close = run(main.dir, ['orchestrate', '--action', 'close', '--task-id', A, '--note', 'dropped', '--json']);
+  assert.equal(close.status, 0, close.stderr);
+  assert.equal(close.json.state, 'CLOSED');
+  assert.equal(fs.existsSync(wtFile), false, 'the worktree pointer is cleared by a close from another checkout');
+});
+
 test('mismatch: a pointer recorded on another branch is reported with both sides, slug null, exit 1', () => {
   const repo = newRepo();
   init(repo, A);

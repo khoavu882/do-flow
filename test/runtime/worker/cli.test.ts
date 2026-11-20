@@ -22,7 +22,7 @@ const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const HARNESSES: any = ACTIVE_HARNESS_IDS;
-const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'login-state', 'send', 'steer', 'stop'];
+const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence', 'start-session', 'start-options', 'conform', 'login-state', 'send', 'steer', 'stop'];
 const DISPATCHER_TOOLS: any = ['dirname', 'date'];
 const WIN = process.platform === 'win32';
 
@@ -134,7 +134,7 @@ test('--reason with no value is a parser usage error: exit 1 and no JSON on stdo
   assert.match(r.stderr, /--reason requires a value/);
 });
 
-test('worker --help lists the eleven actions, the evidence flags included', (t) => {
+test('worker --help lists every action, conform included, and the evidence flags', (t) => {
   const r = project(t).cli('--help');
   assert.equal(r.status, 0, r.stderr);
   const line = r.stdout.split('\n').find((l: any) => /^\s+worker: /.test(l));
