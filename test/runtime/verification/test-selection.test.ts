@@ -1,5 +1,5 @@
 'use strict';
-// targeted-test-selection.test.js: feature 071. The targeted tier is scoped to the feature's changed
+// verification/test-selection.test.ts: feature 071. The targeted tier is scoped to the feature's changed
 // test files (FR-003), recorded (FR-004), subsumed by an identical required broad tier (FR-001) and
 // never stands in for it (FR-005); a `node --test` script yields a scopable command (FR-002).
 const { test } = require('node:test');

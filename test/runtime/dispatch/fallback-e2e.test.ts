@@ -36,7 +36,7 @@ function descriptorsFor({ secondSignals = false, firstSignals = true, codexFirst
     descriptors.codex.oneShot = { ...descriptors.codex.oneShot, argv: ['--ephemeral', '-'], promptVia: 'stdin' };
     descriptors.codex.spawnDenial = { ...descriptors.codex.spawnDenial, argv: [] };
     descriptors.codex.isolatedEdit = {
-      status: 'supported', evidence: ['dispatch-fallback-e2e.test.js fake worker'],
+      status: 'supported', evidence: ['dispatch/fallback-e2e.test.ts fake worker'],
       verification: 'Run this test with the fake harness CLI.', verifiedOn: '2026-10-21', argv: ['exec', '--codex-edit-in-cwd'],
     };
   }
@@ -45,14 +45,14 @@ function descriptorsFor({ secondSignals = false, firstSignals = true, codexFirst
   if (firstSignals) descriptors.claude.structuredOutput.quotaSignals = { signals: [...SIGNALS], basis: 'unverified', evidence: [] };
   else delete descriptors.claude.structuredOutput.quotaSignals;
   descriptors.claude.isolatedEdit = {
-    status: 'supported', evidence: ['dispatch-fallback-e2e.test.js fake worker'],
+    status: 'supported', evidence: ['dispatch/fallback-e2e.test.ts fake worker'],
     verification: 'Run this test with the fake harness CLI.', verifiedOn: '2026-10-21', argv: ['--edit-in-cwd'],
   };
   descriptors.antigravity.structuredOutput = structuredClone(descriptors.claude.structuredOutput);
   if (secondSignals) descriptors.antigravity.structuredOutput.quotaSignals = { signals: [...SIGNALS], basis: 'unverified', evidence: [] };
   else delete descriptors.antigravity.structuredOutput.quotaSignals;
   descriptors.antigravity.isolatedEdit = {
-    status: 'supported', evidence: ['dispatch-fallback-e2e.test.js fake worker'],
+    status: 'supported', evidence: ['dispatch/fallback-e2e.test.ts fake worker'],
     verification: 'Run this test with the fake harness CLI.', verifiedOn: '2026-10-21', argv: ['--antigravity-edit-in-cwd'],
   };
   return descriptors;

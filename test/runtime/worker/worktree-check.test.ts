@@ -1,5 +1,5 @@
 'use strict';
-// worker-worktree-check.test.js — 081 IC-015 (DEC-041): the read-only snapshot of an execution
+// worker/worktree-check.test.ts — 081 IC-015 (DEC-041): the read-only snapshot of an execution
 // worktree and the comparison of two snapshots.
 //
 // Every case builds a fresh repository with one linked worktree (the execution worktree) under a

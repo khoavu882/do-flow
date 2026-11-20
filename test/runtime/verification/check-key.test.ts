@@ -345,7 +345,7 @@ test('a caller-supplied tree outside a git checkout is keyable but never equals 
   assert.notEqual(key(root, { ...input, ...faulty }), degraded);
 });
 
-// Execute a mutated module in memory (the pattern of verification-inflight.test.js): the
+// Execute a mutated module in memory (the pattern of verification/inflight.test.ts): the
 // production file is never edited, and each mutation must break the case asserted above.
 function mutated(before: any, after: any) {
   const Module = require('node:module');

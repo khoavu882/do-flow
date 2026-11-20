@@ -18,7 +18,7 @@ const { bashPath } = require('../../helper/bash-locator.ts');
 // Obligations: no file under dispatch/, dispatch-envelopes/, worker-runs/, task-attempts/,
 // evidence/ or runs/, no integration commit message and no summary text holds either secret, except
 // that the dispatch run alone stores the verification argv (DEC-024, data-model `run.verify`);
-// worker-output/ holds KNOWN only as `<masked>`. An fs write spy (081's worker-secrets.test.js
+// worker-output/ holds KNOWN only as `<masked>`. An fs write spy (081's worker/secrets.test.ts
 // approach; `srcFrame` reads file:// frames too) checks every in-process write from src/ as it
 // happens, so a secret written and later removed is caught as well.
 //
@@ -76,7 +76,7 @@ async function until(check: any, what: any, ms: any = 30000) {
   }
 }
 
-// ── The fs write spy (081 worker-secrets.test.js's frame reading) ────────────────────────────────
+// ── The fs write spy (081 worker/secrets.test.ts's frame reading) ────────────────────────────────
 
 /** The innermost frame of this repository's `src/` in the current stack, as a repo-relative file. */
 function srcFrame() {

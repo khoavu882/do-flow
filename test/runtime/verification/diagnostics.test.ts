@@ -1,5 +1,5 @@
 'use strict';
-// verification-diagnostics.test.js — review A2: the verification contract truncated TAP output to
+// verification/diagnostics.test.ts — review A2: the verification contract truncated TAP output to
 // 2,000 characters, keeping the final failure count but dropping the failing test names from the
 // middle of the stream — recovering them took a second raw run of the same command, which the
 // contract itself had also already run twice. Three fixes, each pinned here: the full log is

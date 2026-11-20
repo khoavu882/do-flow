@@ -1,5 +1,5 @@
 'use strict';
-// verification-input.test.js — IC-022 / DEC-035: verified check inputs, truthful linked successor,
+// verification/input.test.ts — IC-022 / DEC-035: verified check inputs, truthful linked successor,
 // and honest chronology for verification compilation and execution.
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');

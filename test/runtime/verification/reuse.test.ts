@@ -6,7 +6,7 @@
 // reuse is on (L3 included, store-only); looks up only at the levels `policy.reuse.levels` lists.
 // Every case injects the `reuse` boolean, so no test depends on the user's settings, and runs on a
 // fixture git repository in a temp directory with an exec spy (the style of
-// verification-inflight.test.js). Negative controls run mutated modules in memory.
+// verification/inflight.test.ts). Negative controls run mutated modules in memory.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');

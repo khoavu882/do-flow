@@ -1,5 +1,5 @@
 'use strict';
-// verification-scope.test.js — the change-scope tier measures a change against a bound built from
+// verification/scope.test.ts — the change-scope tier measures a change against a bound built from
 // the feature's plan, from the merge base with the integration branch (feature 045, IC-003 / IC-004;
 // FR-008, FR-009).
 //

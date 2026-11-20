@@ -398,7 +398,7 @@ test('a failing verify inside a subdirectory writes to the store found by walk-u
   const first = verify(p, { cwd });
   assert.equal(first.status, 1, first.stderr);
   // Since 088 D.1-fix the failing check's log goes to the resolved store, so no fragment forms (round 3
-  // §1 row 4b, verify-state-root.test.js); one left by an older runtime must not stop telemetry either.
+  // §1 row 4b, verification/state-root.test.ts); one left by an older runtime must not stop telemetry either.
   assert.equal(fs.existsSync(path.join(cwd, '.doflow')), false, 'the failing check made no cwd-rooted fragment');
   fs.mkdirSync(path.join(cwd, '.doflow', 'state', 'verification', 'logs'), { recursive: true });
   const second = verify(p, { cwd });
