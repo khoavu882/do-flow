@@ -76,9 +76,9 @@ test('a table row splits on a pipe, but not inside a code span or after a backsl
   assert.deepEqual(splitRow('| a | `x | y` | b \\| c |'), ['a', '`x | y`', 'b | c']);
   const out = html('| ID | Rule |\n|---|:--|\n| R1 | `a|b` |\n| R2 |\n\nafter\n');
   assert.match(out, /<th>ID<\/th><th>Rule<\/th>/);
-  assert.match(out, /<td>R1<\/td><td><code>a\|b<\/code><\/td>/);
+  assert.match(out, /<td id="d-R1">R1<\/td><td><code>a\|b<\/code><\/td>/);
   // A short row is padded to the header's width.
-  assert.match(out, /<td>R2<\/td><td><\/td>/);
+  assert.match(out, /<td id="d-R2">R2<\/td><td><\/td>/);
   assert.match(out, /<p>after<\/p>/);
 });
 
@@ -448,4 +448,111 @@ test('a long run of blank lines inside a list item is read once, not once per bl
   const elapsed = Date.now() - started;
   assert.match(page, /<li>[\s\S]*first[\s\S]*still the first item[\s\S]*<\/li>\s*<li>second<\/li>/);
   assert.ok(elapsed < 5000, `read in ${elapsed} ms`);
+});
+
+// Row 179: ids link to their definitions, status words are labels, History starts closed.
+test('ids are defined by an id table row, an id-led heading, a bold id-led bullet and a numbered word heading', () => {
+  const out = html([
+    '# Doc', '',
+    '| ID | Text |', '|---|---|', '| AB-1 | first |', '',
+    '| Key | Text |', '|---|---|', '| G1 | one |', '| G2 | two |', '',
+    '### CD-2: second', '',
+    '- **EF-3:** third', '',
+    '### Item 4: fourth', '',
+    'Mentions AB-1, CD-2, EF-3, G1 and Item 4; not `AB-1` or [AB-1](https://example.test/a).', '',
+    '- **AB-1:** detail of the first', '',
+  ].join('\n'));
+  assert.match(out, /<td id="d-AB-1"><a class="ref" href="#d-AB-1-2">AB-1<\/a><\/td>/, 'the primary row links down to the later definition');
+  assert.match(out, /<td id="d-G1">G1<\/td>/, 'a first column of ids defines without an ID header');
+  assert.match(out, /<h3 id="design-cd-2-second"><span id="d-CD-2"><\/span>CD-2: second<\/h3>/);
+  assert.match(out, /<li id="d-EF-3"><strong>EF-3:<\/strong> third<\/li>/, 'the defining spot is not a link');
+  assert.match(out, /<h3 id="design-item-4-fourth"><span id="d-Item_4"><\/span>Item 4: fourth<\/h3>/);
+  assert.match(out, /<li id="d-AB-1-2"><strong>AB-1:<\/strong> detail/);
+  for (const [id, anchor] of [['AB-1', 'd-AB-1'], ['CD-2', 'd-CD-2'], ['EF-3', 'd-EF-3'], ['G1', 'd-G1'], ['Item 4', 'd-Item_4']]) {
+    assert.ok(out.includes(`<a class="ref" href="#${anchor}">${id}</a>`), id);
+  }
+  assert.ok(out.includes('not <code>AB-1</code> or <a href="https://example.test/a">AB-1</a>.'), 'no link inside code or a link');
+});
+
+test('a mention links to the definition in its own document, else to the first one on the page', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': '# R\n\n| ID | Text |\n|---|---|\n| AB-1 | first |\n',
+    'design/design.md': '# D\n\n- **AB-1:** again\n\nSee AB-1.\n',
+    'plan.md': '# P\n\nSee AB-1.\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const doc = (key: string) => page.slice(page.indexOf(`id="doc-${key}"`), page.indexOf('</section>', page.indexOf(`id="doc-${key}"`)));
+  assert.ok(doc('design').includes('See <a class="ref" href="#d-AB-1">AB-1</a>.'), doc('design'));
+  assert.ok(doc('plan').includes('See <a class="ref" href="#r-AB-1">AB-1</a>.'), doc('plan'));
+});
+
+test('an undefined id and an unhyphenated short id defined in two documents stay plain', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': '# R\n\n| ID | Text |\n|---|---|\n| K1 | one |\n| S1 | only here |\n',
+    'design/design.md': '# D\n\n| ID | Text |\n|---|---|\n| K1 | another one |\n',
+    'plan.md': '# P\n\nK1, S1 and ZZ-9 here.\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  assert.ok(page.includes('<p>K1, <a class="ref" href="#r-S1">S1</a> and ZZ-9 here.</p>'), page);
+});
+
+test('a run of ids renders as one compact row and drops an empty item', () => {
+  const out = html('| ID | Text |\n|---|---|\n| AB-1 | first |\n| AB-2 | second |\n\n| Covers |\n|---|\n| AB-1; . |\n| AB-2, ZZ-9 |\n');
+  assert.ok(out.includes('<td><span class="ids"><a class="ref" href="#d-AB-1">AB-1</a></span></td>'), out);
+  assert.ok(out.includes('<td><span class="ids"><a class="ref" href="#d-AB-2">AB-2</a> ZZ-9</span></td>'), out);
+});
+
+test('the page carries one JSON block mapping each id to its document, summary and status', () => {
+  const long = 'word '.repeat(60).trim();
+  const { root, paths } = feature({
+    'intention/requirement.md': `# R\n\n| ID | Text | Status |\n|---|---|---|\n| AB-1 | first </script> <b>x</b> | Live |\n| AB-2 | ${long} | Draft |\n`,
+    'design/design.md': '# D\n\n### CD-2: a heading\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const blocks = page.match(/<script type="application\/json" id="page-ids">([\s\S]*?)<\/script>/g) || [];
+  assert.equal(blocks.length, 1);
+  assert.ok(!blocks[0].slice(0, -9).includes('<', 10), 'every < inside the block is escaped');
+  const data = JSON.parse(/id="page-ids">([\s\S]*?)<\/script>/.exec(page)![1]);
+  assert.deepEqual(data['AB-1'], [{ doc: 'Requirement', anchor: 'r-AB-1', summary: 'first </script> <b>x</b>', status: 'Live' }]);
+  assert.deepEqual(data['CD-2'], [{ doc: 'Design', anchor: 'd-CD-2', summary: 'a heading' }]);
+  assert.ok(data['AB-2'][0].summary.length <= 140 && data['AB-2'][0].summary.endsWith('…'), data['AB-2'][0].summary);
+});
+
+test('a status word and the values of an enumerated column render as labels', () => {
+  const out = html([
+    '| Item | State | Kind | Note | Size |', '|---|---|---|---|---|',
+    '| a | Live | alpha | a long note that runs well past twenty four characters | 3 |',
+    '| b | Superseded → AB-9 | beta | short | 12 |',
+    '| c | In review | alpha | short | 7 |', '',
+  ].join('\n'));
+  assert.ok(out.includes('<td><span class="tag tag--good">Live</span></td>'), out);
+  assert.ok(out.includes('<td><span class="tag tag--quiet">Superseded → AB-9</span></td>'), out);
+  assert.ok(out.includes('<td><span class="tag tag--info">In review</span></td>'), out);
+  const alpha = out.match(/<span class="tag tag--(n\d)">alpha<\/span>/g) || [];
+  assert.equal(alpha.length, 2);
+  assert.equal(alpha[0], alpha[1], 'one value always takes the same tone');
+  assert.match(out, /<span class="tag tag--n\d">beta<\/span>/);
+  assert.ok(out.includes('<td>short</td>'), 'a column with a long value is not enumerated');
+  assert.ok(out.includes('<td>12</td>'), 'a number column is not enumerated');
+  assert.ok(out.includes('<td>a</td>'), 'the first column is never a set of labels');
+  assert.match(out, /<div class="table-wrap" data-cols="5"><table>/);
+});
+
+test('a History section, up to the next heading of its level, starts closed', () => {
+  const out = html('# D\n\n## 3. History\n\nfirst\n\n### Older\n\n```text\n## not a heading\n```\n\n## 4. Next\n\n### History\n\nlast\n');
+  assert.match(out, /<details class="history"><summary><h2 id="design-3-history">3\. History<\/h2><\/summary>\n<p>first<\/p>\n<h3 id="design-older">Older<\/h3>\n<pre><code>## not a heading<\/code><\/pre>\n<\/details>\n<h2 id="design-4-next">4\. Next<\/h2>/);
+  assert.match(out, /<details class="history"><summary><h3 id="design-history">History<\/h3><\/summary>\n<p>last<\/p>\n<\/details>$/);
+});
+
+test('buildPage collects per-document counts on a field the --json result does not carry', () => {
+  const { root, paths } = feature({
+    'intention/requirement.md': '# R\n\n## 1. One\n\nfour words of text\n\n| ID | Text |\n|---|---|\n| AB-1 | x |\n| AB-2 | y |\n\n## 2. Two\n\n### Item 1: z\n\n- **R1:** w\n',
+    'design/design.md': `# D\n\n${DIAGRAM}`,
+  });
+  const result = buildPage({ paths, root, mode: 'source', now: NOW });
+  assert.deepEqual(result.counts, [
+    { key: 'requirement', label: 'Requirement', h2: 2, words: 20, tables: 1, diagrams: 0, ids: { AB: 2, Item: 1, R: 1 } },
+    { key: 'design', label: 'Design', h2: 0, words: 1, tables: 0, diagrams: 1, ids: {} },
+  ]);
+  assert.ok(!('counts' in JSON.parse(JSON.stringify(result))), 'the --json result shape is unchanged');
 });
