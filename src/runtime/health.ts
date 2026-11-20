@@ -23,6 +23,7 @@ const { CapabilityRouter } = require('./capability-router.ts');
 const { loadRegistry, agentToolScopeView } = require('../registry/index.ts');
 const { chooseInstallRoute, describeInstall, plainCommand } = require('../install/tool-lifecycle.ts');
 const { evaluateReach } = require('./reach.ts');
+const { revisits } = require('./revisits.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
@@ -1314,6 +1315,11 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   } catch (error: any) {
     report.workerPool = { state: 'unavailable', message: error?.message || String(error) };
   }
+  // Revisit triggers (row 180 K7): read from values the process already holds; `met` is a warning, never a finding.
+  report.revisits = revisits(rest.revisitInputs);
+  for (const item of report.revisits) {
+    if (item.state === 'met') report.warnings.push({ kind: 'revisit-met', subject: item.id, detail: `${item.followup}: the revisit trigger is met; reopen it per ${item.design.replace('#', ' section ')}` });
+  }
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -1416,6 +1422,9 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     }
     console.log(`  Models: ${report.workerPool.models.enabledCount} enabled, ${report.workerPool.models.listedCount} listed`);
   }
+
+  console.log('\n[Revisit triggers]');
+  for (const item of report.revisits) console.log(`  ${item.id} (${item.followup}): ${item.state}; not checked: ${item.notChecked.join(', ')}`);
 
   printMcpSections(report.mcp);
   if (packagesWorthShowing(report.packages)) printPackagesSection(report.packages);

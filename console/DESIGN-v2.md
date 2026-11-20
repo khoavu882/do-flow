@@ -344,6 +344,8 @@ Researched 2026-11-07. Sources are marked; blog posts are weaker than specs and 
 - A feature needs high-rate, loss-tolerant data (for example a live token-rate graph at 20 Hz) next to
   reliable log streams.
 
+`doflow doctor` reports the first trigger as the revisit `http3-quic` (FU-3mv3gx): it reads `node_use_quic`, whether `node:quic` is a builtin, and `ngtcp2` and `nghttp3` in `process.versions`, and prints the other two as not checked; no adapter is built.
+
 **How v2.0 keeps the door open:** the client store consumes envelopes (7.4), not an `EventSource`. Put
 the connection behind `web/live.js` with one adapter interface (`open(channels, since)`, `close()`,
 `onFrame`, `onState`) and ship the SSE adapter. A WebTransport adapter would map the same envelope to one
