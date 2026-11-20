@@ -1065,6 +1065,8 @@ function boot() {
       doc: document,
       // The action confirmation is modal: no shortcut runs under it, and the palette and help cannot open over it (162 review B-4).
       blocked: isConfirmOpen,
+      // j and k at document level: the rows of the view shown, when it has any (Now).
+      rows: () => (app.view && app.view.local && typeof app.view.local.stepRows === 'function' ? app.view.local.stepRows() : []),
       actions: {
         palette: () => { app.shortcuts.closeHelp(); app.palette.open(); },
         help: () => { app.palette.close(); },

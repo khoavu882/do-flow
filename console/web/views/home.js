@@ -17,7 +17,6 @@ import { createLiveAdapter } from '../live.js';
 import { sinceLooked, nextSeen, ownRows, machineRows, machineRuns } from '../derive/digest.js';
 import { readSeen, writeSeen, setNotify, canNotify, permission, notifyActive, ask, notifyWaiting } from '../notify.js';
 import { savedBar, take, follow } from '../filters.js';
-import { stepFocus } from '../keys.js';
 
 /** How many finished runs the list shows before "Show all". */
 const FINISHED_CAP = 10;
@@ -742,7 +741,8 @@ function renderHome(data, { badge, local, retitle = () => {} }) {
     local.homeRebuild(Date.now());
     retitle();
   });
-  root.addEventListener('keydown', (/** @type {any} */ event) => { stepFocus(event, rowLinks(root)); });
+  // j and k are read on the document (keys.js), so they work while the focus is on the body, as after a hash navigation.
+  local.stepRows = () => rowLinks(root);
   build();
   return root;
 }

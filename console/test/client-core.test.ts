@@ -6194,10 +6194,10 @@ test('180 C5 explainer: a rejected run says which gate, when and by whom, as rec
 test('180 C5 j and k: Now moves along the row links without wrapping; never while typing, with a modifier, or with a dialog open', async () => {
   await withFreshModules(async () => {
     const page = await start({ fetch: standard });
-    const root = page.main.querySelector('.home');
     const links = nowLinks(page);
     assert.ok(links.length >= 3, 'the gate card and the run rows have links');
-    const press = (key: string, target: any, extra: any = {}) => root.fire('keydown', { key, target, ...extra });
+    // The keys are bound on the document (B-1), where a key pressed on a row link arrives.
+    const press = (key: string, target: any, extra: any = {}) => keydownOn(page, key, { target, ...extra });
     links[0].focus();
     assert.equal(press('j', links[0]).defaultPrevented, true);
     same(page.doc.activeElement, links[1], 'j moves to the next row');
@@ -6237,6 +6237,28 @@ test('180 C5 j and k: Now moves along the row links without wrapping; never whil
     links[0].focus();
     press('j', links[0]);
     same(page.doc.activeElement, links[1], 'with the dialogs closed, j works again');
+  });
+});
+
+test('180 B-1 j and k on Now work with the focus on the body, as after a hash navigation; on another view a key from the body moves nothing', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const links = nowLinks(page);
+    assert.ok(links.length >= 2);
+    page.doc.activeElement = page.doc.body;
+    assert.equal(keydownOn(page, 'j', { target: page.doc.body }).defaultPrevented, true);
+    same(page.doc.activeElement, links[0], 'j from the body goes to the first row');
+    keydownOn(page, 'j');
+    same(page.doc.activeElement, links[1], 'and on to the next');
+    page.doc.activeElement = page.doc.body;
+    keydownOn(page, 'k', { target: page.doc.body });
+    same(page.doc.activeElement, links[links.length - 1], 'k from the body goes to the last row');
+    uninstallPage();
+    mock.timers.reset();
+    const other = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+    other.doc.activeElement = other.doc.body;
+    assert.equal(keydownOn(other, 'j', { target: other.doc.body }).defaultPrevented, false, 'Sessions binds j and k on its own rows only');
+    same(other.doc.activeElement, other.doc.body, 'nothing moves');
   });
 });
 

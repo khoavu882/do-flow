@@ -99,17 +99,21 @@ function isTyping(target) {
  * Binds the global shortcuts to `doc`. `actions` maps an entry id to what it does; an id without an action is ignored, except
  * `help`, whose list keys.js opens itself (its action, if any, runs just before). While `blocked()` is true (a modal dialog of the
  * page is open: the action confirmation, 162 review B-4) no shortcut runs and nothing opens; the dialog handles its own keys.
+ * `rows()` gives the rows j and k step along from anywhere on the page, the body too (Now's row links; 180 review B-1); a view
+ * with none gives [] and binds its own j and k (Sessions, Follow-ups, the run rail), which reach here already handled.
  * Returns `{ openHelp, closeHelp, helpOpen, destroy }`.
  * @param {object} options
  * @param {any} options.doc the document
  * @param {Record<string, () => void>} options.actions
  * @param {() => boolean} [options.blocked]
+ * @param {() => any[]} [options.rows]
  * @param {(fn: () => void, ms: number) => any} [options.setTimer]
  * @param {(handle: any) => void} [options.clearTimer]
  */
 function installShortcuts(options) {
   const { doc, actions } = options;
   const blocked = options.blocked ?? (() => false);
+  const rows = options.rows ?? (() => []);
   const setTimer = options.setTimer ?? ((/** @type {() => void} */ fn, /** @type {number} */ ms) => globalThis.setTimeout(fn, ms));
   const clearTimer = options.clearTimer ?? ((/** @type {any} */ handle) => globalThis.clearTimeout(handle));
   /** @type {any} */
@@ -214,6 +218,7 @@ function installShortcuts(options) {
         return;
       }
     }
+    if (stepFocus(event, rows()) !== null) return;
     if (SHORTCUTS.some((item) => item.chord === true && item.keys[0] === event.key)) {
       armed = setTimer(() => { armed = null; }, CHORD_MS);
       return;
