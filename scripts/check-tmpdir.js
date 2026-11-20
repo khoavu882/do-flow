@@ -9,12 +9,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-/** The `.doflow` path found at `tmp` or the nearest ancestor of it, or null when none exists. */
-function findDoflowFolder(tmp) {
+/**
+ * The `.doflow` path found at `tmp` or the nearest ancestor of it, or null when none exists. The global store,
+ * `<home>/.doflow`, is exempt: a temp directory under the home folder would otherwise be refused forever.
+ */
+function findDoflowFolder(tmp, home = os.homedir()) {
+  const globalStore = path.join(path.resolve(home), '.doflow');
   let dir = path.resolve(tmp);
   for (;;) {
     const candidate = path.join(dir, '.doflow');
-    if (fs.existsSync(candidate)) return candidate;
+    if (candidate !== globalStore && fs.existsSync(candidate)) return candidate;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -22,10 +26,10 @@ function findDoflowFolder(tmp) {
 }
 
 /** `{ ok, line }`: `line` is the one refusal line when a `.doflow` folder is found. */
-function checkTmpdir(tmp = os.tmpdir()) {
-  const found = findDoflowFolder(tmp);
+function checkTmpdir(tmp = os.tmpdir(), home = os.homedir()) {
+  const found = findDoflowFolder(tmp, home);
   if (!found) return { ok: true, line: '' };
-  return { ok: false, line: `npm test refused: ${found} exists at or above the temp directory ${path.resolve(tmp)}; remove it and run again` };
+  return { ok: false, line: `npm test refused: ${found} exists at or above the temp directory ${path.resolve(tmp)}; set TMPDIR outside ${path.dirname(found)} and run again` };
 }
 
 if (require.main === module) {

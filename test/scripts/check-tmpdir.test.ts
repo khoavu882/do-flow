@@ -43,3 +43,22 @@ test('run as a script with a fake TMPDIR it exits 1 and prints the line, or exit
   assert.ok(refused.stderr.includes(path.join(tmp, '.doflow')), refused.stderr);
   assert.equal(refused.stderr.trim().split('\n').length, 1);
 });
+
+test('the global store under the home folder is exempt, any other .doflow still refuses, and the message never says remove', (t) => {
+  const home = tempDir(t, 'doflow-tmpcheck-');
+  fs.mkdirSync(path.join(home, '.doflow'));
+  const tmp = path.join(home, 'var', 'tmp');
+  fs.mkdirSync(tmp, { recursive: true });
+  assert.deepEqual(checkTmpdir(tmp, home), { ok: true, line: '' });
+
+  const elsewhere = path.join(tmp, 'proj');
+  fs.mkdirSync(path.join(elsewhere, '.doflow'), { recursive: true });
+  const inner = path.join(elsewhere, 'tmp');
+  fs.mkdirSync(inner);
+  const refused = checkTmpdir(inner, home);
+  assert.equal(refused.ok, false);
+  assert.ok(refused.line.includes(path.join(elsewhere, '.doflow')), refused.line);
+  assert.ok(refused.line.includes(`set TMPDIR outside ${elsewhere}`), refused.line);
+  assert.equal(refused.line.includes('\n'), false);
+  assert.equal(/remove/i.test(refused.line), false, refused.line);
+});
