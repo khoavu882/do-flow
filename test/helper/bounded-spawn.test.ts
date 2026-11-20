@@ -14,7 +14,7 @@ function sleeperCount(marker: string) {
   return (out.stdout || '').split('\n').filter(Boolean).length;
 }
 
-test('a bridge command that never exits is killed at the timeout and fails with a message naming it and carrying stderr', (t: any) => {
+test('a bridge command that never exits is killed at the timeout and fails with a message naming it and carrying stderr', { skip: process.platform === 'win32' }, (t: any) => {
   const dir = tempDir(t, 'doflow-bounded-spawn-');
   const marker = `doflow-bounded-sleep-${process.pid}`;
   const bridge = path.join(dir, 'bridge.sh');
