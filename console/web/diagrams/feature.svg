@@ -1,6 +1,6 @@
-<!-- source-sha256: 7fb8c98b6c1548dc3f92ad9464561a74aa9c0daef3ab197529ba7fa462b374b1 pele: 1.1.1 -->
+<!-- source-sha256: bcac0b4cffe7a036a143545a1d631ffd36a8e274b3b6218e489526f147e6d258 pele: 1.1.1 -->
 <svg xmlns="http://www.w3.org/2000/svg" class="pele pele-flowchart" viewBox="0 0 1935 190" width="1935" height="190" style="max-width:100%;height:auto;--_bg:var(--pele-bg,#fff);--_fg:var(--pele-fg,#1f1f1f);--_m:var(--pele-muted,#6e6e6e);--_l:var(--pele-line,#1f1f1f);--_s:var(--pele-surface,#f3f3f3);--_a:var(--pele-surface-alt,#e6e6e6);--_b:var(--pele-border,#8a8a8a);--_c:var(--pele-accent,#5b7bd5);color:var(--_fg);--_fm:var(--pele-font-mono,monospace);font:16px sans-serif;letter-spacing:normal;word-spacing:normal;text-transform:none;direction:ltr;font-family:var(--pele-font,sans-serif)" fill="var(--_fg)" role="graphics-document document" aria-roledescription="flowchart" aria-labelledby="feature-title" aria-describedby="feature-desc"><title id="feature-title">Feature Delivery</title><desc id="feature-desc">1. discovery (do-brainstorm): Resolve the idea into requirement.md with zero unresolved clarification markers.
-2. design (do-design): Turn requirement.md into architecture, interface, and data-contract decisions in design.md.
+2. design (do-design): Turn requirement.md into architecture decisions in design.md, interface contracts in design/specs.md and the data model in design/data-model.md.
 3. planning (do-plan): Produce plan.md: the constitution check and the dependency-ordered task checklist.
 4. implementation (do-execute-plan): Execute plan.md's checklist through the specialist archetypes.
 5. verification (do-test): Run the project's builds and test suites over the delivered change.
