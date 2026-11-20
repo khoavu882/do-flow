@@ -187,6 +187,7 @@ test('the manifest\'s shape cell names the document a declared interface came fr
   const fromSpecs = feature(t, { specs: SPECS });
   generateScaffold({ featureDir: fromSpecs.featureDir, repoRoot: fromSpecs.repoRoot });
   const specsManifest = fs.readFileSync(path.join(fromSpecs.featureDir, SCAFFOLD_DIR_NAME, 'MANIFEST.md'), 'utf8');
+  assert.match(specsManifest, /`design\/specs\.md` \(when present\)/, 'the manifest header names all four documents it reads');
   assert.match(specsManifest, /\| declared interface \(specs\.md\) \+ placeholder signature \|/);
 
   const design = `${DESIGN}\n## 6. API / Interface Contracts\n\n### 6.1 Resolver contract (C1)\n\n\`\`\`text\nresolve(name) -> id | null\n\`\`\`\n`;
