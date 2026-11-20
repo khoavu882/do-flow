@@ -290,9 +290,10 @@ function groupTasksByFile(tasks: any[]): { byPath: Map<string, any[]>; skipped: 
  * @param {string} options.slug
  * @param {string} options.message the pinned "not implemented" signal
  * @param {Function} options.traceTask from `buildTraceabilityIndex`
+ * @param {boolean} options.hasSpecs whether `design/specs.md` was read, so the stub header names it
  * @returns {{ planned: Map<string, Object>, skipped: Array<Object>, shapeUndeclared: Array<Object> }}
  */
-function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask }: any): { planned: Map<string, any>; skipped: any[]; shapeUndeclared: any[] } {
+function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask, hasSpecs }: any): { planned: Map<string, any>; skipped: any[]; shapeUndeclared: any[] } {
   const planned = new Map<string, any>();   // relative-to-scaffoldDir path → { body, header, kind, from }
   const skipped: any[] = [];
   const shapeUndeclared: any[] = [];
@@ -342,7 +343,7 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
     const declared = comps.flatMap((c: any) => c.declared.map((d: any) => ({ ...d, component: c.id })));
 
     const header = [
-      `doflow scaffold — generated from ${slug}'s requirement.md, design.md and plan.md.`,
+      `doflow scaffold — generated from ${slug}'s requirement.md, design.md${hasSpecs ? ', design/specs.md' : ''} and plan.md.`,
       'Signatures and stubs only. Do not implement here; this tree is never promoted automatically.',
       '',
       `intended path: ${file}`,
@@ -731,7 +732,7 @@ function generateScaffold(options: any = {}): any {
   const language = repoLanguage(repoRoot, fsImpl);
   const { byPath, skipped: groupSkipped } = groupTasksByFile(plan.tasks);
   const { planned: sourcePlanned, skipped: sourceSkipped, shapeUndeclared } = planSourceStubs({
-    byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask,
+    byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask, hasSpecs: texts['specs.md'] !== null,
   });
   const { planned: testPlanned, skipped: testSkipped, notEvaluated: testNotEvaluated } = planTestStubs({
     requirement, componentsForRequirement, language, slug, message,

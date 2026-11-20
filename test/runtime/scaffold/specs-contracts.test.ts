@@ -197,3 +197,13 @@ test('the manifest\'s shape cell names the document a declared interface came fr
   const designManifest = fs.readFileSync(path.join(fromDesign.featureDir, SCAFFOLD_DIR_NAME, 'MANIFEST.md'), 'utf8');
   assert.match(designManifest, /\| declared interface \(design\.md\) \+ placeholder signature \|/);
 });
+
+test('a stub header names design/specs.md when the feature has one, and not otherwise', (t) => {
+  const stubHeader = (specs: string | null) => {
+    const { featureDir, repoRoot } = feature(t, { specs });
+    generateScaffold({ featureDir, repoRoot });
+    return fs.readFileSync(path.join(featureDir, SCAFFOLD_DIR_NAME, 'src', 'src', 'resolver.js.stub'), 'utf8');
+  };
+  assert.match(stubHeader(SPECS), /generated from 001-specs's requirement\.md, design\.md, design\/specs\.md and plan\.md\./);
+  assert.doesNotMatch(stubHeader(null), /specs\.md and plan\.md|design\/specs\.md/);
+});
