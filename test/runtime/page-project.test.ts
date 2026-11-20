@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const vm = require('node:vm');
 const { bashPath } = require('../helper/bash-locator.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
 const { buildPage, documentHtml, inline, stripComments, splitRow, MERMAID_SCRIPT, MERMAID_INTEGRITY } = require('../../src/runtime/page-project.ts');
@@ -713,4 +714,270 @@ test('the filter and theme controls ship hidden and the script shows them; the t
   assert.ok(page.indexOf('<script>') < page.indexOf('<body>'));
   assert.ok(body.indexOf('applyTheme(storedTheme())') < body.indexOf("'DOMContentLoaded'"));
   assert.match(body, /try \{ var t = localStorage\.getItem/, 'storage is guarded: a file page may refuse it');
+});
+
+// A small DOM stand-in for running the page script on a built page: the page's markup parsed into
+// elements, the selectors the script uses, events through capture and bubble, and focus that lands only
+// on a focusable element. Layout is absent: every box is empty unless a test gives an element rects.
+const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
+const decode = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+
+class FakeNode {
+  nodeType = 0;
+  parentNode: any = null;
+  listeners: any[] = [];
+  addEventListener(type: string, fn: any, opts?: any) { this.listeners.push({ type, fn, capture: opts === true || !!(opts && opts.capture) }); }
+  get nextSibling(): any { const p = this.parentNode; return p ? p.childNodes[p.childNodes.indexOf(this) + 1] || null : null; }
+}
+class FakeText extends FakeNode {
+  data: string;
+  constructor(data: string) { super(); this.nodeType = 3; this.data = data; }
+  get textContent() { return this.data; }
+}
+class FakeElement extends FakeNode {
+  doc: any;
+  tagName: string;
+  attrs = new Map<string, string>();
+  childNodes: any[] = [];
+  style: any = {};
+  rects: any[] = [];
+  typed = '';
+  constructor(doc: any, tag: string) { super(); this.nodeType = 1; this.doc = doc; this.tagName = tag.toUpperCase(); }
+  getAttribute(name: string) { return this.attrs.has(name) ? this.attrs.get(name)! : null; }
+  setAttribute(name: string, value: any) { this.attrs.set(name, String(value)); }
+  removeAttribute(name: string) { this.attrs.delete(name); }
+  hasAttribute(name: string) { return this.attrs.has(name); }
+  toggleAttribute(name: string, force?: boolean) {
+    const on = force === undefined ? !this.attrs.has(name) : !!force;
+    if (!on) this.attrs.delete(name); else if (!this.attrs.has(name)) this.attrs.set(name, '');
+    return on;
+  }
+  get id(): any { return this.getAttribute('id') || ''; }
+  set id(v: any) { this.setAttribute('id', v); }
+  get className(): any { return this.getAttribute('class') || ''; }
+  set className(v: any) { this.setAttribute('class', v); }
+  get title(): any { return this.getAttribute('title') || ''; }
+  set title(v: any) { this.setAttribute('title', v); }
+  get type(): any { return this.getAttribute('type') || ''; }
+  set type(v: any) { this.setAttribute('type', v); }
+  get tabIndex(): any { return Number(this.getAttribute('tabindex') ?? -1); }
+  set tabIndex(v: any) { this.setAttribute('tabindex', v); }
+  get hidden(): any { return this.hasAttribute('hidden'); }
+  set hidden(v: any) { this.toggleAttribute('hidden', !!v); }
+  get open(): any { return this.hasAttribute('open'); }
+  set open(v: any) { this.toggleAttribute('open', !!v); }
+  get value(): any { return this.typed; }
+  set value(v: any) { this.typed = String(v); }
+  get classList() {
+    const names = () => this.className.split(/\s+/).filter(Boolean);
+    return {
+      contains: (c: string) => names().includes(c),
+      toggle: (c: string, force?: boolean) => {
+        const on = force === undefined ? !names().includes(c) : !!force;
+        this.className = [...names().filter((n: string) => n !== c), ...(on ? [c] : [])].join(' ');
+        return on;
+      },
+    };
+  }
+  get children(): any[] { return this.childNodes.filter((n) => n.nodeType === 1); }
+  get firstElementChild(): any { return this.children[0] || null; }
+  get firstChild(): any { return this.childNodes[0] || null; }
+  get parentElement(): any { return this.parentNode && this.parentNode.nodeType === 1 ? this.parentNode : null; }
+  get textContent(): any { return this.childNodes.map((n) => n.textContent).join(''); }
+  set textContent(v: any) {
+    for (const n of this.childNodes) n.parentNode = null;
+    this.childNodes = [];
+    if (v != null && v !== '') this.appendChild(new FakeText(String(v)));
+  }
+  insertBefore(node: any, ref: any) {
+    if (node.parentNode) node.parentNode.childNodes.splice(node.parentNode.childNodes.indexOf(node), 1);
+    const at = ref ? this.childNodes.indexOf(ref) : -1;
+    if (at < 0) this.childNodes.push(node); else this.childNodes.splice(at, 0, node);
+    node.parentNode = this;
+    return node;
+  }
+  appendChild(node: any) { return this.insertBefore(node, null); }
+  append(...nodes: any[]) { for (const n of nodes) this.appendChild(typeof n === 'string' ? new FakeText(n) : n); }
+  contains(node: any) { for (let x = node; x; x = x.parentNode) if (x === this) return true; return false; }
+  matches(sel: string) { return matchesSelector(this, sel, null); }
+  closest(sel: string) { for (let x: any = this; x && x.nodeType === 1; x = x.parentNode) if (x.matches(sel)) return x; return null; }
+  querySelectorAll(sel: string): any[] { return descendants(this).filter((el) => matchesSelector(el, sel, this)); }
+  querySelector(sel: string): any { return this.querySelectorAll(sel)[0] || null; }
+  getBoundingClientRect() { return { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }; }
+  getClientRects() { return this.rects; }
+  scrollIntoView() {}
+  focus() {
+    const focusable = this.hasAttribute('tabindex') || /^(INPUT|BUTTON|SELECT|TEXTAREA)$/.test(this.tagName) || (this.tagName === 'A' && this.hasAttribute('href'));
+    const was = this.doc.activeElement;
+    if (!focusable || was === this) return;
+    this.doc.activeElement = this;
+    if (was && was !== this.doc.body) fire(was, 'focusout');
+    fire(this, 'focusin');
+  }
+  blur() {
+    if (this.doc.activeElement !== this) return;
+    this.doc.activeElement = this.doc.body;
+    fire(this, 'focusout');
+  }
+  showModal() { this.open = true; }
+  close() { if (this.open) { this.open = false; fire(this, 'close', {}, false); } }
+}
+class FakeDocument extends FakeElement {
+  readyState = 'complete';
+  activeElement: any = null;
+  defaultView: any = null;
+  documentElement: any = null;
+  body: any = null;
+  constructor() { super(null, '#document'); this.nodeType = 9; this.doc = this; }
+  createElement(tag: string) { return new FakeElement(this, tag); }
+  getElementById(id: string) { return descendants(this).find((el) => el.getAttribute('id') === id) || null; }
+}
+class FakeWindow extends FakeNode {
+  innerHeight = 800;
+  scrollY = 0;
+  scrollTo() {}
+}
+
+function descendants(root: any): any[] {
+  const out: any[] = [];
+  const walk = (node: any) => { for (const child of node.children) { out.push(child); walk(child); } };
+  walk(root);
+  return out;
+}
+/** A selector list split at its top-level commas, with each `:is(a,b)` expanded into its alternatives. */
+function alternatives(sel: string): string[] {
+  const parts: string[] = [];
+  let depth = 0, part = '';
+  for (const ch of sel) {
+    if (ch === '(' || ch === '[') depth++;
+    else if (ch === ')' || ch === ']') depth--;
+    if (ch === ',' && depth === 0) { parts.push(part); part = ''; } else part += ch;
+  }
+  parts.push(part);
+  const expand = (s: string): string[] => {
+    const m = /:is\(([^()]*)\)/.exec(s);
+    return m ? m[1].split(',').flatMap((alt) => expand(s.slice(0, m.index) + alt.trim() + s.slice(m.index + m[0].length))) : [s.trim()];
+  };
+  return parts.flatMap(expand);
+}
+function matchesCompound(el: any, compound: string, scope: any): boolean {
+  let rest = compound;
+  const tag = /^(?:[a-zA-Z][\w-]*|\*)/.exec(rest);
+  if (tag) {
+    if (tag[0] !== '*' && el.tagName !== tag[0].toUpperCase()) return false;
+    rest = rest.slice(tag[0].length);
+  }
+  while (rest) {
+    let m: RegExpExecArray | null;
+    if ((m = /^\.([\w-]+)/.exec(rest))) { if (!el.classList.contains(m[1])) return false; }
+    else if ((m = /^#([\w-]+)/.exec(rest))) { if (el.getAttribute('id') !== m[1]) return false; }
+    else if ((m = /^\[([\w-]+)(?:=(?:"([^"]*)"|([^\]]*)))?\]/.exec(rest))) {
+      const value = el.getAttribute(m[1]);
+      const want = m[2] ?? m[3];
+      if (value === null || (want !== undefined && value !== want)) return false;
+    } else if ((m = /^:not\(([^()]*)\)/.exec(rest))) { if (matchesCompound(el, m[1], scope)) return false; }
+    else if ((m = /^:scope/.exec(rest))) { if (el !== scope) return false; }
+    else throw new Error(`the DOM stand-in does not read the selector ${compound}`);
+    rest = rest.slice(m[0].length);
+  }
+  return true;
+}
+function matchesSelector(el: any, sel: string, scope: any): boolean {
+  return alternatives(sel).some((alt) => {
+    const steps: Array<{ compound: string; combinator: string }> = [];
+    let combinator = ' ';
+    for (const token of alt.split(/\s*(>)\s*|\s+/)) {
+      if (!token) continue;
+      if (token === '>') { combinator = '>'; continue; }
+      steps.push({ compound: token, combinator });
+      combinator = ' ';
+    }
+    const match = (node: any, i: number): boolean => {
+      if (!matchesCompound(node, steps[i].compound, scope)) return false;
+      if (i === 0) return true;
+      if (steps[i].combinator === '>') return !!node.parentElement && match(node.parentElement, i - 1);
+      for (let p = node.parentElement; p; p = p.parentElement) if (match(p, i - 1)) return true;
+      return false;
+    };
+    return match(el, steps.length - 1);
+  });
+}
+/** Dispatch an event: capture listeners from the window down, the target's own, then bubble back up. */
+function fire(target: any, type: string, init: any = {}, bubbles = true) {
+  const event: any = { type, target, button: 0, defaultPrevented: false, preventDefault() { event.defaultPrevented = true; }, ...init };
+  const path: any[] = [];
+  for (let x = target; x; x = x.parentNode) path.push(x);
+  if (path[path.length - 1].defaultView) path.push(path[path.length - 1].defaultView);
+  const call = (node: any, capture: boolean | null) => node.listeners
+    .filter((l: any) => l.type === type && (capture === null || l.capture === capture)).forEach((l: any) => l.fn.call(node, event));
+  for (let i = path.length - 1; i > 0; i--) call(path[i], true);
+  call(path[0], null);
+  if (bubbles) for (let i = 1; i < path.length; i++) call(path[i], false);
+  return event;
+}
+/** The page's markup as stand-in elements; generated markup is well formed, so no repair is needed. */
+function parseHtml(page: string) {
+  const doc = new FakeDocument();
+  let at: any = doc;
+  const token = /<!--[\s\S]*?-->|<!doctype[^>]*>|<\/([a-zA-Z][\w-]*)\s*>|<([a-zA-Z][\w-]*)((?:\s+[^\s=>]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>|[^<]+|</gi;
+  for (let m = token.exec(page); m; m = token.exec(page)) {
+    if (m[1]) {
+      const tag = m[1].toUpperCase();
+      for (let x = at; x && x !== doc; x = x.parentNode) if (x.tagName === tag) { at = x.parentNode; break; }
+    } else if (m[2]) {
+      const el = doc.createElement(m[2]);
+      for (const a of (m[3] || '').matchAll(/([^\s=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) el.setAttribute(a[1].toLowerCase(), decode(a[2] ?? a[3] ?? a[4] ?? ''));
+      at.appendChild(el);
+      const tag = m[2].toLowerCase();
+      if (tag === 'script' || tag === 'style') {
+        const end = page.indexOf(`</${tag}>`, token.lastIndex);
+        el.appendChild(new FakeText(page.slice(token.lastIndex, end)));
+        token.lastIndex = end + tag.length + 3;
+      } else if (!VOID_TAGS.has(tag) && !m[0].endsWith('/>')) at = el;
+    } else if (!m[0].startsWith('<!')) at.appendChild(new FakeText(decode(m[0])));
+  }
+  doc.documentElement = doc.querySelector('html');
+  doc.body = doc.querySelector('body');
+  doc.activeElement = doc.body;
+  return doc;
+}
+/** Run a built page's script on the stand-in; `flush` runs the animation frames and timers it queued. */
+function runPage(page: string) {
+  const document = parseHtml(page);
+  const window = new FakeWindow();
+  document.defaultView = window;
+  const location = { hash: '' };
+  const frames: any[] = [];
+  const timers = new Map<number, any>();
+  let timer = 0;
+  vm.runInNewContext(pageScript(page), {
+    document, window, location, Node: { DOCUMENT_POSITION_FOLLOWING: 4 },
+    history: { pushState(_s: any, _t: any, hash: string) { location.hash = hash; }, replaceState(_s: any, _t: any, hash: string) { location.hash = hash; } },
+    requestAnimationFrame: (fn: any) => frames.push(fn),
+    setTimeout: (fn: any) => { timers.set(++timer, fn); return timer; },
+    clearTimeout: (id: number) => { timers.delete(id); },
+  });
+  const flush = () => {
+    for (const fn of frames.splice(0)) fn();
+    for (const [id, fn] of [...timers]) { timers.delete(id); fn(); }
+  };
+  const navigate = (hash: string) => { location.hash = hash; fire(window, 'hashchange', {}, false); };
+  return { document, window, flush, navigate, $: (sel: string) => document.querySelector(sel), $$: (sel: string) => document.querySelectorAll(sel) };
+}
+const builtPage = (files: Record<string, string>) => {
+  const { root, paths } = feature(files);
+  return fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+};
+
+test('a filter that matches only ids leaves the sidebar whole, and the ids stay in the list', () => {
+  const p = runPage(builtPage({ 'intention/requirement.md': REQUIREMENT }));
+  const filter = p.$('[data-filter]');
+  const type = (text: string) => { filter.value = text; fire(filter, 'input'); };
+  const missing = () => p.$$('.sidebar li.nav-doc[data-miss]').map((li: any) => li.getAttribute('data-view'));
+  type('summary');
+  assert.deepEqual(missing(), ['overview'], 'a section match still narrows the sidebar');
+  type('FR-001');
+  assert.deepEqual(missing(), [], 'no document is hidden when only ids match');
+  assert.equal(p.$$('.sidebar li.nav-sec[data-miss]').length, 0);
+  assert.ok(p.$('#filter-results a[href="#r-FR-001"]'), 'the id match is in the list');
 });

@@ -1261,6 +1261,7 @@ function start() {
   var has = function (text, words) { return words.every(function (w) { return text.indexOf(w) !== -1; }); };
   function narrow(words) {
     sidebar.toggleAttribute('data-filtering', words.length > 0);
+    var left = 0;
     Object.keys(navDocs).forEach(function (k) {
       var doc = navDocs[k];
       var any = false;
@@ -1270,8 +1271,10 @@ function start() {
         li.toggleAttribute('data-miss', !hit);
         if (hit) any = true;
       });
-      doc.toggleAttribute('data-miss', words.length > 0 && !any && !has(doc.firstElementChild.textContent.toLowerCase(), words));
+      if (!doc.toggleAttribute('data-miss', words.length > 0 && !any && !has(doc.firstElementChild.textContent.toLowerCase(), words))) left++;
     });
+    // A query that only ids match would empty the sidebar: it stays whole, and the ids are in the list.
+    if (words.length && !left) narrow([]);
   }
   function setActive(k) {
     var links = $$('a', results);
