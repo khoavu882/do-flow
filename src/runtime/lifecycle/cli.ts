@@ -37,7 +37,7 @@ const FOLLOWUP_LIST_BRIEF = Object.freeze({
 });
 /** The `list --similar` text footer, and the line a shown model check adds (owner ruling O-4: follow-ups carry no label). */
 const SIMILAR_FOOTER = 'Possible duplicates by shared words; nothing is merged or closed.';
-const MODEL_BASIS = 'The model check rests on a result measured on review findings, not on follow-ups.';
+const MODEL_BASIS = 'The model check rests on a result measured on review findings and on follow-ups labelled as duplicates.';
 /** The brief `lifecycle --action overview` answer (feature 137, IC-006): keep paths, so a new full field is dropped until named here. */
 const OVERVIEW_BRIEF = Object.freeze({
   verb: 'lifecycle',

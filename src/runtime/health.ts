@@ -1447,7 +1447,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     } else {
       console.log(`  writer cap: ${report.team.writerCap}, max attempts: ${report.team.maxAttempts}, enforcement: ${report.team.enforcement}`);
       console.log(`  dispatch admission: ${report.team.wired.dispatch}`);
-      console.log(`  review start and check: ${report.team.wired.review}`);
+      console.log(`  review start: ${report.team.wired.review}`);
     }
   }
 
