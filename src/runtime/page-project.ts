@@ -877,6 +877,7 @@ main{max-width:none;padding:0}
 .view{display:block!important;content-visibility:visible!important}
 .view+.view{break-before:page}
 .card--long>.clamp{max-height:none;-webkit-mask-image:none;mask-image:none}
+details.history::details-content{content-visibility:visible}
 .table-wrap{overflow:visible;background-image:none}
 .diagram,.card,.doc-card,tr{break-inside:avoid}
 }
@@ -1180,6 +1181,16 @@ function start() {
     });
   }
   document.addEventListener('toggle', function (e) { if (e.target.tagName === 'DETAILS') checkFrames(); }, true);
+  // Print shows every History section; the ones the reader had closed close again after.
+  var printOpened = [];
+  window.addEventListener('beforeprint', function () {
+    printOpened = $$('details.history:not([open])');
+    printOpened.forEach(function (d) { d.open = true; });
+  });
+  window.addEventListener('afterprint', function () {
+    printOpened.forEach(function (d) { d.open = false; });
+    printOpened = [];
+  });
   var resizing = false;
   window.addEventListener('resize', function () {
     if (resizing) return;

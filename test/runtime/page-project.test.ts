@@ -986,3 +986,17 @@ test('the brand link keeps the feature name as its accessible name when the narr
   const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
   assert.ok(page.includes('<a class="brand" href="#overview" data-view-link="overview" aria-label="Pay with a &lt;b&gt;code&lt;/b&gt;">'), between(page, '<header class="appbar">', '</header>'));
 });
+
+test('print shows every History section and closes again the ones the reader had closed', () => {
+  const page = builtPage({ 'design/design.md': '# D\n\n## 1. History\n\nold\n\n## 2. Other\n\n### History\n\nolder\n' });
+  const p = runPage(page);
+  const [first, second] = p.$$('details.history');
+  second.open = true;
+  fire(p.window, 'beforeprint', {}, false);
+  assert.ok(first.open && second.open, 'both open for print');
+  fire(p.window, 'afterprint', {}, false);
+  assert.ok(!first.open, 'the closed one closes again');
+  assert.ok(second.open, 'the one the reader opened stays open');
+  // Without the script, a browser that knows ::details-content still prints the content.
+  assert.ok(between(page, '@media print{', '\n}').includes('details.history::details-content{content-visibility:visible}'));
+});
