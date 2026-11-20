@@ -107,3 +107,24 @@ test('a check killed by a signal reports it as a plain spawn does', { skip: proc
     assert.deepEqual(shape(result), shape(plain.runCheck(`plain-${signal}`, command, 10000)));
   }
 });
+
+// Review R-08b: the guard is a node process started with the check's env, so a NODE_OPTIONS meant for the
+// check also loaded into the guard. The check's shell must see the same NODE_OPTIONS (or none) it would have.
+test('a NODE_OPTIONS in the check env reaches the check and not the guard', { skip: process.platform === 'win32' }, (t) => {
+  const cwd = tempDir(t, 'doflow-verification-pgroup-');
+  const log = path.join(cwd, 'marks.log');
+  const preload = path.join(cwd, 'mark.js');
+  fs.writeFileSync(preload, `require('node:fs').appendFileSync(${JSON.stringify(log)}, 'mark\\n');\n`);
+  const nodeOptions = `--require ${JSON.stringify(preload)}`;
+  const runner: any = new VerificationContractRunner({ cwd });
+  const saved = process.env.NODE_OPTIONS;
+  t.after(() => { if (saved === undefined) delete process.env.NODE_OPTIONS; else process.env.NODE_OPTIONS = saved; });
+  process.env.NODE_OPTIONS = nodeOptions;
+  const set = runner.runCheck('set', `printf '%s' "$NODE_OPTIONS"; ${JSON.stringify(process.execPath)} -e 0`, 10000);
+  assert.equal(set.status, 'PASS');
+  assert.equal(set.stdout, nodeOptions, 'the check sees NODE_OPTIONS unchanged');
+  assert.equal(fs.readFileSync(log, 'utf8'), 'mark\n', 'one mark, from the check\'s node; none from the guard');
+  delete process.env.NODE_OPTIONS;
+  const unset = runner.runCheck('unset', 'printf \'%s\' "${NODE_OPTIONS-unset}"', 10000);
+  assert.equal(unset.stdout, 'unset', 'an absent NODE_OPTIONS stays absent');
+});

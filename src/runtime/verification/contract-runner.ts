@@ -66,7 +66,8 @@ const GROUP_GUARD = `
 const { spawn } = require('node:child_process');
 const parent = process.ppid;
 let forced = 0;
-const child = spawn(process.argv[1], { shell: true, detached: true, stdio: ['inherit', 'pipe', 'pipe'] });
+const env = process.argv.length > 2 ? { ...process.env, NODE_OPTIONS: process.argv[2] } : process.env;
+const child = spawn(process.argv[1], { shell: true, detached: true, env, stdio: ['inherit', 'pipe', 'pipe'] });
 const stop = (n) => {
   if (!forced) forced = n;
   try { process.kill(-child.pid, 'SIGKILL'); } catch {}
@@ -91,10 +92,13 @@ child.on('close', (code, signal) => {
 });
 `;
 
-/** The default `exec`: spawnSync's contract, with a grouped check run under GROUP_GUARD. */
+/** The default `exec`: spawnSync's contract, with a grouped check run under GROUP_GUARD. Review R-08b: the
+ * guard starts without the check env's NODE_OPTIONS, which it gets as an argument and hands to the check. */
 function spawnCheck(command: string, options: any): any {
   if (!GROUPED) return spawnSync(command, options);
-  return spawnSync(process.execPath, ['-e', GROUP_GUARD, '--', command], { ...options, shell: false, killSignal: 'SIGTERM' });
+  const { NODE_OPTIONS: nodeOptions, ...env } = options.env ?? process.env;
+  const args = ['-e', GROUP_GUARD, '--', command, ...(nodeOptions === undefined ? [] : [nodeOptions])];
+  return spawnSync(process.execPath, args, { ...options, env, shell: false, killSignal: 'SIGTERM' });
 }
 
 /**
