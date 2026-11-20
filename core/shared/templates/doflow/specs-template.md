@@ -3,9 +3,9 @@
 **Feature:** [NNN-slug] · **Design:** ./design.md · **Maturity:** Draft · **Created:** [DATE]
 
 > The machine-checkable interface contracts a design decided, and the one place for them:
-> endpoints, CLI verb signatures, repository/service interfaces and file formats. Persisted data
-> shapes are in ./data-model.md. Reads ./design.md; distinct from it the way a contract is distinct
-> from the rationale that produced it.
+> endpoints, CLI verb signatures, repository/service interfaces, file formats, UI component props
+> and events, and model tool or prompt schemas. Persisted data shapes are in ./data-model.md. Reads
+> ./design.md; distinct from it the way a contract is distinct from the rationale that produced it.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
 > `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level
