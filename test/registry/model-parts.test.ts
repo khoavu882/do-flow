@@ -158,6 +158,58 @@ test('(f) rule 3: the effort flag, fixed value or not, is refused in oneShot, st
   }
 });
 
+// 180 K1 (FU-h2f2aa): a keyed supported effort shares its flag with other pairs; only a pair that sets the key is refused.
+const keyedEffort = (w: any, recipeArgv: string[]) => {
+  w.effort = entry({ via: 'flag', argv: ['-c', 'model_reasoning_effort={effort}'], levels: ['low', 'medium', 'high'] });
+  w.oneShot = { ...w.oneShot, argv: recipeArgv };
+  return w;
+};
+const keyedErrors = (recipeArgv: string[]) => errorsOf(keyedEffort(pi(), recipeArgv)).filter((line) => line.includes("worker 'effort'"));
+
+test('180 K1 (a): a keyed effort accepts other -c key=value pairs in a recipe', () => {
+  assert.deepEqual(keyedErrors(['-p', '-c', 'sandbox_mode=read-only', '{prompt}']), []);
+  assert.deepEqual(keyedErrors(['-p', '-c=sandbox_mode=read-only', '{prompt}']), []);
+});
+
+test('180 K1 (b): a keyed effort refuses a recipe pair that sets its own key, naming the key and the recipe', () => {
+  const setsKey = /worker 'effort': transport flag '-c' must not set 'model_reasoning_effort' in oneShot: an effort comes only from a binding or the session/;
+  for (const argv of [
+    ['-p', '-c', 'model_reasoning_effort=high', '{prompt}'],
+    ['-p', '-c=model_reasoning_effort=high', '{prompt}'],
+    ['-p', 'model_reasoning_effort=high', '{prompt}'],
+  ]) {
+    const errors = keyedErrors(argv);
+    assert.equal(errors.length, 1, `${argv.join(' ')}: ${errors.join('\n')}`);
+    assert.match(errors[0], setsKey);
+  }
+  refused(keyedEffort(pi(), ['-p', '-c', 'model_reasoning_effort=high', '{prompt}']), setsKey);
+});
+
+test('180 K1 (c): a keyed effort refuses a flag whose key cannot be read', () => {
+  for (const argv of [['-p', '-c', 'nokey', '{prompt}'], ['-p', '{prompt}', '-c'], ['-p', '-c=nokey', '{prompt}']]) {
+    const errors = keyedErrors(argv);
+    assert.equal(errors.length, 1, `${argv.join(' ')}: ${errors.join('\n')}`);
+    assert.match(errors[0], /worker 'effort': transport flag '-c' is followed by no key=value, so its key cannot be read in oneShot/);
+  }
+});
+
+test('180 K1 (d): an unkeyed effort still refuses its flag anywhere in a recipe', () => {
+  const w = pi();
+  w.oneShot = { ...w.oneShot, argv: ['-p', '--thinking', 'off', '{prompt}'] };
+  refused(w, /worker 'effort': transport flag '--thinking' must not appear in oneShot: an effort comes only from a binding or the session/);
+  const keyedElsewhere = pi();
+  keyedElsewhere.effort = entry({ via: 'flag', argv: ['--variant', 'reasoning_effort={effort}'], levels: ['low', 'high'] });
+  keyedElsewhere.oneShot = { ...keyedElsewhere.oneShot, argv: ['-p', '--variant', 'other=1', '{prompt}'] };
+  assert.deepEqual(errorsOf(keyedElsewhere), []);
+});
+
+test('180 K1 (e): an unknown effort entry is not checked', () => {
+  const w = pi();
+  w.effort = { status: 'unknown', reason: 'No evidence.', verifiedOn: '2026-11-16', evidence: [] };
+  w.oneShot = { ...w.oneShot, argv: ['-p', '-c', 'model_reasoning_effort=high', '--thinking', 'off', '{prompt}'] };
+  assert.deepEqual(errorsOf(w).filter((line) => line.includes('transport flag')), []);
+});
+
 test('(f) rule 3: a provider flag with a fixed value is still accepted in a recipe; without one it is refused', () => {
   let w = pi();
   w.oneShot = { ...w.oneShot, argv: ['-p', '--provider', 'openai', '{prompt}'] };

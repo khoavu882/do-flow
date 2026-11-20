@@ -91,6 +91,30 @@ test('(b) a source name is a variable name, not the marker, and distinct across 
   refused({ ...claude(), sources: [{ kind: 'env', name: 'A_B', modes: ['subscription'] }, { kind: 'env', name: 'A_B', modes: ['api-key'] }] }, /names must be distinct/);
 });
 
+// 180 IC-180-E2: a `hook-state` source names the session id variable a hook-written level is keyed by.
+const hookState = (extra: any = {}) => ({ kind: 'hook-state', sessionIdEnv: 'CLAUDE_CODE_SESSION_ID', modes: ['subscription', 'api-key'], ...extra });
+const withSources = (...sources: any[]) => ({ ...claude(), sources });
+
+test('(d) 180: a hook-state source before an env source validates', () => {
+  assert.deepEqual(problems(withSources(hookState(), claude().sources[0])), []);
+  assert.deepEqual(problems(withSources(hookState())), []);
+});
+
+test('(d) 180: at most one hook-state source; its sessionIdEnv is a variable name, not the marker, distinct from env names', () => {
+  refused(withSources(hookState(), hookState({ sessionIdEnv: 'OTHER_SESSION_ID' })), /at most one hook-state source/);
+  refused(withSources(hookState({ sessionIdEnv: 'CLAUDE_CODE_CHILD_SESSION' })), /sessionIdEnv must not be the marker's own variable/);
+  refused(withSources(hookState({ sessionIdEnv: 'lower_case' })), /sources\[0\] sessionIdEnv must match/);
+  refused(withSources(hookState({ sessionIdEnv: undefined })), /sources\[0\] sessionIdEnv must match/);
+  refused(withSources(hookState({ sessionIdEnv: 'CLAUDE_EFFORT' }), claude().sources[0]), /names must be distinct/);
+});
+
+test('(d) 180: a hook-state source holds kind, sessionIdEnv and modes only; an env source takes no sessionIdEnv', () => {
+  refused(withSources(hookState({ name: 'CLAUDE_EFFORT' })), /sources\[0\] has unknown field 'name'/);
+  refused(withSources({ kind: 'env', name: 'CLAUDE_EFFORT', sessionIdEnv: 'CLAUDE_CODE_SESSION_ID', modes: ['api-key'] }), /sources\[0\] has unknown field 'sessionIdEnv'/);
+  refused(withSources(hookState({ modes: ['oauth'] })), /modes must be 1 to 2 distinct of subscription, api-key/);
+  refused(withSource({ kind: 'json', name: 'CLAUDE_EFFORT', modes: ['subscription'] }), /kind must be env or hook-state/);
+});
+
 test('(b) a note is at most 240 characters, and the entry serializes to at most 2 KiB', () => {
   refused({ ...claude(), note: 'x'.repeat(241) }, /note must be a string of at most 240 characters/);
   refused({ ...claude(), evidence: Array.from({ length: 30 }, (_, i) => `https://example.test/${'x'.repeat(80)}/${i}`) }, /entry is .* bytes serialized; the limit is 2048/);

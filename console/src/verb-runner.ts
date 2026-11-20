@@ -360,12 +360,13 @@ const IDENTITY_VARIABLES: readonly string[] = Object.freeze([
   'DOFLOW_WORKTREE',
 ]);
 /**
- * 178 D9, O-6 (a): the harness-session variables of the registry (every `sessionEffort` marker and source name), which
+ * 178 D9, O-6 (a): the harness-session variables of the registry (every `sessionEffort` marker and source name, a hook-state
+ * source's session id variable included, 180 FR-E5), which
  * `sessionVariables(registry)` in src/runtime/context/session-effort.ts lists. The Console imports nothing from the core, so this is a
  * copy that guard G86 holds equal to the shipped registry. A Console started from a harness shell passes none of them on, so the core
  * it runs never reads that shell as its own session: a Console start follows no session effort.
  */
-const SESSION_VARIABLES: readonly string[] = Object.freeze(['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_EFFORT']);
+const SESSION_VARIABLES: readonly string[] = Object.freeze(['CLAUDE_CODE_CHILD_SESSION', 'CLAUDE_CODE_SESSION_ID', 'CLAUDE_EFFORT']);
 const PASS_THROUGH: readonly string[] = Object.freeze(['DOFLOW_CONFIG_DIR', 'DOFLOW_TELEMETRY', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS']);
 /**
  * 165 review B-1: the one variable a write shape also passes. A Console run inside a started session carries that session's

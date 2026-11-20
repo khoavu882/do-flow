@@ -115,7 +115,7 @@ test('route table: frozen, the only non-GET routes are POST /api/session and the
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session', ...ACTION_WRITES]);
   assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/live']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/actions', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/harness-login', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId',
+    ['/*', '/api/actions', '/api/advice', '/api/doctor', '/api/followups', '/api/followups/:id', '/api/harness-login', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/runs/:slug/:taskId/export',
       '/api/sessions', '/api/sessions-history', '/api/settings', '/api/start', '/api/start/options', '/api/storage',
       '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log', '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status',
       '/api/worker-runs/:slug/:runId/transcript', '/api/workers', '/api/workflows', '/healthz']);
@@ -135,7 +135,7 @@ test('route table: frozen, the only non-GET routes are POST /api/session and the
       refused.push(route.path);
     }
   }
-  assert.deepEqual(reachable.sort(), ['/api/actions', '/api/harness-login', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log',
+  assert.deepEqual(reachable.sort(), ['/api/actions', '/api/harness-login', '/api/info', '/api/live', '/api/runs', '/api/runs/:slug/:taskId', '/api/runs/:slug/:taskId/export', '/api/sessions', '/api/worker-runs/:slug', '/api/worker-runs/:slug/:runId/log',
     '/api/worker-runs/:slug/:runId/result', '/api/worker-runs/:slug/:runId/status', '/api/worker-runs/:slug/:runId/transcript', '/api/workflows']);
   // 151 IC-012 to IC-014, 152 IC-006: the management routes and sessions-history are among the refused.
   for (const path of ['/api/settings', '/api/advice', '/api/workers', '/api/followups', '/api/followups/:id', '/api/doctor', '/api/storage', '/api/sessions-history']) assert.ok(refused.includes(path), path);
@@ -166,6 +166,7 @@ test('device session: only the device GET routes are allowed (160 four, 161 live
       ['/api/info', {}],
       ['/api/runs', {}],
       ['/api/runs/:slug/:taskId', { slug: 'feat-a', taskId: 'run-1' }],
+      ['/api/runs/:slug/:taskId/export', { slug: 'feat-a', taskId: 'run-1' }],
       ['/api/workflows', {}],
       ['/api/harness-login', {}],
       ['/api/live', {}],

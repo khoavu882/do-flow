@@ -7,10 +7,20 @@ exec >/dev/null 2>&1
 event=${1:-}
 case "$event" in PostToolUse|PostToolUseFailure) ;; *) exit 0 ;; esac
 IFS= read -r -d '' payload || true
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) hook_dir=${_DOFLOW_SRC%/*} ;; *) hook_dir=. ;; esac
+
+# Row 180 IC-180-D2: a Bash PostToolUse answers an open ask (attention-answered step). PostToolUseFailure is answered
+# by post-tool-failure.sh, which runs for every tool at the same time. With telemetry off this hook exits above, before
+# it reads stdin, and the next answering event marks the ask instead.
+attention_re='"session_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9][A-Za-z0-9._-]{0,127})"'
+attention_step="$hook_dir/../../.doflow/shared/hooks/bridge/observe-attention.sh"
+if [ "$event" = PostToolUse ] && [[ $payload =~ $attention_re ]] && [ -f "$attention_step" ]; then
+  ( . "$attention_step" && doflow_attention_answered claude PostToolUse "${BASH_REMATCH[1]}" ) </dev/null || true
+fi
+
 case "$payload" in *test*|*jest*|*mocha*) ;; *) exit 0 ;; esac
 
 # Source definitions only; no lifecycle policy, failure capture or native response runs here.
-_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) hook_dir=${_DOFLOW_SRC%/*} ;; *) hook_dir=. ;; esac
 . "$hook_dir/../../.doflow/shared/hooks/bridge/bridge.sh" || exit 0
 
 # Same project-store resolution as bridge.sh, including nested dispatch delivery directories.

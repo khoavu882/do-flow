@@ -851,7 +851,11 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
   test('175 T7 (f): with no injection the shipped evaluator judges: a kind with no replay source is none', async (t) => {
     const s = store(t);
     const c = client(answered('standard'));
-    const res = await interceptDecisionPoint(shown(s, { record: false }), { adviceClient: c, roots: s.roots, shadowConfig: config('act') });
+    // The shipped registry with tier's replay source taken out (row 180 gave every routing kind one).
+    const { loadAdviceRegistry } = require('../../../src/runtime/advice/registry.ts');
+    const noReplay = structuredClone(loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry);
+    delete noReplay.kinds.find((kind: any) => kind.id === 'tier').replay;
+    const res = await interceptDecisionPoint(shown(s, { record: false, adviceRegistry: noReplay }), { adviceClient: c, roots: s.roots, shadowConfig: config('act') });
     assert.equal(res.mode, 'shadow');
     assert.equal(res.warning, "LOCAL_RESULT_UNMET: none: kind 'tier' has no replay source");
     assert.equal(c.calls.length, 0);

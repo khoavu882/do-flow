@@ -20,6 +20,8 @@ const { readStatic } = require('./static.ts');
 const { processSessions, sessionCookie, readCookie, cookieName } = require('./session.ts');
 const { deviceMayUse } = require('./scopes.ts');
 const { project } = require('./project.ts');
+const { maskLite } = require('./mask-lite.ts');
+const manifest = require('../package.json');
 const { anchorsOf } = require('./place.ts');
 const { handshake } = require('./handshake.ts');
 const { PARAM_PATTERN, PATTERNS, fleetError } = require('./verb-runner.ts');
@@ -306,6 +308,29 @@ async function runDetail(runner: Runner, slug: string, taskId: string): Promise<
   if (graph.tasks === null) body.tasksReason = graph.reason;
   if (!timeline.ok) body.timelineReason = timeline.code;
   return jsonReply(200, body);
+}
+
+/** `value` with every string leaf passed through `maskLite`; keys and other leaves are kept, so the result is the same shape and still serialises to valid JSON. */
+function maskLeaves(value: any): any {
+  if (typeof value === 'string') return maskLite(value);
+  if (Array.isArray(value)) return value.map(maskLeaves);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, maskLeaves(item)]));
+  return value;
+}
+
+/**
+ * 180 IC-180-B1: one run's chain as one file for a bug report. It is the run page's answer (`runDetail`, so one read path and the
+ * same errors), cut to `{v, exportedAt, console, run, timeline, tasks}` and masked again, because the file leaves the machine in a
+ * person's hands. The mask is per string leaf, not over the serialised text, so a pattern cannot cut a JSON escape.
+ */
+async function runExport(runner: Runner, slug: string, taskId: string): Promise<Reply> {
+  const page = await runDetail(runner, slug, taskId);
+  if (page.status !== 200) return page;
+  const { run, timeline, tasks } = JSON.parse(page.body as string);
+  const reply = jsonReply(200, maskLeaves({ v: 1, exportedAt: new Date().toISOString(), console: manifest.version, run, timeline, tasks }));
+  // A task id the mask would change names no file: the header is not masked, so it gets the fixed name.
+  const filename = maskLite(taskId) === taskId ? `doflow-run-${taskId}.json` : 'doflow-run.json';
+  return { ...reply, headers: { ...reply.headers, 'Content-Disposition': `attachment; filename="${filename}"` } };
 }
 
 // ---- IC-018 e: GET /api/sessions ----
@@ -778,6 +803,7 @@ function consoleRoutes(runner: Runner, access: any = processSessions, live: Live
     { method: 'GET', path: '/api/info', handler: () => info(runner) },
     { method: 'GET', path: '/api/runs', handler: () => runs(runner) },
     { method: 'GET', path: '/api/runs/:slug/:taskId', handler: (ctx) => runDetail(runner, ctx.params.slug, ctx.params.taskId) },
+    { method: 'GET', path: '/api/runs/:slug/:taskId/export', handler: (ctx) => runExport(runner, ctx.params.slug, ctx.params.taskId) },
     { method: 'GET', path: '/api/workflows', handler: () => workflows(runner) },
     { method: 'GET', path: '/api/sessions', handler: () => sessionsView(runner) },
     { method: 'GET', path: '/api/worker-runs/:slug', handler: workerRunsRoute(runner) },

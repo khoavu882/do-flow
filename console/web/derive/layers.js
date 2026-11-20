@@ -4,7 +4,8 @@
 //
 // The words follow what a record states and never more (D5, D7): an agent is "recorded", "started", "stopped" or "process seen";
 // never a word that claims the agent is up right now (D5, D7). A source the harness does not expose is `not observed` with its reason, a store
-// that failed to read is `unreadable`, and "waiting for you" is an orchestration gate in `awaiting` and nothing else.
+// that failed to read is `unreadable`, and "waiting for you" is an orchestration gate in `awaiting` or a session's open ask (180 IC-180-D4),
+// worded from the ask's kind and tool only, and nothing else.
 //
 // This file also holds the transcript-event helpers the transcript panel (views/transcript.js, shared with the Session view's
 // worker tabs) reads: the bounded event list, the redactor markers, and the words of one event.
@@ -256,7 +257,7 @@ function gateWords(gate) {
 
 // ---- the machine page ----------------------------------------------------------------------------------------------------------
 
-const NOT_OBSERVED = 'Not observed: agent questions and permission prompts, because no harness records them. A gate waiting for you is the only waiting this page can state.';
+const NOT_OBSERVED = 'Not observed: agent questions and permission prompts on this page; a project\'s page lists the sessions that ask you something, for the harnesses that record them. A gate waiting for you is the only waiting this page can state.';
 
 /**
  * `#/layers`: the "Waiting for you" lead (gates of every summarized project, newest first), one row per project (the current one
@@ -484,7 +485,7 @@ function projectModel(body) {
   // 161 review C: an audit or denial log that exists but could not be read, so the page never shows it as quiet.
   const unreadLogs = [];
   for (const session of sessions) {
-    for (const log of /** @type {const} */ (['audit', 'denials'])) {
+    for (const log of /** @type {const} */ (['audit', 'denials', 'attention'])) {
       if (session[log] && session[log].observed === false && session[log].reason === 'unreadable') unreadLogs.push({ harness: session.harness, log });
     }
   }
@@ -492,11 +493,25 @@ function projectModel(body) {
   for (const name of /** @type {const} */ (['checkouts', 'tree', 'runs', 'gates', 'artifacts', 'reviews', 'sessions', 'traffic', 'coverage'])) {
     if (sec[name].state === 'unreadable') withheld.push({ section: name, code: sec[name].code });
   }
+  // 180 IC-180-D4: the sessions with an open ask, newest first; a session whose harness records none is `not observed`, once per harness and reason.
+  const asks = sessions.filter((s) => s.attention && s.attention.observed === true && s.attention.pending)
+    .map((s) => ({ sessionKey: s.sessionKey, harness: s.harness, kind: s.attention.pending.kind, tool: s.attention.pending.tool, at: s.attention.pending.at, word: askWords(s.attention.pending) }))
+    .sort((a, b) => byNewest(a, b, 'at', 'sessionKey'));
+  /** @type {Array<{ harness: string, reason: string }>} */
+  const asksUnobserved = [];
+  for (const session of sessions) {
+    const a = session.attention;
+    if (a && (a.observed === true || a.reason === 'unreadable')) continue; // an unreadable log is in `unreadLogs`
+    const entry = { harness: session.harness, reason: reasonWord(a ? a.reason : 'not-sent') };
+    if (!asksUnobserved.some((u) => u.harness === entry.harness && u.reason === entry.reason)) asksUnobserved.push(entry);
+  }
   return {
     present: body !== null && body !== undefined,
     sections: { checkouts: state('checkouts'), tree: state('tree'), runs: state('runs'), gates: state('gates'), artifacts: state('artifacts'), reviews: state('reviews'), sessions: state('sessions'), traffic: state('traffic'), coverage: state('coverage'), channels: state('channels') },
     channels: { ...state('channels'), items: new Map(channelItems.map((item) => [item.runId, item])) },
     waiting: waiting.map((g) => ({ ...g, ...gateWords(g) })),
+    asks,
+    asksUnobserved,
     lanes,
     loose,
     nodes: new Map(nodes.map((n) => [n.agentKey, n])),
@@ -652,6 +667,7 @@ const COVERAGE_COLUMNS = Object.freeze([['main', 'Main session'], ['subagents', 
 /** The reasons of a `not observed` source, in words. @type {Readonly<Record<string, string>>} */
 const REASON_WORD = Object.freeze({
   'no-harness-record': 'no harness record',
+  'not-sent': 'not sent by this DoFlow core', // an older core's session row has no attention entry
   'no-audit-hook': 'no audit hook',
   'no-reader': 'no transcript reader',
 });
@@ -660,14 +676,25 @@ const REASON_WORD = Object.freeze({
 const reasonWord = (code) => REASON_WORD[code] ?? code.replace(/-/g, ' ');
 
 /**
- * One coverage cell: `observed`, or `not observed` with its reason (FR-009). `questions` is `not observed` for every harness
- * whatever the core said: no harness records a question (D7).
+ * One coverage cell: `observed`, or `not observed` with its reason (FR-009). `questions` follows the harness's registry
+ * `attention` entry as the core states it (180 IC-180-D3).
  * @param {string} column @param {any} cell
  */
 function coverageCell(column, cell) {
-  if (column === 'questions') return { observed: false, word: 'not observed', reason: reasonWord(cell && cell.observed === false && typeof cell.reason === 'string' ? cell.reason : 'no-harness-record') };
   if (cell && cell.observed === true) return { observed: true, word: 'observed', reason: null };
   return { observed: false, word: 'not observed', reason: reasonWord(cell && typeof cell.reason === 'string' ? cell.reason : 'no-harness-record') };
+}
+
+/**
+ * The words of an open ask (180 IC-180-D4), from its kind and tool only: the record holds no message (O-1 a). The record's
+ * fourth kind, after permission, question and other, is a wait for the person's next prompt.
+ * @param {{ kind: string, tool: string }} ask
+ */
+function askWords(ask) {
+  if (ask.kind === 'permission') return ask.tool ? `asks permission for ${ask.tool}` : 'asks permission';
+  if (ask.kind === 'question') return 'asks you a question';
+  if (ask.kind === 'other') return 'asks for your attention';
+  return 'waits for your input';
 }
 
 /** The project's label from the `machine` member, else its key's first 8 characters. @param {any} machine @param {string} projectKey */
@@ -681,6 +708,6 @@ export {
   startedWords,
   MAX_EVENTS, stamp, secondsStamp, kindWord, nodeTitle, titleIsLabel, fingerprint, appendEvents, splitMasked, usageLine, resultBits, recordWords, seconds,
   sectionOf, STREAM_STATES, streamState, streamCopy, gateWords, machineModel, summarizedLine, BRIEF_LIMIT, projectModel, COVERAGE_COLUMNS, coverageCell,
-  reasonWord, projectLabel, reviewWords, PROCESS_WORD,
+  reasonWord, projectLabel, reviewWords, PROCESS_WORD, askWords,
   VIEW_DEVICE_WORDS, MESSAGE_KIND_WORDS, TURN_REASON_WORDS, CLOSED_WORDS, channelIn, whoWords, recentWords, sessionModel, messageState,
 };

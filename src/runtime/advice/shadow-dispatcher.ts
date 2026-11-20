@@ -3,6 +3,7 @@
 const { resolveShadowConfig } = require('./shadow-config.ts');
 const { applyElevationInvariant } = require('./elevation.ts');
 const { appendPick, appendMiss, newPickId } = require('./record.ts');
+const { captureState } = require('./state-text.ts');
 const { createAdviceClient } = require('./client.ts');
 const { materializeKind } = require('./kinds.ts');
 const { resolveSetting } = require('./config.ts');
@@ -373,7 +374,8 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
       }
       extra = described.extra;
     }
-    appendPick({
+    const state = context.questionSet?.state ?? context.state;
+    const written = appendPick({
       ...common,
       pickId: pickIds[index],
       // Only the first answer can raise the decision (applyElevationInvariant), so only its line can be elevated.
@@ -383,9 +385,10 @@ function recordCall(context: DecisionPointContext, services: DispatcherServices,
       question: context.questionSet?.questions?.[index],
       staticAnswer: staticAnswerAt(context, index),
       provider: asked.provider,
-      state: context.questionSet?.state ?? context.state,
+      state,
       taskId: context.taskId ?? null,
     });
+    if (written) captureState({ roots, fsImpl: services.fsImpl, pickId: written.pickId, kind: context.kind, state, store: written.store });
   }
   return pickIds;
 }

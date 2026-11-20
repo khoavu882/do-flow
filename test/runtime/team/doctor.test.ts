@@ -149,7 +149,7 @@ describe('IC-005: the text block', () => {
       HEADER,
       '  writer cap: 1, max attempts: 3, enforcement: advisory',
       '  dispatch admission: wired (advisory)',
-      '  review start and check: wired (advisory)',
+      '  review start: wired (advisory)',
     ]);
   });
 
@@ -159,7 +159,7 @@ describe('IC-005: the text block', () => {
       HEADER,
       '  writer cap: 1, max attempts: 3, enforcement: block',
       '  dispatch admission: wired (blocking)',
-      '  review start and check: wired (advisory)',
+      '  review start: wired (advisory)',
     ]);
   });
 

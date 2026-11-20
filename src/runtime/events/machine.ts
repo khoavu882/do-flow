@@ -37,6 +37,8 @@ type SectionResult = { exit: number; json: any };
 /** IC-002, IC-008: the projects `activity` summarizes, and the awaiting gates listed per project. */
 const ACTIVITY_PROJECTS = 16;
 const GATE_LIMIT = 8;
+/** 180 IC-180-A: the open runs listed per project. */
+const OPEN_RUN_LIMIT = 8;
 /** 165 D8: the started sessions listed per project. */
 const STARTED_LIMIT = 8;
 /** At most one `activity` recompute per this many ms (leading and trailing, detector.ts). */
@@ -70,11 +72,16 @@ function isoOrNull(value: unknown): string | null {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
-/** Open and awaiting runs and the newest awaiting gates over a project's checkouts, as `orchestrate --action list` selects them. */
-function orchestrationActivity(entry: { main: string; checkouts: string[] }): { runs: { open: number; awaiting: number }; gates: any[]; unreadable: boolean } {
+/**
+ * Open and awaiting runs, the newest awaiting gates and (180 IC-180-A) the newest open runs over a project's checkouts, as
+ * `orchestrate --action list` selects them. `openRuns` is built from the same `snapshotRun`: RUNNING or AWAITING_GATE only,
+ * newest record `updatedAt` first (no date last, then task id), at most OPEN_RUN_LIMIT; an unreadable record is never listed.
+ */
+function orchestrationActivity(entry: { main: string; checkouts: string[] }): { runs: { open: number; awaiting: number }; gates: any[]; openRuns: any[]; unreadable: boolean } {
   const all = [...runEntriesAt(entry.main, 'current'), ...entry.checkouts.filter((c) => c !== entry.main).flatMap((c) => runEntriesAt(c, 'other'))];
   const runs = { open: 0, awaiting: 0 };
   const gates: any[] = [];
+  const openRuns: any[] = [];
   let unreadable = false;
   for (const e of selectRunEntries(all)) {
     const record = e.record;
@@ -83,10 +90,21 @@ function orchestrationActivity(entry: { main: string; checkouts: string[] }): { 
       || !RUN_STATES.includes(record.state) || record.taskId !== stem || !isChannelId(stem)) { unreadable = true; continue; }
     let snapshot: any;
     try { snapshot = snapshotRun(record); } catch { unreadable = true; continue; }
-    if (snapshot.state === 'RUNNING' || snapshot.state === 'AWAITING_GATE') runs.open += 1;
+    const gate = snapshot.awaitingGate;
+    if (snapshot.state === 'RUNNING' || snapshot.state === 'AWAITING_GATE') {
+      runs.open += 1;
+      openRuns.push({
+        slug: typeof e.slug === 'string' && isSafeSlug(e.slug) ? e.slug : null,
+        taskId: stem,
+        state: snapshot.state,
+        workflowName: typeof snapshot.workflowName === 'string' ? snapshot.workflowName : null,
+        step: { done: snapshot.progress.done, total: snapshot.progress.total },
+        updatedAt: isoOrNull(record.updatedAt),
+        gateName: snapshot.state === 'AWAITING_GATE' && gate && isChannelId(gate.gateId) ? gateName(gate.name, gate.gateId) : null,
+      });
+    }
     if (snapshot.state !== 'AWAITING_GATE') continue;
     runs.awaiting += 1;
-    const gate = snapshot.awaitingGate;
     if (!gate || !isChannelId(gate.gateId)) continue;
     gates.push({
       slug: typeof e.slug === 'string' && isSafeSlug(e.slug) ? e.slug : null,
@@ -99,7 +117,9 @@ function orchestrationActivity(entry: { main: string; checkouts: string[] }): { 
   }
   const time = (g: any) => (g.recordAt === null ? -Infinity : Date.parse(g.recordAt));
   gates.sort((a, b) => time(b) - time(a) || (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0));
-  return { runs, gates: gates.slice(0, GATE_LIMIT), unreadable };
+  const updated = (r: any) => (r.updatedAt === null ? -Infinity : Date.parse(r.updatedAt));
+  openRuns.sort((a, b) => updated(b) - updated(a) || (a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0));
+  return { runs, gates: gates.slice(0, GATE_LIMIT), openRuns: openRuns.slice(0, OPEN_RUN_LIMIT), unreadable };
 }
 
 /**
@@ -193,6 +213,7 @@ function machineSpec(ctx: MachineContext): any {
         projectKey: entry.projectKey,
         runs: orchestration.runs,
         gates: orchestration.gates,
+        openRuns: orchestration.openRuns,
         workers: { open: workers.open },
         started: workers.started,
         startedCount: workers.startedCount,
@@ -234,4 +255,4 @@ function machineSpec(ctx: MachineContext): any {
   };
 }
 
-module.exports = { machineSpec, ACTIVITY_PROJECTS, GATE_LIMIT, STARTED_LIMIT, ACTIVITY_THROTTLE_MS, SECTIONS };
+module.exports = { machineSpec, ACTIVITY_PROJECTS, GATE_LIMIT, OPEN_RUN_LIMIT, STARTED_LIMIT, ACTIVITY_THROTTLE_MS, SECTIONS };

@@ -37,7 +37,7 @@ const FOLLOWUP_LIST_BRIEF = Object.freeze({
 });
 /** The `list --similar` text footer, and the line a shown model check adds (owner ruling O-4: follow-ups carry no label). */
 const SIMILAR_FOOTER = 'Possible duplicates by shared words; nothing is merged or closed.';
-const MODEL_BASIS = 'The model check rests on a result measured on review findings, not on follow-ups.';
+const MODEL_BASIS = 'The model check rests on a result measured on review findings and on follow-ups labelled as duplicates.';
 /** The brief `lifecycle --action overview` answer (feature 137, IC-006): keep paths, so a new full field is dropped until named here. */
 const OVERVIEW_BRIEF = Object.freeze({
   verb: 'lifecycle',
@@ -234,7 +234,7 @@ function emitList(result: any, view: any, flags: any, json: any) {
  * @param {string} [options.action] absent when --action was not given
  * @param {string} options.cwd directory the verb runs from (the project, or a subfolder of it)
  * @param {Object} options.flags parsed flag values: statement, stage, source, taskClass, taskId, release,
- *   batch, channel, state, ids, as, reason, evidence, title; for report also file, stdin, text, feature; for list also
+ *   batch, channel, state, ids, as, reason, evidence, duplicateOf, title; for report also file, stdin, text, feature; for list also
  *   view, cursor, limit, similar (then the answer is a promise)
  */
 function handleFollowupCommand({ action, cwd, global = false, slug = null, json = false, flags = {} }: any = {}) {
@@ -252,6 +252,7 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
         if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action list only`);
       }
     }
+    if (action !== 'settle' && flags.duplicateOf !== undefined) throw new followup.FollowupUsageError('--duplicate-of applies to --action settle only');
     const view = action === 'list' ? resolveView(flags.view, 'brief') : null;
     for (const name of ['tag', 'confirm', 'exclude']) {
       if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to the lifecycle verb's --action release only, not to followup`);
@@ -286,7 +287,7 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
     } else if (action === 'take') {
       result = followup.takeFollowups({ root, ids: flags.ids, slug, channel: flags.channel });
     } else if (action === 'settle') {
-      result = followup.settleFollowups({ root, ids: flags.ids, as: flags.as, reason: flags.reason, evidence: flags.evidence, channel: flags.channel });
+      result = followup.settleFollowups({ root, ids: flags.ids, as: flags.as, reason: flags.reason, evidence: flags.evidence, duplicateOf: flags.duplicateOf, channel: flags.channel });
     } else {
       if (flags.title === undefined) throw new followup.FollowupUsageError('--title is required for --action promote');
       result = followup.promoteFollowups({ root, ids: flags.ids, title: flags.title, channel: flags.channel });

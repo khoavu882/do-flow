@@ -19,7 +19,7 @@ const { loadAdviceRegistry } = require('./registry.ts');
 const { materializeKind } = require('./kinds.ts');
 const { score } = require('./replay/score.ts');
 const { effectiveBars } = require('./replay/bars.ts');
-const { getSource, buildCases, optionNames } = require('./replay/sources/index.ts');
+const { getSource, buildKindCases, optionNames } = require('./replay/sources/index.ts');
 const { readResults } = require('./replay/results.ts');
 const { rejudge, questionDigest, builderDigest, barsDigest, caseSetDigest, projectKey } = require('./replay/trust.ts');
 
@@ -152,7 +152,7 @@ function caseSetState(entry: any, { projectRoot, roots, registryKind, fsImpl, ke
   const source = getSource(entry.caseSet.source);
   if (!source) return 'not-checked';
   try {
-    const built = buildCases(source, { projectRoot, roots, kind: registryKind, fsImpl }, options);
+    const built = buildKindCases(registryKind, { projectRoot, roots, kind: registryKind, fsImpl }, options, source);
     return caseSetDigest(built.cases) === entry.caseSet.digest ? 'same' : 'changed';
   } catch { return 'not-checked'; }
 }

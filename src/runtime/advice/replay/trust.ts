@@ -40,10 +40,17 @@ function questionDigest(question: any): string {
   return digestOf(question ?? null);
 }
 
-/** How the cases were built: the source's id, builder version and own `params` (when it has any) and the kind's params. */
+/**
+ * How the cases were built: the source's id, builder version and own `params` (when it has any) and the kind's params,
+ * then, for a kind with `replay.alsoFrom` (180 IC-180-H3), each further source's id, version and params in that order; a
+ * kind with none digests as before.
+ */
 function builderDigest(source: any, kind: any): string {
-  const built = { source: source?.id ?? null, builderVersion: source?.builderVersion ?? null, params: kind?.params ?? null };
-  return digestOf(source?.params ? { ...built, sourceParams: source.params } : built);
+  const built: any = { source: source?.id ?? null, builderVersion: source?.builderVersion ?? null, params: kind?.params ?? null };
+  if (source?.params) built.sourceParams = source.params;
+  const also = Array.isArray(kind?.replay?.alsoFrom) && source?.id === kind.replay.source ? kind.replay.alsoFrom : [];
+  if (also.length) built.alsoFrom = also.map((id: string) => ({ id, builderVersion: getSource(id)?.builderVersion ?? null, params: getSource(id)?.params ?? null }));
+  return digestOf(built);
 }
 
 /** The effective bars of the kind (`effectiveBars(...).bars`) and the kind's `budgetMs`. */

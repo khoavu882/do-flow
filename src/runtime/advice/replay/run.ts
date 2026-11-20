@@ -26,7 +26,7 @@ const { readSeedSwitch } = require('../../settings/autopilot.ts');
 const { listCheckouts } = require('../../checkouts.ts');
 const { score, judge, effectiveAnswers, confusion } = require('./score.ts');
 const { effectiveBars, OVERRIDE_FILE } = require('./bars.ts');
-const { getSource, buildCases, optionNames } = require('./sources/index.ts');
+const { getSource, buildKindCases, optionNames } = require('./sources/index.ts');
 const { readResults, writeResult, resultsFile } = require('./results.ts');
 const { questionDigest, builderDigest, barsDigest, caseSetDigest, projectKey } = require('./trust.ts');
 
@@ -196,7 +196,7 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
 
   // 4. The cases, those whose label and rule are options of the question.
   const optionList = optionNames(question);
-  const eligible = projectRoot ? buildCases(source, { projectRoot, roots, kind: registryKind }, optionList) : { cases: [], skipped: {} };
+  const eligible = projectRoot ? buildKindCases(registryKind, { projectRoot, roots, kind: registryKind }, optionList, source) : { cases: [], skipped: {} };
   if (eligible.cases.length === 0) {
     const skipped = counts(eligible.skipped);
     return fail('no-cases', `no cases for ${kind}: ${skipped ? `skipped ${skipped}` : 'nothing recorded to replay'}; nothing was asked`);

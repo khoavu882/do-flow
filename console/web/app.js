@@ -16,6 +16,7 @@ import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle, pairFailure,
 } from './states.js';
 import { parsePairFragment, createPairPage } from './views/pair.js';
+import { syncWatch } from './views/home.js';
 import { CORE_RANGE, MANAGE_VIEWS, parseRoute, hashFor, baseRoute, titleFor, navFor } from './views.js';
 import { createInspector, hidePanel } from './shell.js';
 import { onRefetch, closeConfirm, isConfirmOpen, pruneActionAreas, releaseActionAreas } from './views/confirm.js';
@@ -1065,6 +1066,8 @@ function boot() {
       doc: document,
       // The action confirmation is modal: no shortcut runs under it, and the palette and help cannot open over it (162 review B-4).
       blocked: isConfirmOpen,
+      // j and k at document level: the rows of the view shown, when it has any (Now).
+      rows: () => (app.view && app.view.local && typeof app.view.local.stepRows === 'function' ? app.view.local.stepRows() : []),
       actions: {
         palette: () => { app.shortcuts.closeHelp(); app.palette.open(); },
         help: () => { app.palette.close(); },
@@ -1118,6 +1121,8 @@ function boot() {
         Promise.resolve().then(refreshStatus);
       }
     });
+    // A stored notification opt-in, still allowed, follows the gates from app start, whichever view opens first (180 review B-4).
+    syncWatch();
     startView(parseRoute(globalThis.location.hash), { first: true });
     if (!document.hidden) startTick();
   } finally {

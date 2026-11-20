@@ -10,11 +10,19 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { createScratch, childEnv } = require('../../../helper/scratch-env.ts');
-const { startFakeServer, closedEndpoint, tagsListing } = require('../../../helper/fake-decision-server.ts');
+const { startFakeServer, closedEndpoint, tagsListing, answering } = require('../../../helper/fake-decision-server.ts');
+const { loadStorageRegistry } = require('../../../../src/runtime/storage/registry.ts');
+const { resolveRoots } = require('../../../../src/runtime/storage/roots.ts');
+const { appendPick, appendOutcome } = require('../../../../src/runtime/advice/record.ts');
+const { captureState, resetCaptureSetting } = require('../../../../src/runtime/advice/state-text.ts');
 const { REPO_ROOT } = require('../../../../src/helper/repo-root.ts');
 const { renderText } = require('../../../../src/runtime/advice/replay/run.ts');
+const { addFollowups, settleFollowups } = require('../../../../src/runtime/lifecycle/followup.ts');
+const { buildKindCases, getSource } = require('../../../../src/runtime/advice/replay/sources/index.ts');
+const { rejudge, builderDigest, questionDigest, barsDigest } = require('../../../../src/runtime/advice/replay/trust.ts');
+const { materializeKind } = require('../../../../src/runtime/advice/kinds.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 const SENTINEL = 'SENTINEL-c4f1e2';
@@ -93,13 +101,14 @@ function snapshot(dir: string): Record<string, string> {
  * A scratch HOME and project, the decision model on at user level, and a fake server that answers each yes/no question
  * with the `answer=` probability of its passage, after `delayMs`, counting the requests in flight.
  */
-async function fixture(t: any, { settings = {}, tags = null, delayMs = 2 }: any = {}) {
+async function fixture(t: any, { settings = {}, tags = null, delayMs = 2, route = null }: any = {}) {
   const scratch = createScratch('doflow-advice-replay-');
   const project = path.join(scratch.dir, 'project');
   fs.mkdirSync(project);
   const seen: any = { inFlight: 0, maxInFlight: 0, asks: [] as any[] };
   const server = await startFakeServer({ routes: {
     'POST /v1/systemone': async ({ body }: any) => {
+      if (route) { seen.asks.push(body); return route({ body }); }
       seen.inFlight++;
       seen.maxInFlight = Math.max(seen.maxInFlight, seen.inFlight);
       seen.asks.push(body);
@@ -300,9 +309,9 @@ test('(d) each setup refusal exits 1 with nothing asked; usage faults exit 2', a
   assert.match(none.stderr, /advise: no cases for claim-support/);
   // A kind with no replay source.
   writeLedger(f.project, mainSpecs(4));
-  const tier = await f.run(['--kind', 'tier']);
-  assert.equal(tier.status, 1);
-  assert.match(tier.stderr, /no local case source: this kind's records hold only digests/);
+  const rerank = await f.run(['--kind', 'rerank']);
+  assert.equal(rerank.status, 1);
+  assert.match(rerank.stderr, /no local case source: this kind's records hold only digests/);
   // The endpoint does not answer: the provider is named by its id from data.
   const closed = await closedEndpoint();
   writeJson(f.userSettingsFile, { schema: 1, 'advice.enabled': true, 'advice.provider': 'ollama', 'advice.endpoint': closed, 'advice.model': 'clef-flash' });
@@ -490,4 +499,104 @@ test('a case is bounded by timeoutMs, not the kind budget: a slow answer is meas
   assert.deepEqual(m.noAnswer.byReason, { 'over-budget': 1 });
   assert.equal(m.valid, 1);
   assert.ok(m.latencyMs.first >= 1600);
+});
+
+test('180 (f) a routing kind replays from its captured states: the model is reported against the rule; with no captured line the refusal says capture is off or empty', async (t) => {
+  // The fake model answers `frontier` for a state that says so, else `standard`.
+  const f = await fixture(t, {
+    settings: { 'advice.capture.state-text': true },
+    route: ({ body }: any) => answering(() => (/pick=frontier/.test(body?.state || '') ? 'frontier' : 'standard'))({ body }),
+  });
+  const empty = await f.run(['--kind', 'tier']);
+  assert.equal(empty.status, 1, empty.stdout);
+  assert.match(empty.stderr, /advise: no cases for tier: skipped capture-off-or-empty 1; nothing was asked/);
+  assert.equal(asked(f), 0);
+
+  resetCaptureSetting();
+  const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: f.project, env: { HOME: f.scratch.home, XDG_CONFIG_HOME: f.scratch.xdg } });
+  const question = { name: 'tier', type: 'choice', instructions: 'Choose a tier.', options: { light: 'Light', standard: 'Normal', frontier: 'Frontier' } };
+  const answer = { name: 'tier', type: 'choice', pick: 'standard', probabilities: { light: 0.1, standard: 0.8, frontier: 0.1 }, confidence: 0.7 };
+  for (let i = 0; i < 6; i += 1) {
+    // The rule answered standard every time; people moved two tasks to frontier.
+    const actual = i < 2 ? 'frontier' : 'standard';
+    const state = `${SENTINEL} task ${i} pick=${i < 3 ? 'frontier' : 'standard'}`;
+    const written = appendPick({ roots, kind: 'tier', answer, question, staticAnswer: 'standard', state, caller: 'brief-tools' });
+    assert.ok(captureState({ roots, pickId: written.pickId, kind: 'tier', state, store: written.store }));
+    assert.ok(appendOutcome({ roots, pickId: written.pickId, actual, source: 'orchestrator' }));
+  }
+  const r = await f.run(['--kind', 'tier', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.kind, 'tier');
+  assert.equal(body.source, 'captured-state');
+  assert.equal(body.caseSet.eligible, 6);
+  assert.equal(body.caseSet.replayed, 6);
+  assert.equal(asked(f), 6, 'one call per case');
+  // Against the labels: the rule is right on 4 of 6; the model on 5 (it says frontier for task 2, which stayed standard).
+  assert.equal(body.metrics.n, 6);
+  assert.equal(body.metrics.valid, 6);
+  assert.deepEqual(body.metrics.accuracy, { model: 5 / 6, rule: 4 / 6 });
+  assert.deepEqual([body.metrics.better, body.metrics.worse], [2, 1]);
+  assert.ok(!r.stdout.includes(SENTINEL), 'no case text in the report');
+});
+
+test('180 (g) same-issue replays the review records and the labelled follow-ups together, with no id shared, and a result stored before is stale', async (t) => {
+  const f = await fixture(t);
+  fs.cpSync(path.join(REPO_ROOT, 'test', 'fixtures', 'advice-replay', 'review-findings'), path.join(f.project, 'agent-docs', 'doflow'), { recursive: true });
+  const at = (minute: number) => new Date(Date.UTC(2026, 10, 20, 9, minute));
+  const statements = [
+    'omicron rho sigma cache never expires stale entries', 'omicron rho sigma cache never expires its stale entries',
+    'delta epsilon zeta installer ignores the proxy setting', 'delta epsilon zeta installer ignores the proxy setting on windows',
+  ];
+  const added = addFollowups({ root: f.project, cwd: f.project, items: statements.map((statement) => ({ statement })), defaults: { source: 'manual', batch: true }, now: at(0) });
+  const [a, target, p1, p2] = added.created.map((c: any) => c.id);
+  assert.equal(settleFollowups({ root: f.project, ids: a, as: 'dismissed', duplicateOf: target, now: at(1) }).ok, true);
+  assert.equal(settleFollowups({ root: f.project, ids: `${p1},${p2}`, as: 'dismissed', reason: 'noise', now: at(2) }).ok, true);
+
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice.json'), 'utf8'));
+  const kind = registry.kinds.find((entry: any) => entry.id === 'same-issue');
+  assert.deepEqual(kind.replay.alsoFrom, ['followup-duplicates']);
+  const input = { projectRoot: f.project, roots: {}, kind };
+  const reviewOnly = getSource('review-findings').build(input).cases;
+  const followups = getSource('followup-duplicates').build(input).cases;
+  assert.equal(reviewOnly.length, 6, 'the fixture holds six review cases');
+  assert.deepEqual(followups.map((c: any) => c.label).sort(), ['no', 'yes']);
+  const both = buildKindCases(kind, input, ['yes', 'no']).cases;
+  assert.equal(both.length, 8);
+  assert.equal(new Set(both.map((c: any) => c.id)).size, 8, 'no id is shared');
+  assert.deepEqual(both.map((c: any) => c.id), both.map((c: any) => c.id).sort(), 'sorted by id');
+  for (const c of followups) assert.ok(!both.some((b: any) => b.id === c.id), 'a follow-up case id is prefixed by its source id before hashing, so it is not the source\'s own id');
+  for (const c of reviewOnly) assert.ok(both.some((b: any) => b.id === c.id), 'the review cases keep their ids');
+
+  const r = await f.run(['--kind', 'same-issue', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.source, 'review-findings');
+  assert.deepEqual([body.caseSet.eligible, body.caseSet.replayed, body.metrics.n], [8, 8, 8]);
+  assert.equal(asked(f), 1, 'eight cases in one batched call');
+  assert.ok(f.seen.asks.some((ask: any) => ask.state.includes('proxy setting on windows')), 'a follow-up pair reached the model');
+
+  // The stored result and the report read the same two-source case set: the report calls it the same, and nothing moved.
+  const written = await f.run(['--kind', 'same-issue', '--write', '--json']);
+  assert.equal(written.status, 0, written.stderr);
+  const report = spawnSync(process.execPath, [BIN, 'advise', '--action', 'report', '--json'], { cwd: f.project, env: childEnv(f.scratch, { CI: null, DOFLOW_SESSION_ROLE: null, DOFLOW_AUTOPILOT_ENABLED: null }), encoding: 'utf8' });
+  assert.equal(report.status, 0, report.stderr);
+  const rows = JSON.parse(report.stdout).localResults.filter((row: any) => row.kind === 'same-issue');
+  assert.deepEqual(rows.map((row: any) => [row.caseSet, row.stale]), [['same', []]]);
+
+  // A result stored before this seam (the builder digest of the kind with no alsoFrom) is stale on the builder, and a current one is not.
+  const built = materializeKind('same-issue', { adviceRegistry: registry, sources: { workflows: {}, verification: {}, mcp: {} } });
+  assert.equal(built.ok, true, built.detail);
+  const source = getSource('review-findings');
+  const bars = registry.bars;
+  const entryWith = (key: any) => ({
+    questionDigest: questionDigest(built.question), builderDigest: builderDigest(source, key), barsDigest: barsDigest(bars, kind.budgetMs),
+    metrics: {},
+  });
+  const before = { ...kind, replay: { source: 'review-findings' } };
+  assert.notEqual(builderDigest(source, before), builderDigest(source, kind));
+  const stale = rejudge({ entry: entryWith(before), kind: 'same-issue', registry, question: built.question, bars });
+  assert.equal(stale.standing, 'stale');
+  assert.equal(stale.staleDigest, 'builder');
+  assert.notEqual(rejudge({ entry: entryWith(kind), kind: 'same-issue', registry, question: built.question, bars }).staleDigest, 'builder');
 });

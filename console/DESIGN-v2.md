@@ -344,6 +344,8 @@ Researched 2026-11-07. Sources are marked; blog posts are weaker than specs and 
 - A feature needs high-rate, loss-tolerant data (for example a live token-rate graph at 20 Hz) next to
   reliable log streams.
 
+`doflow doctor` reports the first trigger as the revisit `http3-quic` (FU-3mv3gx): it reads `node_use_quic`, whether `node:quic` is a builtin, and `ngtcp2` and `nghttp3` in `process.versions`, and prints the other two as not checked; no adapter is built.
+
 **How v2.0 keeps the door open:** the client store consumes envelopes (7.4), not an `EventSource`. Put
 the connection behind `web/live.js` with one adapter interface (`open(channels, since)`, `close()`,
 `onFrame`, `onState`) and ship the SSE adapter. A WebTransport adapter would map the same envelope to one
@@ -427,9 +429,18 @@ masked log and flips run phases; stream tests cover partial lines, inode change,
 reconnect with `since`, backpressure and the 4-stream cap; `read-contract` checks every new shape; the
 design guards stay as they are, with new tokens added to the contrast table.
 
-Performance budgets (proposed, none exist today): first usable paint under 1 s on loopback; `app.css`
-split per area so the first load stays under the current 128 KB (it is one file now (S)); no layout
+Performance budgets (proposed, except the `app.css` one): first usable paint under 1 s on loopback; no layout
 animation; server CPU under 5% idle with one open page.
+
+`app.css` budget: **155,648 bytes** (152 KiB), held by `console/test/budgets.test.ts`. Measured on 2026-11-20 at
+commit 2c5edda8: 155,982 bytes before row 180's reduction and 153,749 after it. The reduction removed the rules no
+file under `console/web/` or `console/src/` can match, one repeated and one overridden declaration, and merged rules
+with equal bodies within their own commented section. The file stayed above 128 KiB (131,072 bytes) because every
+remaining rule was used by a view or was a component `DESIGN.md` documented: without its 13,140 bytes of comments it would
+still have been 140,609 bytes. The 180 review then removed those two unused components, `.segmented` and `.daytable`
+(153,119 bytes after). Rules with equal bodies in different sections stay apart,
+so each view's rules stay under its own heading. Splitting the file per area is out of scope (owner ruling,
+2026-11-20).
 
 ## 12. Risks and open questions
 

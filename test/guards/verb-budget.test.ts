@@ -45,8 +45,8 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['discover --json', 0, 2240], // 2,109 B
   ['paths --json', 0, 896], // 841 B
   ['config --json', 0, 49536], // 48,003 B (141: five advice keys grew it: a mode and a model key for claim-support, and three keys of the rerank kind that row 174 removed again; 143: team.enforcement; 176: the same-issue mode and model keys, and the mode key's unset rule; was 48,988 B; the ceiling is left as it was)
-  ['doctor --json', 0, 30592], // 29,549 B (1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
-  ['storage --json', 0, 15360], // 14,802 B (170 T4: the channel-spool store row)
+  ['doctor --json', 0, 30592], // 28,517 B (180: measured on the fixture on 2026-11-20; was 29,549 B; the ceiling is left as it was; 1,024 B margin, design R7; 172 T6: a login answer per harness, IC-003; was 26,665 B)
+  ['storage --json', 0, 16512], // 15,950 B (180 K4: the two opt-in state-text capture store rows, advice-state-text-project and -user; was 15,360 B ceiling over 14,802 B at 170 T4)
   ['indicators --json', 0, 704], // 619 B
   ['package --action list --json', 0, 1920], // 1,220 B (169 T1: model-list-parser removed; 170 R-7: the reserved control-channel point removed too, a package declares a channel on the open worker point; was 1,424 B; the ceiling is left as it was)
   ['failure --action list --json', 0, 256], // 231 B

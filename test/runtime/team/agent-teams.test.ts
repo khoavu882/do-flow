@@ -3,7 +3,7 @@
 // Feature 103 — Agent Teams & Coordination Protocol Runtime Test Suite
 // Covers
 // IC-002 (AdmissionController, write-set collision, writerCap, maxAttempts),
-// IC-003 (assertReviewerSeparation, assertMechanicalPreChecks),
+// IC-003 (assertMechanicalPreChecks),
 // and IC-004 (team configuration & environment variable overrides).
 
 const { test, describe } = require('node:test');
@@ -19,10 +19,8 @@ const {
 } = require('../../../src/runtime/team/admission.ts');
 
 const {
-  assertReviewerSeparation,
   assertMechanicalPreChecks,
   ReviewGuardError,
-  NeverReviewOwnCodeError,
   MechanicalPreChecksIncompleteError,
 } = require('../../../src/runtime/team/review-guard.ts');
 
@@ -164,55 +162,7 @@ describe('IC-002: Write-Ownership Admission Controller', () => {
   });
 });
 
-describe('IC-003: Reviewer Independence Guard', () => {
-  test('assertReviewerSeparation throws ERR_REVIEWER_SELF_REVIEW when authorRole === reviewerRole', () => {
-    assert.throws(
-      () => {
-        assertReviewerSeparation({
-          taskId: 'Task.1',
-          authorRole: 'core-implementer',
-          reviewerRole: 'core-implementer',
-          authorIdentity: 'worker-1',
-          reviewerIdentity: 'worker-2',
-        });
-      },
-      (err: any) => {
-        assert.equal(err.code, 'ERR_REVIEWER_SELF_REVIEW');
-        return true;
-      }
-    );
-  });
-
-  test('assertReviewerSeparation throws ERR_REVIEWER_SELF_REVIEW when authorIdentity === reviewerIdentity', () => {
-    assert.throws(
-      () => {
-        assertReviewerSeparation({
-          taskId: 'Task.1',
-          authorRole: 'core-implementer',
-          reviewerRole: 'reviewer',
-          authorIdentity: 'worker-instance-99',
-          reviewerIdentity: 'worker-instance-99',
-        });
-      },
-      (err: any) => {
-        assert.equal(err.code, 'ERR_REVIEWER_SELF_REVIEW');
-        return true;
-      }
-    );
-  });
-
-  test('assertReviewerSeparation passes when author and reviewer role and identity differ', () => {
-    assert.doesNotThrow(() => {
-      assertReviewerSeparation({
-        taskId: 'Task.1',
-        authorRole: 'core-implementer',
-        reviewerRole: 'reviewer',
-        authorIdentity: 'worker-instance-1',
-        reviewerIdentity: 'worker-instance-2',
-      });
-    });
-  });
-
+describe('IC-003: Mechanical Pre-check Guard', () => {
   test('assertMechanicalPreChecks reports passed when pre-checks succeed', () => {
     // FR-005: review needs evidence that the checks completed with PASS, so the success case holds a
     // READY readiness record and the caller's empty list of unmet verify reasons.

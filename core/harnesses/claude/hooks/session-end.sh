@@ -5,7 +5,7 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 # Runs when Claude Code closes a session. Responsibilities:
 #   1. Append END marker to sessions.log
 #   2. Write uncommitted-warning.txt if the working tree is dirty
-#   3. Delete the session-scoped state directory (cleanup) and the main session's model observation
+#   3. Delete the session-scoped state directory (cleanup) and the main session's model and effort observations
 #   4. Trim sessions.log to last 500 lines (lock-guarded for parallel safety)
 #
 # Multi-session safe: with_file_lock (lib.sh) prevents concurrent sessions from
@@ -81,10 +81,11 @@ if [[ -n "$SESSION_ID" ]]; then
   rm -rf "$SESSION_PATH" 2>/dev/null || true
 fi
 
-# ── 3b. Remove this main session's model observation (120 IC-005) ─────────────
+# ── 3b. Remove this main session's model and effort observations (120 IC-005, 180 IC-180-E1) ─
 
-# observe-model.sh keys the file by the first 16 hex of sha256(session id), under primary/<cwd_hash>/<harness>/.
-# Only the ending main session's own file goes: other sessions, worker observations and a missing file are left
+# observe-model.sh keys the file by the first 16 hex of sha256(session id), under primary/<cwd_hash>/<harness>/;
+# observe-effort.sh by the same key, under effort/.
+# Only the ending main session's own files go: other sessions, worker observations and a missing file are left
 # alone, and a failure here changes nothing (SessionEnd is fire-and-forget).
 forget_model_observation() {
   local key="" cwd="${CWD:-}" file=""
@@ -95,8 +96,9 @@ forget_model_observation() {
   else return 0; fi
   [[ $key =~ ^[0-9a-f]{16}$ ]] || return 0
   case "$cwd" in /*) ;; *) cwd=$PWD ;; esac
-  file="$STATE_DIR/primary/$(cwd_hash "$cwd")/claude/$key.json"
-  if [[ -f "$file" && ! -L "$file" ]]; then rm -f "$file"; fi
+  for file in "$STATE_DIR/primary/$(cwd_hash "$cwd")/claude/$key.json" "$STATE_DIR/effort/$key.json"; do
+    if [[ -f "$file" && ! -L "$file" ]]; then rm -f "$file"; fi
+  done
   return 0
 }
 forget_model_observation 2>/dev/null || true

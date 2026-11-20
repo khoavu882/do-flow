@@ -50,6 +50,11 @@ const V1 = {
     securityRelevant: true, failSafe: { gate: 'advice.enabled' }, env: null, flag: null, shellRead: null, needsConfigHome: false,
     legacy: [],
     consumers: ['src/runtime/advice/config.ts'], description: 'Decision-model name; a project may choose it while advice is on.' },
+  'advice.capture.state-text': { type: 'boolean', order: [false, true], default: false,
+    scope: 'narrow-only', combine: 'override', securityRelevant: true, failSafe: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false,
+    legacy: [],
+    consumers: ['src/runtime/advice/state-text.ts'], description: "Keeps a masked, local copy of each routing decision's input so the routing kinds can be replayed; off by default" },
   // 084: per-kind advice mode and model, one pair per kind in core/registry/advice.json (guarded by G44 S7).
   'advice.kinds.tier': { type: 'enum', values: ['off', 'shadow', 'show', 'act'], default: null,
     scope: 'project-overridable', combine: 'override', securityRelevant: true, failSafe: 'off',
@@ -345,7 +350,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 46);
+  assert.equal(Object.keys(SHIPPED.keys).length, 47);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -641,6 +646,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'advice.provider': { gate: 'advice.enabled' },
     'advice.endpoint': { gate: 'advice.enabled' },
     'advice.model': { gate: 'advice.enabled' },
+    'advice.capture.state-text': false,
     'advice.kinds.tier': 'off',
     'advice.kinds.task-class': 'off',
     'advice.kinds.verify-risk': 'off',

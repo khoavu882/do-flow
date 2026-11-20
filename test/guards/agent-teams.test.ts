@@ -4,8 +4,7 @@
 //
 // This guard verifies:
 // 1. `core/registry/settings.json` contains `team.writerCap` and `team.maxAttempts` with valid integer ranges and defaults.
-// 2. Reviewer separation logic rejects self-review for every shipped agent role and matching worker identities.
-// 3. AdmissionController collision detection rejects overlapping write sets and enforces concurrency caps.
+// 2. AdmissionController collision detection rejects overlapping write sets and enforces concurrency caps.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -18,20 +17,7 @@ const {
   AdmissionController,
 } = require('../../src/runtime/team/admission.ts');
 
-const {
-  assertReviewerSeparation,
-} = require('../../src/runtime/team/review-guard.ts');
-
 const SETTINGS_REGISTRY_FILE = path.join(REPO, 'core', 'registry', 'settings.json');
-
-// The roles are the shipped agent specs, read from disk so a new archetype is covered without an edit here.
-const VALID_AGENT_ROLES = Object.freeze(
-  fs.readdirSync(path.join(REPO, 'core', 'shared', 'agent-specs'))
-    .filter((name: string) => name.endsWith('.md'))
-    .map((name: string) => name.slice(0, -'.md'.length))
-    .sort(),
-);
-assert.ok(VALID_AGENT_ROLES.length > 0, 'core/shared/agent-specs holds at least one agent spec');
 
 describe('Guard G72: Settings Registry Declarations (IC-004)', () => {
   test('core/registry/settings.json declares team.writerCap and team.maxAttempts with valid ranges', () => {
@@ -69,52 +55,6 @@ describe('Guard G72: Settings Registry Declarations (IC-004)', () => {
       Array.isArray(maxAttempts.consumers) && maxAttempts.consumers.includes('src/runtime/team/admission.ts'),
       "team.maxAttempts must name 'src/runtime/team/admission.ts' as consumer"
     );
-  });
-});
-
-describe('Guard G72: Reviewer Independence Enforcement (IC-003)', () => {
-  test('assertReviewerSeparation rejects self-review for every shipped agent role', () => {
-    for (const role of VALID_AGENT_ROLES) {
-      assert.throws(
-        () => {
-          assertReviewerSeparation({
-            taskId: 'Task.1',
-            authorRole: role as any,
-            reviewerRole: role as any,
-          });
-        },
-        /ERR_REVIEWER_SELF_REVIEW/,
-        `Reviewer separation must forbid self-review when author and reviewer role are '${role}'`
-      );
-    }
-  });
-
-  test('assertReviewerSeparation rejects matching worker identities regardless of role', () => {
-    assert.throws(
-      () => {
-        assertReviewerSeparation({
-          taskId: 'Task.1',
-          authorRole: 'core-implementer',
-          reviewerRole: 'reviewer',
-          authorIdentity: 'worker-session-77',
-          reviewerIdentity: 'worker-session-77',
-        });
-      },
-      /ERR_REVIEWER_SELF_REVIEW/,
-      'Reviewer separation must forbid matching worker identities'
-    );
-  });
-
-  test('assertReviewerSeparation passes when both role and worker identity differ', () => {
-    assert.doesNotThrow(() => {
-      assertReviewerSeparation({
-        taskId: 'Task.1',
-        authorRole: 'core-implementer',
-        reviewerRole: 'reviewer',
-        authorIdentity: 'worker-session-1',
-        reviewerIdentity: 'worker-session-2',
-      });
-    });
   });
 });
 

@@ -54,6 +54,9 @@ const RUN_BADGES = Object.freeze({
   CLOSED: { token: 'closed', face: 'skipped', word: 'Closed' },
 });
 
+/** The name of each session log the page reads. @type {Readonly<Record<string, string>>} */
+const LOG_WORD = Object.freeze({ audit: 'audit', denials: 'denial', attention: 'ask' });
+
 /** @param {string} token @param {string} face @param {string} word */
 const badge = (token, face, word) => h('span', { class: 'badge', dataset: { state: token } }, [icon(face, 12), word]);
 /** @param {any} gate the words of `gateWords` */
@@ -584,10 +587,22 @@ function updateProject(local, data, params) {
   local.seen = new Set(keys);
 
   local.heldGates = new Map(model.waiting.map((g) => [`${pk}/${g.taskId}/${g.gateId}`, g]));
-  setSection(local, 'lead', JSON.stringify([model.sections.gates, model.waiting.map((g) => [g.taskId, g.gateId, g.name, g.slug, g.at, g.revision ?? null]), who.current, [...fresh], who.label]), () => {
-    if (model.sections.gates.state === 'unreadable') return unreadableNote('the gates', model.sections.gates.code);
-    if (model.waiting.length === 0) return h('p', { class: 'layers-none' }, 'Nothing is waiting for you in this project.');
-    return gateCards(model.waiting, fresh, () => ({ projectKey: pk, projectLabel: null, openRun: who.current, label: who.label }), (key) => local.heldGates.get(key) ?? null);
+  setSection(local, 'lead', JSON.stringify([model.sections.gates, model.sections.sessions, model.waiting.map((g) => [g.taskId, g.gateId, g.name, g.slug, g.at, g.revision ?? null]), model.asks, model.asksUnobserved, who.current, [...fresh], who.label]), () => {
+    const gatesRead = model.sections.gates.state !== 'unreadable';
+    const sessionsRead = model.sections.sessions.state !== 'unreadable';
+    // 180 IC-180-D4: a session's open ask, in the words of its kind and tool, with its time; a harness that records none is not observed.
+    const none = gatesRead && sessionsRead && model.waiting.length === 0 && model.asks.length === 0;
+    return h('div', { class: 'lane__group' }, [
+      gatesRead ? null : unreadableNote('the gates', model.sections.gates.code),
+      sessionsRead ? null : unreadableNote('the sessions', model.sections.sessions.code),
+      none ? h('p', { class: 'layers-none' }, model.asksUnobserved.length > 0 ? 'Nothing recorded is waiting for you in this project.' : 'Nothing is waiting for you in this project.') : null,
+      model.waiting.length > 0 ? gateCards(model.waiting, fresh, () => ({ projectKey: pk, projectLabel: null, openRun: who.current, label: who.label }), (key) => local.heldGates.get(key) ?? null) : null,
+      group('Sessions', model.asks.map((/** @type {any} */ ask) => h('li', { class: 'lrow', dataset: { kind: 'ask', key: ask.sessionKey } }, [
+        h('div', { class: 'lrow__name' }, [badge('awaiting', 'awaiting', ask.word), h('span', { class: 'tag tag--mono' }, ask.harness)]),
+        h('div', { class: 'lrow__facts' }, ['since ', reltime(ask.at, now)]),
+      ]))),
+      ...model.asksUnobserved.map((/** @type {any} */ u) => h('p', { class: 'layers-foot__line', dataset: { state: 'unknown' } }, [badge('unknown', 'unknown', 'not observed'), ` whether ${u.harness} sessions ask you something: ${u.reason}`])),
+    ]);
   });
   setSection(local, 'lanes', JSON.stringify([model.sections, model.lanes, model.loose, model.auditOnly, sel]), () => {
     const failed = ['checkouts', 'tree', 'runs', 'artifacts'].filter((name) => model.sections[/** @type {'tree'} */ (name)].state === 'unreadable');
@@ -600,12 +615,12 @@ function updateProject(local, data, params) {
     ];
   });
   setSection(local, 'coverage', JSON.stringify([model.sections.coverage, model.coverage]), () => coverageTable(model));
-  const rest = model.withheld.filter((w) => !['checkouts', 'tree', 'runs', 'artifacts', 'gates', 'coverage'].includes(w.section));
+  const rest = model.withheld.filter((w) => !['checkouts', 'tree', 'runs', 'artifacts', 'gates', 'sessions', 'coverage'].includes(w.section));
   // 161 review C: an audit or denial log that exists but could not be read is said so, never left out as quiet.
   const unreadLogs = model.unreadLogs;
   setSection(local, 'withheld', JSON.stringify([rest, unreadLogs]), () => (rest.length + unreadLogs.length === 0 ? null : h('div', { class: 'layers-foot' }, [
     ...rest.map((w) => unreadableNote(w.section, w.code)),
-    ...unreadLogs.map((u) => h('p', { class: 'layers-unreadable', dataset: { state: 'failed' } }, [badge('failed', 'failed', 'unreadable'), ` The ${u.log === 'audit' ? 'audit' : 'denial'} log of a ${u.harness} session: not read. Nothing is claimed about it.`])),
+    ...unreadLogs.map((u) => h('p', { class: 'layers-unreadable', dataset: { state: 'failed' } }, [badge('failed', 'failed', 'unreadable'), ` The ${LOG_WORD[u.log] ?? u.log} log of a ${u.harness} session: not read. Nothing is claimed about it.`])),
   ])));
   if (arrived.length === 1) announce(`A gate is waiting for you: ${arrived[0].name ?? arrived[0].gateId}.`);
   else if (arrived.length > 1) announce(`${arrived.length} gates are waiting for you.`);

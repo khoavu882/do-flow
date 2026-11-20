@@ -40,14 +40,18 @@ const DECIDER = /^(?:autopilot|manual|console|device\.d-[0-9a-f]{12})$/;
 const decider: Check<string> = (value) => (typeof value === 'string' && DECIDER.test(value) ? value : fail());
 const STORES: readonly string[] = Object.freeze(['absent', 'present']);
 /** IC-003 and IC-002 bounds; a section past one breaks the contract. */
-const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, coverage: 32, activity: 16, activityGates: 8, activityStarted: 8, harnesses: 32, unreadable: 32, channelItems: 16, channelRecent: 8 });
+const BOUNDS = Object.freeze({ checkouts: 64, gates: 64, artifacts: 64, reviews: 16, sessions: 16, audit: 8, denials: 3, attention: 4, coverage: 32, activity: 16, activityGates: 8, activityOpenRuns: 8, activityStarted: 8, harnesses: 32, unreadable: 32, channelItems: 16, channelRecent: 8 });
 /** 170 IC-004 (src/runtime/events/session-channels.ts): a channel's descriptor sentence in characters, and a reason or an actor label. */
 const CHANNEL_WORDS_CHARS = 200;
 const CHANNEL_REASON_CHARS = 64;
+/** 180 IC-180-A: the states an `openRuns` row can hold. */
+const OPEN_RUN_STATES: readonly string[] = Object.freeze(['RUNNING', 'AWAITING_GATE']);
 const CHANNEL_STATES: readonly string[] = Object.freeze(['open', 'closed', 'none']);
 const MESSAGE_KINDS: readonly string[] = Object.freeze(['first', 'follow-up', 'steer', 'stop']);
 const MESSAGE_OUTCOMES: readonly string[] = Object.freeze(['written', 'refused', 'failed']);
 const MESSAGE_ANSWERS: readonly string[] = Object.freeze(['accepted', 'refused']);
+/** 180 IC-180-D3: the kinds an attention ask can hold. */
+const ATTENTION_KINDS: readonly string[] = Object.freeze(['permission', 'question', 'idle', 'other']);
 /** IC-003: a denial reason, in characters, as the core caps it. */
 const REASON_CHARS = 200;
 /** A gate name is registry text; anything longer is not one. */
@@ -136,10 +140,20 @@ function activity(value: unknown) {
       const e = record(g);
       return { slug: orNull(id)(e.slug), taskId: id(e.taskId), gateId: id(e.gateId), name: capped(NAME_CHARS)(e.name), recordAt: orNull(iso)(e.recordAt), revision: optional(count)(e.revision) };
     };
+    // 180 IC-180-A (src/runtime/events/machine.ts `orchestrationActivity`): the open runs, newest first, at most OPEN_RUN_LIMIT = 8; an older core sends none: null, not an empty list.
+    const openRun = (o: unknown) => {
+      const e = record(o);
+      const step = record(e.step);
+      return {
+        slug: orNull(id)(e.slug), taskId: id(e.taskId), state: oneOf(OPEN_RUN_STATES)(e.state), workflowName: orNull(capped(NAME_CHARS))(e.workflowName),
+        step: { done: count(step.done), total: count(step.total) }, updatedAt: orNull(iso)(e.updatedAt), gateName: orNull(capped(NAME_CHARS))(e.gateName),
+      };
+    };
     return {
       projectKey: key16(a.projectKey),
       runs: { open: count(runs.open), awaiting: count(runs.awaiting) },
       gates: each(gate, BOUNDS.activityGates)(a.gates),
+      openRuns: optional(each(openRun, BOUNDS.activityOpenRuns))(a.openRuns),
       workers: { open: count(workers.open) },
       // 165 D8: the started sessions (open and, since 165 review B-4, the newest ended; newest first, at most STARTED_LIMIT = 8 of the core's machine.ts) and how many the store holds; an older core sends neither: null, not zero.
       started: optional(each(startedSession, BOUNDS.activityStarted))(a.started),
@@ -237,9 +251,21 @@ function sessions(value: unknown) {
     };
     return { observed: true, count: count(d.count), recent: each(line, BOUNDS.denials)(d.recent) };
   };
+  /** 180 IC-180-D3: the open ask, the ask count and the newest asks; a kind, a tool name and a time only. */
+  const attentionOf = (value: unknown) => {
+    const n = record(value);
+    if (n.observed === false) return { observed: false, reason: id(n.reason) };
+    if (n.observed !== true) return fail();
+    const ask = (item: unknown) => {
+      const l = record(item);
+      return { kind: oneOf(ATTENTION_KINDS)(l.kind), tool: l.tool === '' ? '' : label(l.tool), at: iso(l.at) };
+    };
+    return { observed: true, pending: orNull(ask)(n.pending), count: count(n.count), recent: each(ask, BOUNDS.attention)(n.recent) };
+  };
   const entry = (item: unknown) => {
     const s = record(item);
-    return { sessionKey: key16(s.sessionKey), harness: id(s.harness), audit: auditOf(s.audit), denials: denialsOf(s.denials) };
+    return { sessionKey: key16(s.sessionKey), harness: id(s.harness), audit: auditOf(s.audit), denials: denialsOf(s.denials),
+      attention: optional(attentionOf)(s.attention) };
   };
   return each(entry, BOUNDS.sessions)(value);
 }

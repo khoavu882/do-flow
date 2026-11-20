@@ -113,11 +113,14 @@ function settleOne(state: any, event: any, id: string): any {
       if (item.state !== 'open' && !isText(d.reason)) return conflict(event, 'reason-required', `settling ${id} as kept needs a reason`);
       if (item.state === 'taken') item.takenBy = null;
       item.state = 'open';
+      delete item.duplicateOf;
       break;
     case 'dismissed':
       if (item.state !== 'open') return refuse(`${id} is ${item.state}; only an open item can be dismissed`);
       if (!isText(d.reason)) return conflict(event, 'reason-required', `dismissing ${id} needs a reason`);
       item.state = 'dismissed';
+      // The label is additive (180 IC-180-H1): kept only when it names another known item, so a stored or foreign event with a malformed one still dismisses.
+      if (typeof d.duplicateOf === 'string' && d.duplicateOf !== id && state.items.has(d.duplicateOf)) item.duplicateOf = d.duplicateOf;
       break;
     case 'fix':
       if (item.state !== 'open') return refuse(`${id} is ${item.state}; only an open item can be routed to a fix`);

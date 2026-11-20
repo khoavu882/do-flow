@@ -264,7 +264,7 @@ test('176 IC-001: the shipped same-issue kind is a compact yes/no kind asked by 
   assert.equal(kind.type, 'yesno');
   assert.equal(kind.maxMode, 'show');
   assert.deepEqual(kind.askedBy, ['review', 'followup']);
-  assert.deepEqual(kind.replay, { source: 'review-findings' });
+  assert.deepEqual(kind.replay, { source: 'review-findings', alsoFrom: ['followup-duplicates'] });
   assert.deepEqual(kind.params, {
     itemBytes: 512, questionsPerCall: 8, maxPairs: 32, perItem: 2, candidateAtPct: 15, flagAtPct: 40, locatorBonusPct: 15, maxCompare: 2000,
   });
@@ -404,6 +404,15 @@ test('row 175 IC-001 (a): the shipped bars validate and equal the design values;
   assert.equal(Object.hasOwn(rerankOf(result.registry), 'replay'), false);
 });
 
+test('row 180 IC-180-G2: the five routing kinds replay from captured-state, with no maxMode change', () => {
+  const result = loadAdviceRegistry({ repoRoot: REPO });
+  assert.equal(result.ok, true, result.detail);
+  const routing = ['tier', 'task-class', 'verify-risk', 'review-depth', 'mcp-need'];
+  const replaying = result.registry.kinds.filter((kind: any) => kind.replay?.source === 'captured-state').map((kind: any) => kind.id);
+  assert.deepEqual(replaying, routing);
+  for (const id of routing) assert.equal(Object.hasOwn(result.registry.kinds.find((kind: any) => kind.id === id), 'maxMode'), false, id);
+});
+
 expectInvalid('bars missing', 'bars', (r: any) => { delete r.bars; });
 expectInvalid('bars not an object', 'bars', (r: any) => { r.bars = []; });
 expectInvalid('bars.version zero', 'bars.version', (r: any) => { r.bars.version = 0; });
@@ -432,6 +441,21 @@ expectInvalid('an inherited property name as a replay source id', `kinds[${claim
 expectInvalid('a replay block without a source', `kinds[${claimIndex}].replay.source`, (r: any) => { claimOf(r).replay = {}; });
 expectInvalid('an unknown key in a replay block', `kinds[${claimIndex}].replay.extra`, (r: any) => { claimOf(r).replay.extra = 1; });
 expectInvalid('a replay source on a kind nothing asks', `kinds[${rerankIndex}].replay`, (r: any) => { rerankOf(r).replay = { source: 'claim-ledger' }; });
+
+// 180 IC-180-H3: `replay.alsoFrom` names further case sources, at most two, distinct, none the kind's own.
+const sameIssueIndex = validRegistry().kinds.findIndex((kind: any) => kind.id === 'same-issue');
+expectInvalid('an alsoFrom that repeats the replay source', `kinds[${sameIssueIndex}].replay.alsoFrom[0]`, (r: any) => { sameIssueOf(r).replay.alsoFrom = ['review-findings']; });
+expectInvalid('an alsoFrom source id that is unknown', `kinds[${sameIssueIndex}].replay.alsoFrom[0]`, (r: any) => { sameIssueOf(r).replay.alsoFrom = ['no-such-source']; });
+expectInvalid('an alsoFrom with three ids', `kinds[${sameIssueIndex}].replay.alsoFrom`, (r: any) => { sameIssueOf(r).replay.alsoFrom = ['followup-duplicates', 'claim-ledger', 'captured-state']; });
+expectInvalid('an alsoFrom that lists an id twice', `kinds[${sameIssueIndex}].replay.alsoFrom[1]`, (r: any) => { sameIssueOf(r).replay.alsoFrom = ['followup-duplicates', 'followup-duplicates']; });
+expectInvalid('an alsoFrom that is not a list', `kinds[${sameIssueIndex}].replay.alsoFrom`, (r: any) => { sameIssueOf(r).replay.alsoFrom = 'followup-duplicates'; });
+
+test('180 IC-180-H3: an alsoFrom of none, one or two distinct other sources loads', (t) => {
+  for (const alsoFrom of [[], ['followup-duplicates'], ['followup-duplicates', 'claim-ledger']]) {
+    const result = loadAdviceRegistry(writeFixture(t, (r: any) => { sameIssueOf(r).replay.alsoFrom = alsoFrom; }));
+    assert.equal(result.ok, true, `${JSON.stringify(alsoFrom)}: ${result.detail}`);
+  }
+});
 
 test('row 175 IC-001: a full per-kind bars block and a null one both load', (t) => {
   const full = loadAdviceRegistry(writeFixture(t, (r: any) => { claimOf(r).bars = fullBars(); }));

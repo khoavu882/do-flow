@@ -113,9 +113,21 @@ function validateBars(bars: any, base: string, errors: string[]): void {
 function validateReplay(kind: any, base: string, errors: string[]): void {
   const replay = kind.replay;
   if (!isObject(replay)) { addError(errors, `${base}.replay`, 'must be an object'); return; }
-  for (const key of Object.keys(replay)) if (key !== 'source') addError(errors, `${base}.replay.${key}`, 'is not a known key');
+  for (const key of Object.keys(replay)) if (key !== 'source' && key !== 'alsoFrom') addError(errors, `${base}.replay.${key}`, 'is not a known key');
   if (typeof replay.source !== 'string' || !SOURCE_IDS.includes(replay.source)) {
     addError(errors, `${base}.replay.source`, `must be a case source id: ${SOURCE_IDS.join(', ')}`);
+  }
+  // 180 IC-180-H3: further sources whose cases join the kind's own; at most two, distinct, none the kind's `source`.
+  if (Object.hasOwn(replay, 'alsoFrom')) {
+    const also = replay.alsoFrom;
+    if (!Array.isArray(also) || also.length > 2) addError(errors, `${base}.replay.alsoFrom`, 'must be a list of at most two case source ids');
+    else {
+      also.forEach((id: any, index: number) => {
+        if (typeof id !== 'string' || !SOURCE_IDS.includes(id)) addError(errors, `${base}.replay.alsoFrom[${index}]`, `must be a case source id: ${SOURCE_IDS.join(', ')}`);
+        else if (id === replay.source) addError(errors, `${base}.replay.alsoFrom[${index}]`, 'must not repeat replay.source');
+        else if (also.indexOf(id) !== index) addError(errors, `${base}.replay.alsoFrom[${index}]`, `repeats ${id}`);
+      });
+    }
   }
   if (Array.isArray(kind.askedBy) && kind.askedBy.length === 0) addError(errors, `${base}.replay`, 'is not allowed on a kind nothing asks (askedBy is empty)');
 }

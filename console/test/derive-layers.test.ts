@@ -72,8 +72,8 @@ function layersBody(over: any = {}): any {
     sessions: ok([]),
     traffic: ok({ v: 1, projectKey: PK, windowMin: 10, agents: [], models: [], pairs: [], notChecked: 0 }),
     coverage: ok([
-      { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: false, reason: 'no-harness-record' } },
-      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
+      { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: true } },
+      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: false, reason: 'no-harness-record' } },
     ]),
   };
   return { v: 1, projectKey: PK, sections: { ...sections, ...over } };
@@ -112,9 +112,63 @@ test('162 IC-005: a gate decided from the Console or a paired device reads where
   assert.equal(layers.gateWords(gate({ by: 'device.d-XYZ' })).word, 'decider not recorded');
 });
 
-test('questions is `not observed` for every harness, whatever the core said (FR-009)', () => {
-  assert.deepEqual(layers.coverageCell('questions', { observed: true }), { observed: false, word: 'not observed', reason: 'no harness record' });
+test('180 IC-180-D4 (c): the questions cell follows the core: observed for the harness that records asks, `not observed` with its reason for the others', () => {
+  const model = layers.projectModel(layersBody());
+  const cell = (harness: string) => layers.coverageCell('questions', model.coverage.find((row: any) => row.harness === harness).questions);
+  assert.deepEqual(cell('claude'), { observed: true, word: 'observed', reason: null });
+  assert.deepEqual(cell('opencode'), { observed: false, word: 'not observed', reason: 'no harness record' });
   assert.equal(layers.coverageCell('main', { observed: true }).word, 'observed');
+});
+
+const SK = 'cc11dd22ee33ff44';
+const SK2 = 'cc11dd22ee33ff55';
+const SK3 = 'cc11dd22ee33ff66';
+/** A session row of the `sessions` section with its attention entry (IC-180-D3). */
+function askSession(sessionKey: string, attention: any, harness = 'claude'): any {
+  return { sessionKey, harness, audit: never, denials: never, attention };
+}
+const asking = (pending: any, over: any = {}) => ({ observed: true, pending, count: 1, recent: pending ? [pending] : [], ...over });
+
+test('180 IC-180-D4 (a): a session with an open ask is in "Waiting for you" with its words, the tool and the time; a question and a wait for input have their own words', () => {
+  const sessions = ok([
+    askSession(SK, asking({ kind: 'permission', tool: 'Bash', at: '2026-11-15T09:20:00.000Z' })),
+    askSession(SK2, asking({ kind: 'question', tool: '', at: '2026-11-15T09:30:00.000Z' })),
+    askSession(SK3, asking({ kind: 'idle', tool: '', at: '2026-11-15T09:10:00.000Z' })),
+  ]);
+  const model = layers.projectModel(layersBody({ sessions }));
+  assert.deepEqual(model.asks.map((a: any) => [a.sessionKey, a.harness, a.word, a.tool, a.at]), [
+    [SK2, 'claude', 'asks you a question', '', '2026-11-15T09:30:00.000Z'],
+    [SK, 'claude', 'asks permission for Bash', 'Bash', '2026-11-15T09:20:00.000Z'],
+    [SK3, 'claude', 'waits for your input', '', '2026-11-15T09:10:00.000Z'],
+  ], 'newest first');
+  assert.equal(layers.askWords({ kind: 'permission', tool: '' }), 'asks permission', 'no tool recorded: no tool named');
+  assert.equal(layers.askWords({ kind: 'other', tool: '' }), 'asks for your attention');
+  // (d) the words never claim a state the record does not hold.
+  for (const kind of ['permission', 'question', 'idle', 'other']) assert.doesNotMatch(layers.askWords({ kind, tool: 'Bash' }), /\b(active|online|idle)\b/i, kind);
+  assert.deepEqual(model.asksUnobserved, [], 'every session here records its asks');
+});
+
+test('180 IC-180-D4 (b): an answered ask is not listed, and a session with no ask yet adds nothing', () => {
+  const sessions = ok([
+    askSession(SK, asking(null, { count: 2, recent: [{ kind: 'permission', tool: 'Bash', at: '2026-11-15T09:20:00.000Z' }, { kind: 'question', tool: '', at: '2026-11-15T09:00:00.000Z' }] })),
+    askSession(SK2, { observed: true, pending: null, count: 0, recent: [] }),
+  ]);
+  const model = layers.projectModel(layersBody({ sessions }));
+  assert.deepEqual(model.asks, []);
+  assert.deepEqual(model.asksUnobserved, []);
+});
+
+test('180 IC-180-D4: a session whose harness records no asks is `not observed` with its reason, once per harness; an unreadable ask log is said so', () => {
+  const sessions = ok([
+    askSession(SK, { observed: false, reason: 'no-harness-record' }, 'codex'),
+    askSession(SK2, { observed: false, reason: 'no-harness-record' }, 'codex'),
+    askSession(SK3, null, 'opencode'),
+    askSession('cc11dd22ee33ff77', { observed: false, reason: 'unreadable' }),
+  ]);
+  const model = layers.projectModel(layersBody({ sessions }));
+  assert.deepEqual(model.asks, []);
+  assert.deepEqual(model.asksUnobserved, [{ harness: 'codex', reason: 'no harness record' }, { harness: 'opencode', reason: 'not sent by this DoFlow core' }]);
+  assert.deepEqual(model.unreadLogs, [{ harness: 'claude', log: 'attention' }]);
 });
 
 test('a section that failed is `unreadable`, an absent body is absent, and neither becomes an empty list that reads as nothing happening', () => {
@@ -173,6 +227,7 @@ test('the machine page leads with waiting gates (newest first), lists the curren
   assert.deepEqual(model.rows[0].unreadable, ['worker-runs']);
   assert.equal(layers.summarizedLine(model.foot), '2 of 3 projects summarized');
   assert.match(model.foot.notObserved, /^Not observed: agent questions/);
+  assert.match(model.foot.notObserved, /a project's page lists the sessions that ask you something/, '180: a project page states the asks of the harnesses that record them');
 });
 
 test('the stream states: connecting, following, stream down, refused, unsupported, core-lacks-channel', () => {

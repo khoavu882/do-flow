@@ -46,6 +46,26 @@ test('162 IC-006: the machine activity gate carries the run revision, null when 
   assert.deepEqual(activityOf([{ ...awaiting, revision: -2 }]), { ok: false, code: 'core-contract-mismatch' });
 });
 
+test('180 C2 IC-180-A: the machine activity item carries openRuns (at most 8, the seven row keys); an older core that sent none reads null; a bad row is a contract mismatch', () => {
+  const run = (n: number, extra: Record<string, unknown> = {}) => ({ slug: n === 0 ? null : 'feat-a', taskId: `t${n}`, state: n % 2 ? 'AWAITING_GATE' : 'RUNNING', workflowName: 'Feature Delivery',
+    step: { done: n, total: 9 }, updatedAt: '2026-11-15T10:00:00.000Z', gateName: n % 2 ? 'Approve design' : null, prompt: 'planted prompt', ...extra });
+  const itemOf = (extra: Record<string, unknown>) => (composeMachine(new Map([['activity', { exit: 0, json: { v: 1, limits: { projects: 1, notShown: 0, watched: 1, fingerprintOnly: 0 },
+    items: [{ ...activityItem([]), ...extra }] } }]])) as any).body.sections.activity;
+  const kept = itemOf({ openRuns: [run(0), run(1)] });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  const rows = kept.data.items[0].openRuns;
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['gateName', 'slug', 'state', 'step', 'taskId', 'updatedAt', 'workflowName']);
+  assert.deepEqual(rows.map((r: any) => [r.slug, r.taskId, r.state, r.gateName]), [[null, 't0', 'RUNNING', null], ['feat-a', 't1', 'AWAITING_GATE', 'Approve design']]);
+  assert.equal(JSON.stringify(rows).includes('planted'), false);
+  assert.equal(itemOf({}).data.items[0].openRuns, null, 'an older core sends none: null, never an empty list');
+  assert.deepEqual(itemOf({ openRuns: [] }).data.items[0].openRuns, []);
+  assert.equal(itemOf({ openRuns: Array.from({ length: 8 }, (_, n) => run(n)) }).ok, true);
+  for (const bad of [{ openRuns: Array.from({ length: 9 }, (_, n) => run(n)) }, { openRuns: [run(0, { state: 'COMPLETED' })] }, { openRuns: [run(0, { step: { done: -1, total: 2 } })] },
+    { openRuns: [run(0, { taskId: '../x' })] }, { openRuns: [run(0, { updatedAt: 'yesterday' })] }, { openRuns: 'none' }]) {
+    assert.deepEqual(itemOf(bad), { ok: false, code: 'core-contract-mismatch' }, JSON.stringify(bad).slice(0, 80));
+  }
+});
+
 test('165 F1: the machine activity item carries the started sessions (at most 8, the seven item keys) and their count; an older core that sent none reads null, never zero', () => {
   const started = (n: number) => ({ runId: `w-00000000000${n}`, harness: 'claude', model: n === 0 ? null : 'claude-opus-5-5', phase: 'running', startedBy: n === 1 ? 'device.d-0123456789ab' : 'console',
     worktreeKey: WK, createdAt: '2026-11-15T10:00:00.000Z', prompt: 'planted prompt', pid: 4242 });
@@ -153,4 +173,46 @@ test('170 IC-004: the sentence and the labels are masked, and an actor label tha
   assert.equal(JSON.stringify(kept).includes('planted.person@example.com'), false);
   assert.ok(JSON.stringify(kept).includes('<email>') || JSON.stringify(kept).includes('<masked>'));
   assert.equal(kept.data.items[0].recent[0].by, '(withheld)');
+});
+
+// ---- 180 IC-180-D3: the optional `attention` member of a session ----
+
+const askAt = (kind: string, tool: string, at = '2026-11-20T09:00:00.000Z') => ({ kind, tool, at });
+const sessionItem = (attention?: unknown) => ({
+  sessionKey: 'a1b2c3d4e5f60718', harness: 'claude',
+  audit: { observed: false, reason: 'no-audit' }, denials: { observed: false, reason: 'no-denials' },
+  ...(attention === undefined ? {} : { attention }),
+});
+const sessionsOf = async (rows: unknown[]) => ((await composeLayers(WK, new Map([['sessions', { exit: 0, json: rows }]]), async () => ({ ok: false }))) as any).body.sections.sessions;
+const mismatchOf = { ok: false, code: 'core-contract-mismatch' };
+
+test('180 IC-180-D3: a session keeps an open ask, the count and the newest asks; unknown keeps its reason; an older core that sent none reads null', async () => {
+  const open = askAt('permission', 'Bash');
+  const kept = await sessionsOf([
+    sessionItem({ observed: true, pending: open, count: 2, recent: [open, askAt('question', '', '2026-11-20T08:00:00.000Z')] }),
+    sessionItem({ observed: true, pending: null, count: 0, recent: [] }),
+    sessionItem({ observed: false, reason: 'no-harness-record' }),
+    sessionItem(),
+  ]);
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  const [asked, none, unknown, older] = kept.data.map((s: any) => s.attention);
+  assert.deepEqual(asked, { observed: true, pending: open, count: 2, recent: [open, askAt('question', '', '2026-11-20T08:00:00.000Z')] });
+  assert.deepEqual(none, { observed: true, pending: null, count: 0, recent: [] });
+  assert.deepEqual(unknown, { observed: false, reason: 'no-harness-record' });
+  assert.equal(older, null, 'an older core without the key reads null, never an empty observation');
+});
+
+test('180 IC-180-D3: an ask kind outside the closed set, more than 4 recent asks and an observed value that is neither true nor false are contract mismatches', async () => {
+  const ask = askAt('permission', 'Bash');
+  assert.deepEqual(await sessionsOf([sessionItem({ observed: true, pending: askAt('approval', 'Bash'), count: 1, recent: [] })]), mismatchOf);
+  assert.deepEqual(await sessionsOf([sessionItem({ observed: true, pending: null, count: 5, recent: [ask, ask, ask, ask, ask] })]), mismatchOf);
+  assert.equal((await sessionsOf([sessionItem({ observed: true, pending: null, count: 4, recent: [ask, ask, ask, ask] })])).ok, true);
+  assert.deepEqual(await sessionsOf([sessionItem({ observed: 'yes', pending: null, count: 0, recent: [] })]), mismatchOf);
+});
+
+test('180 IC-180-D3: a tool name that could be a place is withheld, and the ask keeps its kind and time', async () => {
+  const kept = await sessionsOf([sessionItem({ observed: true, pending: askAt('permission', '/work/planted/secret'), count: 1, recent: [] })]);
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.deepEqual(kept.data[0].attention.pending, askAt('permission', '(withheld)'));
+  assert.equal(JSON.stringify(kept).includes('/work/planted'), false);
 });

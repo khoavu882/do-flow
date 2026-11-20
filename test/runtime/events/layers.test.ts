@@ -198,6 +198,7 @@ test('161 T4: writing exec/task-3-brief.md in a scratch checkout patches artifac
   assert.deepEqual(s.sessions.json, [{
     sessionKey: sha16(raw), harness: 'claude',
     audit: { observed: true, open: 0, started: 0, stopped: 0, recent: [] }, denials: { observed: true, count: 0, recent: [] },
+    attention: { observed: true, pending: null, count: 0, recent: [] },
   }]);
 
   // The brief appears: the next pass patches `artifacts` with its kind and fileKey.
@@ -428,6 +429,7 @@ test('161 IC-003, D8, AC-5: a codex audit line has agentKey null, an antigravity
   assert.deepEqual([by.codex.audit.started, by.codex.audit.stopped, by.codex.audit.open], [1, 1, 0]);
   assert.deepEqual(by.codex.audit.recent.map((r: any) => [r.event, r.agentKey]), [['SubagentStop', null], ['SubagentStart', null]], 'codex: audit-only, no tree join');
   assert.deepEqual(by.codex.denials, { observed: false, reason: 'no-harness-record' });
+  assert.deepEqual(by.codex.attention, { observed: false, reason: 'no-harness-record' });
 
   assert.deepEqual(by.antigravity.audit, { observed: false, reason: 'no-audit-hook' });
   assert.deepEqual(by.antigravity.denials, { observed: false, reason: 'no-harness-record' });
@@ -441,8 +443,59 @@ test('161 IC-003, D8, AC-5: a codex audit line has agentKey null, an antigravity
   assert.deepEqual(coverage.codex.permissions, { observed: false, reason: 'no-harness-record' });
   for (const row of sections.coverage.json) {
     assert.deepEqual(Object.keys(row), ['harness', 'main', 'subagents', 'transcript', 'permissions', 'questions']);
-    assert.deepEqual(row.questions, { observed: false, reason: 'no-harness-record' }, `${row.harness}: no harness records a question (D7)`);
   }
+});
+
+test('180 IC-180-D3 (K3a f): coverage questions is observed for the harnesses whose registry attention is supported, else its reason', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-q');
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a) });
+  const { sections } = await spec.compute(['coverage']);
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8'));
+  const want = Object.fromEntries(registry.harnesses.map((h: any) => [h.id, h.attention.status === 'supported' ? { observed: true } : { observed: false, reason: h.attention.reason }]));
+  const got = Object.fromEntries(sections.coverage.json.map((row: any) => [row.harness, row.questions]));
+  assert.deepEqual(got, want);
+  assert.deepEqual(got.claude, { observed: true });
+  assert.deepEqual(Object.keys(got).filter((id) => got[id].observed), ['claude'], 'only Claude Code records a question today');
+});
+
+test('180 IC-180-D3 (K3a e): a session attention entry shows the open ask as pending, null after answered, the ask count and the 4 newest asks', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-p');
+  const now = Date.now();
+  const open = session(f, 'claude', 'sess-ask-open', a, now);
+  const ask = (kind: string, tool: any, at: string) => JSON.stringify({ schema: 1, at, event: 'Notification', kind, tool });
+  const answered = (at: string) => JSON.stringify({ schema: 1, at, event: 'answered', via: 'UserPromptSubmit' });
+  fs.writeFileSync(path.join(open, 'attention.log'), [
+    ask('permission', 'Bash', '2026-11-20T01:00:00Z'),
+    answered('2026-11-20T01:00:05Z'),
+    ask('question', '', '2026-11-20T02:00:00Z'),
+    'not json',
+    ask('urgent', 'Bash', '2026-11-20T02:30:00Z'),
+    ask('idle', '', '2026-11-20T03:00:00Z'),
+    ask('other', '../../etc', '2026-11-20T04:00:00Z'),
+    ask('permission', 'Write', '2026-11-20T05:00:00Z'),
+  ].join('\n') + '\n');
+  const closed = session(f, 'claude', 'sess-ask-closed', a, now - 1000);
+  fs.writeFileSync(path.join(closed, 'attention.log'), `${ask('permission', 'Bash', '2026-11-20T01:00:00Z')}\n${answered('2026-11-20T01:00:09Z')}\n`);
+  session(f, 'codex', 'sess-codex-q', a, now - 2000);
+  const spec = channelSpec(`layers:${cwdHash(a)}`, { cwd: a, env: f.env, index: indexFor(f, a) });
+  const { sections } = await spec.compute(['sessions']);
+  assert.equal(sections.sessions.exit, 0, JSON.stringify(sections.sessions.json));
+  const by = Object.fromEntries(sections.sessions.json.map((s: any) => [s.sessionKey, s.attention]));
+  assert.deepEqual(by[sha16('sess-ask-open')], {
+    observed: true,
+    pending: { kind: 'permission', tool: 'Write', at: '2026-11-20T05:00:00Z' },
+    count: 5,
+    recent: [
+      { kind: 'permission', tool: 'Write', at: '2026-11-20T05:00:00Z' },
+      { kind: 'other', tool: '', at: '2026-11-20T04:00:00Z' },
+      { kind: 'idle', tool: '', at: '2026-11-20T03:00:00Z' },
+      { kind: 'question', tool: '', at: '2026-11-20T02:00:00Z' },
+    ],
+  });
+  assert.deepEqual(by[sha16('sess-ask-closed')], { observed: true, pending: null, count: 1, recent: [{ kind: 'permission', tool: 'Bash', at: '2026-11-20T01:00:00Z' }] });
+  assert.deepEqual(by[sha16('sess-codex-q')], { observed: false, reason: 'no-harness-record' });
 });
 
 test('161 review 4: reviews choose the 16 newest features by metadata, then read only those, each within REVIEW_BYTES; an oversized one is unreadable too-large', async (t) => {
@@ -582,6 +635,11 @@ test('161 IC-003 guard: the coverage AUDIT table equals the front-door hooks on 
     'a harness whose hook config runs subagent-audit is in AUDIT.subagents, and only those');
   assert.deepEqual(wiredFrontDoors(/^permissiondenied$/i, /permission-audit\.log/), [...AUDIT.permissions].sort(),
     'a harness whose hook config records PermissionDenied is in AUDIT.permissions, and only those');
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8'));
+  const supported = registry.harnesses.filter((h: any) => h.attention.status === 'supported').map((h: any) => h.id).sort();
+  const askEvents = new RegExp(`^(?:${[...new Set(registry.harnesses.flatMap((h: any) => (h.attention.asks || []).map((x: any) => x.event)))].join('|')})$`);
+  assert.deepEqual(wiredFrontDoors(askEvents, /\bobserve-attention\b/), supported,
+    'row 180 (K3a g): a harness whose ask events wire a front door running observe-attention is attention-supported, and only those');
 });
 
 test('161 IC-003, IC-008: tree recomputes at most once per 1000 ms and traffic once per 5000 ms; sessions and gates are never throttled', async (t) => {

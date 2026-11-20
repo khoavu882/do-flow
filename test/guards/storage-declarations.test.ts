@@ -299,6 +299,7 @@ function runScenario() {
     const target: any = ['--force', '--target', TARGETS];
     const bridge = path.join(mirror, '.doflow/shared/hooks/bridge/bridge.sh');
     const modelPayload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'g26-session', cwd: project, model: 'gpt-5.1' });
+    const effortPayload = JSON.stringify({ hook_event_name: 'Stop', session_id: 'g26-session', cwd: project, effort: { level: 'high' } });
     const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','settings.json');const net=require('node:net');const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>{fs.writeFileSync(f,JSON.stringify({schema:1,'advice.enabled':true,'advice.provider':'ollama','advice.endpoint':'http://127.0.0.1:'+port,'advice.model':'clef-flash'})+'\\n');});});";
     // The bash summary store (feature 078): a scoped summary write and its owner claim, then a grant
     // seeded where grantSummary() would write it and claimed by rename.
@@ -308,7 +309,8 @@ function runScenario() {
     });
     const summaryWriteClaim = 'doflow_summary_write "$2" local main "" 2026-10-14T10:00:00Z g26-writer auto main main "a summary"\ndoflow_summary_claim "$2" local main g26-session g26-session\nrm -f "$DF_SUMMARY_CLAIMED"';
     const grantWriteClaim = 'd="$STATE_DIR/grants/local/w-1"\nmkdir -p "$d"\nprintf -- "---\\nsummary_id: s-20261014T100500Z-G26aaa\\nfrom_lineage: main\\n---\\n\\na grant\\n" >"$d/s-20261014T100500Z-G26aaa.md"\ndoflow_grant_claim local w-1 g26-session 16384\nrm -f "$DF_GRANT_CLAIMED"';
-    const seedOldAdvice = "const fs=require('node:fs'),path=require('node:path');for(const root of process.argv.slice(1)){const d=path.join(root,'advice','picks');fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'2000-01-01.jsonl'),'{}\\n');}";
+    // The pick partitions and the opt-in state-text capture partitions (row 180 IC-180-G1), one old day each.
+    const seedOldAdvice = "const fs=require('node:fs'),path=require('node:path');for(const root of process.argv.slice(1)){for(const store of ['picks','state-text']){const d=path.join(root,'advice',store);fs.mkdirSync(d,{recursive:true});fs.writeFileSync(path.join(d,'2000-01-01.jsonl'),'{}\\n');}}";
     // The real registry makes every harness ineligible (DEC-017), so no `worker --action run` step can
     // write `worker-runs` or `worker-output`: one run is inserted in process with a fake descriptor's
     // recipe, and one line goes through the supervisor's own output sink (081 IC-031, DEC-039).
@@ -449,6 +451,8 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       // the main session and once as a launched worker, writes one file in each observation store.
       ['bridge observe-model main', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
       ['bridge observe-model worker', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], envPatch: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'g26', DOFLOW_LINEAGE_ID: 'w', DOFLOW_ATTEMPT: '1' }, input: modelPayload }, 0],
+      // The observe-effort step (row 180 IC-180-E1): a main-session claude payload naming an effort level writes one file.
+      ['bridge observe-effort main', { cmd: bashPath(), args: [bridge, 'claude', 'Stop', 'stop-check'], input: effortPayload }, 0],
       ['project install', cli('install', project, ...target, '--mcp', 'none'), 0],
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],

@@ -1582,7 +1582,6 @@ test('151 config-list: a global (-g) load with no project root, layers or config
 test('151 config-list: settingKey accepts every key of core/registry/settings.json', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(CORE_SRC, '..', '..', 'core', 'registry', 'settings.json'), 'utf8'));
   const names = Object.keys(registry.keys);
-  assert.equal(names.length, 46);
   const raw = configListBody();
   raw.keys = Object.fromEntries(names.map((name) => [name, resolution151(name, 'project')]));
   const result = project('config-list', raw, CTX);

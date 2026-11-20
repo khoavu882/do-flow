@@ -92,12 +92,44 @@ function checkFlagArgv(key: string, entry: any, fail: Fail): string | null {
 const holdsFlag = (argv: any, flag: string): boolean => Array.isArray(argv)
   && argv.some((item: any) => item === flag || (typeof item === 'string' && item.startsWith(`${flag}=`)));
 
+const KEY_SHAPE_RE = /^[A-Za-z0-9_.-]+=/;
+
+/** 180 §7: a keyed effort (`<flag> <key>={effort}`) shares its flag with other pairs, so only a pair that sets the key is refused. */
+function keyedEffortProblems(argv: any, flag: string, effortKey: string): string[] {
+  if (!Array.isArray(argv)) return [];
+  const problems: string[] = [];
+  const sets = (text: any): boolean => typeof text === 'string' && text.startsWith(`${effortKey}=`);
+  const shaped = (text: any): boolean => typeof text === 'string' && KEY_SHAPE_RE.test(text);
+  for (let i = 0; i < argv.length; i++) {
+    const item = argv[i];
+    if (typeof item !== 'string') continue;
+    let value: any;
+    if (item === flag) { value = argv[i + 1]; i++; }
+    else if (item.startsWith(`${flag}=`)) value = item.slice(flag.length + 1);
+    else if (sets(item)) { problems.push('sets'); continue; }
+    else continue;
+    if (sets(value)) problems.push('sets');
+    else if (!shaped(value)) problems.push('unreadable');
+  }
+  return problems;
+}
+
 /** Rule 3: where a transport flag may appear in the other recipes of the block. */
-function checkFlagPlacement(key: string, flag: string, worker: any, fail: Fail): void {
+function checkFlagPlacement(key: string, flag: string, worker: any, fail: Fail, entry: any): void {
   if (key === 'effort') {
-    // 178 §3.3 (FR-012): an effort comes only from a binding or the session, so no recipe carries its flag, fixed value or not.
+    const keyed = KEY_ASSIGNMENT_RE.exec(entry.argv[1]);
     for (const name of EFFORT_ARGV) {
-      if (holdsFlag(worker[name]?.argv, flag)) fail(key, `transport flag '${flag}' must not appear in ${name}: an effort comes only from a binding or the session`);
+      const argv = worker[name]?.argv;
+      if (!keyed) {
+        // 178 §3.3 (FR-012): an effort comes only from a binding or the session, so no recipe carries its flag, fixed value or not.
+        if (holdsFlag(argv, flag)) fail(key, `transport flag '${flag}' must not appear in ${name}: an effort comes only from a binding or the session`);
+        continue;
+      }
+      for (const problem of keyedEffortProblems(argv, flag, keyed[1])) {
+        fail(key, problem === 'sets'
+          ? `transport flag '${flag}' must not set '${keyed[1]}' in ${name}: an effort comes only from a binding or the session`
+          : `transport flag '${flag}' is followed by no key=value, so its key cannot be read in ${name}`);
+      }
     }
     return;
   }
@@ -189,7 +221,7 @@ function validateModelParts(worker: any, fail: Fail, { declared = [], secretDecl
     if (!supported(worker.model)) fail(key, "requires worker 'model' to be supported");
     const flag = checkTransport(key, entry, fail);
     if (flag === null) continue;
-    checkFlagPlacement(key, flag, worker, fail);
+    checkFlagPlacement(key, flag, worker, fail, entry);
     checkSubstitutions(key, entry, worker, declared, secretDeclared, fail);
   }
 

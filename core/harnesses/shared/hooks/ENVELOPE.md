@@ -33,6 +33,23 @@ Pi 1.1.0 declares 41 `on()` overloads in its shipped extension types. `tool_call
 patch tool vocabulary down to that one word. Non-edit operations may be sent (the policy allows
 them through), but sending nothing for a non-edit tool is equally correct and cheaper.
 
+## Identity
+
+`identity` holds what the payload and the launch environment say about the session: `session`, the model (`model`, or
+`modelUnparsed`), the launch identity (`run`, `attempt`, `lineage`, `role`, `worktree`) and, for Claude Code only,
+`effort`: the payload's `effort.level` when it is a well-formed level (`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`). The key is
+additive; policies ignore it. The bridge steps `observe-model` and `observe-effort` record `model` and `effort` under the
+config home and never change a decision, an exit code or a stream.
+
+The bridge step `observe-attention` records agent questions and pending permission prompts per session. Which events
+are asks, which payload fields give the session, the kind and the tool, and which events answer an ask is each
+harness's `attention` entry in `core/registry/harnesses.json`, projected to `bridge/attention.json`; the step names no
+harness. An ask appends `{schema, at, event, kind, tool}` to
+`<config home>/doflow/session-env/sessions/<session>/attention.log`, with no message text and no tool input. After the
+envelope is encoded, the bridge passes `identity.session` to `doflow_attention_answered`, which appends one `answered`
+line when the event is in the harness's `answeredBy` and the newest line is an open ask; with no log it returns after
+one file test. Like the other steps it never changes a decision, an exit code or a stream.
+
 ## Version and mixed-install rules
 
 - A missing envelope or version, empty or non-object input, or a missing `contract.sh` is out of

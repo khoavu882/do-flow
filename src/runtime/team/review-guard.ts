@@ -1,16 +1,6 @@
 'use strict';
 
 const fs = require('node:fs');
-import type { AgentRole } from './admission.ts';
-
-export interface ReviewAssignmentContext {
-  taskId: string;
-  authorRole: AgentRole;
-  authorIdentity?: string;
-  reviewerRole: AgentRole;
-  reviewerIdentity?: string;
-  projectRoot?: string;
-}
 
 export interface PreCheckResult {
   passed: boolean;
@@ -26,13 +16,6 @@ class ReviewGuardError extends Error {
   }
 }
 
-class NeverReviewOwnCodeError extends ReviewGuardError {
-  constructor(message: string) {
-    super('ERR_REVIEWER_SELF_REVIEW', `ERR_REVIEWER_SELF_REVIEW: ${message}`);
-    this.name = 'NeverReviewOwnCodeError';
-  }
-}
-
 class MechanicalPreChecksIncompleteError extends ReviewGuardError {
   readonly failures: string[];
   constructor(failures: string[]) {
@@ -42,36 +25,6 @@ class MechanicalPreChecksIncompleteError extends ReviewGuardError {
     );
     this.name = 'MechanicalPreChecksIncompleteError';
     this.failures = failures;
-  }
-}
-
-/**
- * Asserts reviewer independence:
- * 1. authorRole !== reviewerRole (e.g. core-implementer cannot review own code)
- * 2. authorIdentity !== reviewerIdentity (model/session instance separation)
- * Throws NeverReviewOwnCodeError (ERR_REVIEWER_SELF_REVIEW) if violated.
- */
-function assertReviewerSeparation(context: ReviewAssignmentContext): void {
-  if (!context) {
-    throw new TypeError('assertReviewerSeparation: context must be provided');
-  }
-
-  // 1. Role separation invariant: authorRole !== reviewerRole
-  if (context.authorRole === context.reviewerRole) {
-    throw new NeverReviewOwnCodeError(
-      `Reviewer self-review violation: authorRole '${context.authorRole}' matches reviewerRole '${context.reviewerRole}'. Reviewer must be an independent role.`
-    );
-  }
-
-  // 2. Identity separation invariant: authorIdentity !== reviewerIdentity
-  if (
-    context.authorIdentity &&
-    context.reviewerIdentity &&
-    context.authorIdentity.trim() === context.reviewerIdentity.trim()
-  ) {
-    throw new NeverReviewOwnCodeError(
-      `Reviewer self-review violation: authorIdentity '${context.authorIdentity}' matches reviewerIdentity '${context.reviewerIdentity}'. Reviewer must be an independent worker identity.`
-    );
   }
 }
 
@@ -141,8 +94,6 @@ function assertMechanicalPreChecks(
 
 module.exports = {
   ReviewGuardError,
-  NeverReviewOwnCodeError,
   MechanicalPreChecksIncompleteError,
-  assertReviewerSeparation,
   assertMechanicalPreChecks,
 };

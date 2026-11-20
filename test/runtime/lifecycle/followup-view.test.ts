@@ -240,3 +240,26 @@ test('followupOrderKey is the creating event time in ms and its event id', () =>
   const item = { history: [{ event: '20261102T152312345Z-wq105h', at: '2026-11-02T15:23:12.345Z' }, { event: '20261103T000000000Z-aaaaaa', at: '2026-11-03T00:00:00.000Z' }] };
   assert.deepEqual(followupOrderKey(item), { atMs: Date.parse('2026-11-02T15:23:12.345Z'), event: '20261102T152312345Z-wq105h' });
 });
+
+test('180 (d) list --view full shows duplicateOf only on labelled items, and the flag reaches the verb through the CLI', () => {
+  const repo = makeRepo(scratch, 'followup-duplicate-label');
+  const dir = fs.realpathSync(repo.dir);
+  const added = addFollowups({ root: dir, cwd: dir, items: ['one', 'two', 'three'].map((statement) => ({ statement })), defaults: { source: 'manual', batch: true } });
+  const [one, two, three] = added.created.map((c: any) => c.id);
+  const go = (args: string[]) => {
+    const r = spawnSync(bashPath(), [RUN, 'followup', ...args, '--json'], { cwd: dir, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' });
+    return { status: r.status, json: JSON.parse(r.stdout || 'null'), stderr: r.stderr };
+  };
+  const settled = go(['--action', 'settle', '--ids', one, '--as', 'dismissed', '--duplicate-of', two]);
+  assert.equal(settled.status, 0, settled.stderr);
+  const full = go(['--action', 'list', '--state', 'all', '--view', 'full']);
+  const by = Object.fromEntries(full.json.items.map((i: any) => [i.id, i]));
+  assert.equal(by[one].duplicateOf, two);
+  assert.equal(Object.hasOwn(by[two], 'duplicateOf'), false);
+  assert.equal(Object.hasOwn(by[three], 'duplicateOf'), false);
+  const refused = go(['--action', 'settle', '--ids', three, '--as', 'dismissed', '--reason', 'x', '--duplicate-of', one]);
+  assert.equal(refused.status, 1);
+  assert.equal(refused.json.finding, 'illegal-transition');
+  const wrongAction = go(['--action', 'list', '--duplicate-of', two]);
+  assert.equal(wrongAction.status, 2);
+});

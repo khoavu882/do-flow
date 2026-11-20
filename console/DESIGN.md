@@ -262,7 +262,7 @@ The primitives, all in the `motion` layer of `app.css`. The still variant is wha
 
 ## Components
 
-Management screens use `.mtable` for data, `.matrix` for the keyboard grid, `.figure` for values, `.daytable` for day counts, `.sgroup` for settings, `.candidates` for layer details and `.doctor-head` for doctor freshness and refresh. Tables scroll and accept keyboard focus; status words use `.badge` and security markers use `.tag`.
+Management screens use `.mtable` for data, `.matrix` for the keyboard grid, `.figure` for values, `.sgroup` for settings, `.candidates` for layer details and `.doctor-head` for doctor freshness and refresh. Tables scroll and accept keyboard focus; status words use `.badge` and security markers use `.tag`.
 
 Generated list of the top-level class blocks in `app.css` (elements are `block__element`, variants `block--variant`; state lives in `data-*` and `aria-*` attributes, not in extra classes):
 
@@ -271,18 +271,18 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.activity`, `.acts`, `.attempt`, `.attempts`, `.attention`, `.badge`, `.banner`, `.banner-slot`
 `.banner-wrap`, `.brand`, `.brand-gate`, `.brand-line`, `.brand-node`, `.btn`, `.candidates`
 `.chain`, `.chip`, `.cmd`, `.code-chip`, `.confirm`, `.conn`, `.core-version`, `.countdown`, `.dash`
-`.daytable`, `.doctor-head`, `.empty`, `.ev`, `.eyebrow`, `.f`, `.facts`, `.fbanner`, `.figure`
-`.filter-status`, `.flow-dot`, `.flow-edge`, `.fpanel`, `.full-state`, `.gate`, `.gate-card`
-`.gate-cards`, `.gate-chip`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`
-`.grid`, `.grow`, `.help`, `.hint`, `.icon`, `.inspector`, `.lane`, `.layers`, `.layers-banner`
-`.layers-crumb`, `.layers-foot`, `.layers-head`, `.layers-inspect`, `.layers-lanes`, `.layers-link`
-`.layers-none`, `.layers-note`, `.layers-section`, `.layers-sections`, `.layers-stream`
-`.layers-title`, `.layers-unreadable`, `.logpane`, `.lrow`, `.masked`, `.matrix`, `.model-chip`
-`.mono`, `.more`, `.mtable`, `.navrail`, `.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`
-`.page`, `.pair`, `.palette`, `.pause`, `.project-list`, `.rail`, `.rail-detail`, `.rail-fallback`
-`.rail-note`, `.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`
-`.run-rail`, `.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`
-`.sgroup`, `.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
+`.doctor-head`, `.empty`, `.ev`, `.eyebrow`, `.f`, `.facts`, `.fbanner`, `.figure`, `.filter-status`
+`.flow-dot`, `.flow-edge`, `.fpanel`, `.full-state`, `.gate`, `.gate-card`, `.gate-cards`
+`.gate-chip`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`, `.graph`, `.grid`, `.grow`
+`.help`, `.hint`, `.icon`, `.inspector`, `.lane`, `.layers`, `.layers-banner`, `.layers-crumb`
+`.layers-foot`, `.layers-head`, `.layers-inspect`, `.layers-lanes`, `.layers-link`, `.layers-none`
+`.layers-note`, `.layers-section`, `.layers-sections`, `.layers-stream`, `.layers-title`
+`.layers-unreadable`, `.logpane`, `.lrow`, `.masked`, `.matrix`, `.model-chip`, `.mono`, `.more`
+`.mtable`, `.navrail`, `.noscript`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pair`
+`.palette`, `.pause`, `.project-list`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`
+`.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`
+`.run-row`, `.run-section`, `.saved-filters`, `.sbar`, `.sessions`, `.sfilter`, `.sfoot`, `.sgroup`
+`.shape`, `.shell`, `.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`
 `.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`, `.start`, `.start-view`, `.started`
 `.started-here`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`, `.tile`, `.timeline`
 `.tl`, `.tl-item`, `.tl-list`, `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`
@@ -300,7 +300,7 @@ What an agent most often touches:
 - **Button** `.btn` with `.btn--primary` (accent fill), `.btn--secondary` (`--surface`, strong border), `.btn--ghost`. Height is `--target`; pressed is `--surface-2`, or `filter: brightness(0.92)` for primary.
 - **Action button and confirmation dialog** (feature 162) `.btn--act` with `data-tone` of `approve` (the accent fill) or `danger` (the `failed` tint, border and the verb's word: reject, close, stop), in `.acts` areas (`.acts__row`, `.acts__reason`). They are drawn only when `/api/actions` says the action is allowed; otherwise the command block stays with one muted `.acts__reason` line. A press opens the one `.confirm` dialog (`.confirm__scrim`, `.confirm__panel` with `role="dialog"` and `aria-modal="true"`, `.confirm__title`, `.confirm__effect`, `.confirm__input`, `.confirm__count`, `.confirm__result`, `.confirm__actions` with Cancel and the verb button): a sheet below 768 px, a centred panel from 768. Focus starts on Cancel, Escape closes, Tab wraps; the verb button is the only thing that posts. A route change (a link, Back) closes it, and while it is open the global shortcuts of `web/keys.js` do nothing, so the palette and the shortcut list cannot open over it. On close focus returns to the control that opened it while that control is on the page, else to `#main`, then the `h1`. An `applied`, `unknown` or `stale` outcome makes the page refetch what it shows at once; "Review again" waits for that answer and builds the dialog from the refreshed row, and when the row still holds the revision the dialog opened with it builds nothing and says the page has not read the run again. `data-state` on `.confirm` is `ready`, `sending`, `applied`, `stale`, `refused` or `unknown`; the last three tint the result with the `failed` pair and say it in words. Where they sit: Approve and Reject in the `.gate-card` and in the run's `.activity` slot, Close run in the run head beside the step counter (it acts on the run, not on the current step), Stop worker in the head of a worker tab. Below 768 the buttons of a row and of the dialog share the full width in equal parts, `--target` high, and the sheet adds `--safe-bottom` under its buttons and covers the tab bar; from 768 they take their own width. The panel comes in with `panel-in` over `--motion-gate` on `--ease-settle`, the scrim fades.
 - **Chip** `.chip`: a pill of `--target` height; filters use `aria-pressed`; selected is `--accent-tint` with `--accent` text plus a check icon (selection is never colour alone).
-- **Segmented control** `.segmented`, `.segmented__opt`, and the theme control `.theme`, `.theme__opt`: a `radiogroup` of `role="radio"` buttons with `aria-checked` and a roving tabindex; arrow keys move and select (wrapping), Home and End jump. The theme choice is stored in `localStorage` under `doflow-console-theme` inside try/catch, and the page works without storage.
+- **Theme control** `.theme`, `.theme__opt`: a `radiogroup` of `role="radio"` buttons with `aria-checked` and a roving tabindex; arrow keys move and select (wrapping), Home and End jump. The theme choice is stored in `localStorage` under `doflow-console-theme` inside try/catch, and the page works without storage.
 - **Connection chip** `.conn` with `data-state` of `unknown`, `done`, `stale` or `failed`: a shape and a word ("Updated 4 s ago", "Stale", "Offline", "Core unreachable"). It is in the header; `.conn__long` and `.conn__short` swap at 768 px.
 - **Banner** `.banner`, `.banner__text` in `.banner-slot`: state tint, a 4 px left bar, an icon, one sentence and one action. The stale banner has `data-kind="stale"`.
 - **Skeleton** `.skel`, `.skeleton`: `--skeleton` blocks with the final layout's dimensions, `aria-hidden="true"`, shown only after a delay. The shimmer runs only without reduced motion.

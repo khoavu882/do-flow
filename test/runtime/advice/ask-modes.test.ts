@@ -105,7 +105,7 @@ for (const [kind, spec] of Object.entries(KINDS) as any) {
       const json = JSON.parse((await f.ask([...spec.args, '--json'])).stdout);
       assert.equal(json.status, 'shadow');
       assert.deepEqual(json.answers, []);
-      if (/no local result/.test(name)) assert.equal(json.reason, `LOCAL_RESULT_UNMET: none: kind '${kind}' has no replay source`);
+      if (/no local result/.test(name)) assert.equal(json.reason, 'LOCAL_RESULT_UNMET: none: no local result for this project, kind and model build; run a replay with --write');
       else assert.equal(json.reason, null);
       await f.untilAsks(2);
       const until = Date.now() + 5000;

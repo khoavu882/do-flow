@@ -115,7 +115,7 @@ test('SESSION_REASONS is the closed, frozen §4.1 list, and every reason the rea
 test('(c) the module requires no fs, child_process, settings or login module', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'src', 'runtime', 'context', 'session-effort.ts'), 'utf8');
   const required = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((match) => match[1]);
-  assert.deepEqual(required, ['../../registry/model-parts.ts']);
+  assert.deepEqual(required, ['node:crypto', '../../registry/model-parts.ts']);
   assert.ok(!/\bprocess\.env\b/.test(source), 'reads only the env it is given');
 });
 
@@ -124,6 +124,46 @@ test('(f) sessionVariables lists each marker and env source once, sorted; an unk
   const shared = { harnesses: [REGISTRY.harnesses[1], REGISTRY.harnesses[0], { ...REGISTRY.harnesses[0], id: 'alpha2' }] };
   assert.deepEqual(sessionVariables(shared), ['ALPHA_EFFORT', 'ALPHA_SESSION', 'BETA_ANY_EFFORT', 'BETA_SESSION', 'BETA_SUB_EFFORT']);
   assert.deepEqual(sessionVariables({ harnesses: [REGISTRY.harnesses[2]] }), []);
+});
+
+// 180 IC-180-E3 (K2 c): a hook-state source reads the level a hook stored for the session the id variable names, through the
+// injected `readStored`; the key it is given is the first 16 hex of the sha256 of the id, never the id itself.
+const sessionKeyOf = (id: string) => require('node:crypto').createHash('sha256').update(id).digest('hex').slice(0, 16);
+const DELTA = { harnesses: [{ id: 'delta', worker: effort(['low', 'high', 'xhigh']), sessionEffort: supportedEntry({ env: 'DELTA_SESSION', equals: '1' }, [
+  { kind: 'hook-state', sessionIdEnv: 'DELTA_SESSION_ID', modes: BOTH }, { kind: 'env', name: 'DELTA_EFFORT', modes: BOTH }]) }] };
+const stored = (byKey: Record<string, string>, calls: any[] = []) => (query: any) => {
+  calls.push(query);
+  return Object.hasOwn(byKey, query.sessionKey) ? { level: byKey[query.sessionKey], observedAt: '2026-11-20T10:00:00Z' } : null;
+};
+const readDelta = (env: any, readStored: any) => readSessionEffort({ registry: DELTA, env: { DELTA_SESSION: '1', ...env }, declaredHarness: null, loginModeOf: noMode, readStored });
+
+test('(c) 180: a stored level beats the env variable, origin hook-state; the reader gets the hashed key only', () => {
+  const calls: any[] = [];
+  const answer = readDelta({ DELTA_SESSION_ID: 'sess-1', DELTA_EFFORT: 'high' }, stored({ [sessionKeyOf('sess-1')]: 'xhigh' }, calls));
+  assert.deepEqual(answer, { state: 'known', harness: 'delta', level: 'xhigh', origin: 'hook-state', mode: null, observedAt: '2026-11-20T10:00:00Z' });
+  assert.deepEqual(calls, [{ harness: 'delta', sessionKey: sessionKeyOf('sess-1') }]);
+});
+
+test('(c) 180: no stored level falls through to the env variable; no session id reads nothing stored', () => {
+  assert.deepEqual(readDelta({ DELTA_SESSION_ID: 'sess-1', DELTA_EFFORT: 'high' }, stored({})),
+    { state: 'known', harness: 'delta', level: 'high', origin: 'DELTA_EFFORT', mode: null });
+  for (const env of [{ DELTA_EFFORT: 'high' }, { DELTA_SESSION_ID: '', DELTA_EFFORT: 'high' }]) {
+    const calls: any[] = [];
+    assert.equal(readDelta(env, stored({ [sessionKeyOf('')]: 'xhigh' }, calls)).level, 'high');
+    assert.deepEqual(calls, [], 'an absent or empty session id is not set: the store is not asked');
+  }
+  assert.equal(readDelta({ DELTA_SESSION_ID: 'sess-1', DELTA_EFFORT: 'high' }, undefined).level, 'high', 'no reader injected reads nothing stored');
+});
+
+test('(c) 180: a stored level not in levels is level-not-declared with origin hook-state; nothing set is not-set naming the variable', () => {
+  const turbo = readDelta({ DELTA_SESSION_ID: 'sess-1', DELTA_EFFORT: 'high' }, stored({ [sessionKeyOf('sess-1')]: 'turbo' }));
+  unknownCase(turbo, 'level-not-declared', 'delta', 'hook-state');
+  assert.ok(!JSON.stringify(turbo).includes('turbo'));
+  unknownCase(readDelta({ DELTA_SESSION_ID: 'sess-1' }, stored({})), 'not-set', 'delta', 'DELTA_EFFORT');
+});
+
+test('(f) 180: sessionVariables lists a hook-state source\'s session id variable', () => {
+  assert.deepEqual(sessionVariables(DELTA), ['DELTA_EFFORT', 'DELTA_SESSION', 'DELTA_SESSION_ID']);
 });
 
 test('(g) loginModeOf gives the mode for a logged-in answer with a billing object, null otherwise, and starts no process', () => {

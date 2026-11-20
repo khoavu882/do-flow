@@ -31,9 +31,14 @@ def canonical_tool($name; $harness):
   elif (($harness == "claude" or $harness == "codex" or $harness == "kiro" or $harness == "copilot") and (["Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "antigravity" and (["write_to_file","replace_file_content","multi_replace_file_content","edit_file","write_file","create_file","replace_file","replace","Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "pi" and (["edit","write"] | index($name)) != null) then {operation:"edit",tool:$name}
   elif (($harness == "claude" or $harness == "codex" or $harness == "kiro" or $harness == "copilot") and $name == "Bash") or ($harness == "antigravity" and (["run_command","run_shell_command","Bash","bash"] | index($name)) != null) or ($harness == "pi" and $name == "bash") then {operation:"command",tool:$name}
   else {operation:"tool",tool:$name} end;
+# 180 IC-180-E1: Claude Code hook input carries the running effort level as `effort.level`; the identity names it when
+# it is a well-formed level (EFFORT_RE in src/registry/model-parts.ts). Other harnesses that reuse this decoder never do.
+def effort_identity:
+  if $harness == "claude" and (.effort | type) == "object" and (.effort.level | type) == "string" and (.effort.level | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$"))
+  then {effort:.effort.level} else {} end;
 def decode_claude:
   (canonical_tool(.tool_name // ""; "claude")) as $t |
-  (if event_name($event) == "SessionStart" then model_identity(.model) else {} end) as $model |
+  ((if event_name($event) == "SessionStart" then model_identity(.model) else {} end) + effort_identity) as $model |
   if .tool_name == null then {operation: event_operation($event), identity: (session_identity(.session_id) + $model)}
   else {operation:$t.operation, tool:$t.tool, paths:(if $t.operation == "edit" then path_values(.tool_input; ["file_path"]) else null end), command:(if $t.operation == "command" then string_value(.tool_input; ["command"]) else null end), identity:(session_identity(.session_id) + $model)} end;
 def decode_codex:

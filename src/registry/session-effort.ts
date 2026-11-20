@@ -1,8 +1,9 @@
 'use strict';
 
 // 178 design §3.1 (IC-001): the static checks of a harness's top-level `sessionEffort` key, which says how DoFlow
-// reads the effort of that harness's own running session. Environment sources only (O-8 (b)): a source is one
-// variable the session sets, so the entry names no file and no location. Pure: no I/O, no runtime require.
+// reads the effort of that harness's own running session. A source is `env` (one variable the session sets, O-8 (b))
+// or, since 180 IC-180-E2, `hook-state` (the level a hook stored for the session that `sessionIdEnv` names; the entry
+// names no file and no location, the runtime's store owns both). Pure: no I/O, no runtime require.
 // `validateRegistry` (index.ts) calls it beside `validatePrimaryProbe` with the harness's `worker.effort` status.
 
 const { ENV_NAME_RE: VARIABLE_RE } = require('./model-parts.ts');
@@ -15,7 +16,10 @@ const TEXT_MAX = 240;
 const SOURCES_MAX = 8;
 const ENTRY_MAX_BYTES = 2048;
 const FIELDS = new Set(['status', 'reason', 'verification', 'evidence', 'verifiedOn', 'marker', 'sources', 'note']);
-const SOURCE_FIELDS = new Set(['kind', 'name', 'modes']);
+const SOURCE_FIELDS: Readonly<Record<string, Set<string>>> = Object.freeze({
+  env: new Set(['kind', 'name', 'modes']),
+  'hook-state': new Set(['kind', 'sessionIdEnv', 'modes']),
+});
 
 const isObject = (value: any): boolean => value !== null && typeof value === 'object' && !Array.isArray(value);
 const oneLine = (value: any): boolean => typeof value === 'string' && value.trim() !== '' && !/[\r\n]/.test(value) && value.length <= TEXT_MAX;
@@ -30,16 +34,22 @@ function checkMarker(marker: any, fail: (message: string) => void): void {
 function checkSources(sources: any, markerEnv: unknown, fail: (message: string) => void): void {
   if (!Array.isArray(sources) || sources.length < 1 || sources.length > SOURCES_MAX) { fail(`sources must be 1 to ${SOURCES_MAX} entries`); return; }
   const names = new Set<string>();
+  let hookStates = 0;
   sources.forEach((source: any, index: number) => {
     const at = `sources[${index}]`;
     if (!isObject(source)) { fail(`${at} must be an object`); return; }
-    for (const key of Object.keys(source)) if (!SOURCE_FIELDS.has(key)) fail(`${at} has unknown field '${key}'`);
-    if (source.kind !== 'env') fail(`${at} kind must be env`);
-    if (typeof source.name !== 'string' || !VARIABLE_RE.test(source.name)) fail(`${at} name must match ${VARIABLE_RE}`);
+    const fields = Object.hasOwn(SOURCE_FIELDS, source.kind) ? SOURCE_FIELDS[source.kind] : SOURCE_FIELDS.env;
+    for (const key of Object.keys(source)) if (!fields.has(key)) fail(`${at} has unknown field '${key}'`);
+    if (!Object.hasOwn(SOURCE_FIELDS, source.kind)) fail(`${at} kind must be env or hook-state`);
+    if (source.kind === 'hook-state' && ++hookStates === 2) fail('sources hold at most one hook-state source');
+    // The variable a source reads: an env source's value, or the session id a hook-state level is keyed by.
+    const field = source.kind === 'hook-state' ? 'sessionIdEnv' : 'name';
+    const name = source[field];
+    if (typeof name !== 'string' || !VARIABLE_RE.test(name)) fail(`${at} ${field} must match ${VARIABLE_RE}`);
     else {
-      if (source.name === markerEnv) fail(`${at} name must not be the marker's own variable`);
-      if (names.has(source.name)) fail('sources names must be distinct');
-      names.add(source.name);
+      if (name === markerEnv) fail(`${at} ${field} must not be the marker's own variable`);
+      if (names.has(name)) fail('sources names must be distinct');
+      names.add(name);
     }
     const modes = source.modes;
     if (!Array.isArray(modes) || modes.length < 1 || modes.length > MODES.length || modes.some((mode: any) => !MODES.includes(mode)) || new Set(modes).size !== modes.length) {

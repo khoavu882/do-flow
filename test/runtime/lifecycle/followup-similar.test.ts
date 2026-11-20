@@ -36,7 +36,7 @@ const KIND = 'same-issue';
 const ADVICE = loadAdviceRegistry({ repoRoot: REPO_ROOT }).registry;
 const PARAMS = ADVICE.kinds.find((kind: any) => kind.id === KIND).params;
 const FOOTER = 'Possible duplicates by shared words; nothing is merged or closed.';
-const BASIS = 'The model check rests on a result measured on review findings, not on follow-ups.';
+const BASIS = 'The model check rests on a result measured on review findings and on follow-ups labelled as duplicates.';
 
 /** A and B are near duplicates (rule yes); C-D and E-F share some words (candidates the rule says no to). */
 const STATEMENTS: Record<string, string> = {

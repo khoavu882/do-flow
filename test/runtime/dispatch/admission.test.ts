@@ -142,14 +142,15 @@ test('178 (h): a snapshot keeps a valid effortPlan and drops a malformed one, at
   const binding = { pass: 'low', source: 'binding' };
   const none = { pass: null, source: 'none', reason: 'session-unknown', session: { harness: null, reason: 'no-session-harness', level: null, origin: null } };
   const mapped = { ...session, pass: 'medium', mapped: { from: 'high', to: 'medium' } };
-  for (const plan of [session, binding, none, mapped]) {
+  const observed = { ...session, origin: 'hook-state', observedAt: '2026-11-20T10:00:00Z' };
+  for (const plan of [session, binding, none, mapped, observed]) {
     const p = project(t, { concurrency: 1 });
     const result = p.pass({ modelFor: () => ({ model: { ...model, effortPlan: plan }, primary: null }) });
     assert.deepEqual(p.read().dispatches[result.admitted[0].dispatchId].model, { ...model, effortPlan: plan, served: null });
     assert.deepEqual(store.modelRecordOf({ model: { ...model, effortPlan: plan, served: null } }).effortPlan, plan);
   }
   const malformed = [
-    { ...session, pass: 7 }, { ...session, source: 'x' }, { ...session, extra: true }, { ...session, check: 'maybe' }, { ...session, mapped: { from: 'a' } },
+    { ...session, pass: 7 }, { ...session, source: 'x' }, { ...session, extra: true }, { ...session, check: 'maybe' }, { ...observed, observedAt: 7 }, { ...binding, observedAt: 'x' }, { ...none, observedAt: 'x' }, { ...session, mapped: { from: 'a' } },
     { ...session, origin: 'x'.repeat(600) }, { ...none, reason: 'made-up' }, { ...none, session: { harness: 3 } }, { ...binding, source: 'session' }, 'high', [], null,
   ];
   for (const plan of malformed) {

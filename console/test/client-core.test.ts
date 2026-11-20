@@ -187,7 +187,7 @@ function tags(node: any): string[] {
   return node.children.flatMap((c: any) => (c instanceof El ? [c.tagName.toLowerCase(), ...tags(c)] : []));
 }
 
-const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource', 'matchMedia'];
+const GLOBALS = ['document', 'location', 'history', 'localStorage', 'fetch', 'navigator', 'scrollTo', 'requestAnimationFrame', 'addEventListener', 'getSelection', 'Node', 'EventSource', 'matchMedia', 'Notification'];
 let saved: Map<string, PropertyDescriptor | undefined> | null = null;
 
 function setGlobal(name: string, value: unknown) {
@@ -209,7 +209,7 @@ type Page = {
 };
 
 /** The page of index.html as the shell finds it, a fake window around it, and a scripted fetch. */
-function installPage(opts: { hash?: string, stored?: string | null, throwStorage?: boolean, eventSource?: unknown, width?: number, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
+function installPage(opts: { hash?: string, stored?: string | null, storage?: Record<string, string>, notification?: unknown, throwStorage?: boolean, eventSource?: unknown, width?: number, fetch: (url: string, init: any) => Reply | Promise<Reply> | 'network' }): Page {
   saved = new Map(GLOBALS.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const doc: any = { activeElement: null, focusLog: [], hidden: false, title: '', listeners: new Map<string, Function[]>() };
   const el = (tag: string, attrs: Record<string, string> = {}, children: any[] = []) => {
@@ -258,6 +258,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const location: any = { hash: opts.hash ?? '', pathname: '/', search: '', reload() { page.reloads += 1; } };
   const store = new Map<string, string>();
   if (opts.stored) store.set('doflow-console-theme', opts.stored);
+  for (const [key, value] of Object.entries(opts.storage ?? {})) store.set(key, value);
   const winListeners = new Map<string, Function[]>();
   const history: string[] = [];
   const calls: Call[] = [];
@@ -274,6 +275,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   });
   setGlobal('navigator', { platform: 'Linux', clipboard: undefined });
   if ('eventSource' in opts) setGlobal('EventSource', opts.eventSource); // V.10: a fake stream, or none
+  if ('notification' in opts) setGlobal('Notification', opts.notification);
   if (opts.width !== undefined) {
     // 149 D.1: a viewport width the shell reads through matchMedia; page.media.resize(w) fires each list's change.
     const lists: any[] = [];
@@ -740,8 +742,9 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   for (const bad of ['#/session/a', '#/session/a/b/c', '#/session/a/b/worker/w-0123', '#/session/a/b/worker/w-0123456789ab/last', '#/session/a/b/attempt/A.1/0']) {
     assert.equal(id(bad), 'not-found', bad);
   }
-  assert.equal(titleFor(parseRoute('#/')), 'Runs \u00b7 DoFlow Console');
-  assert.equal(titleFor(parseRoute('#/'), { runs: [row('AWAITING_GATE'), row('AWAITING_GATE'), row('RUNNING')], unreadableCount: 0 }), '(2) Runs \u00b7 DoFlow Console');
+  assert.equal(id('#/'), 'runs', 'the home is called Now; its route id stays runs');
+  assert.equal(titleFor(parseRoute('#/')), 'Now \u00b7 DoFlow Console');
+  assert.equal(titleFor(parseRoute('#/'), { runs: [row('AWAITING_GATE'), row('AWAITING_GATE'), row('RUNNING')], unreadableCount: 0 }), '(2) Now \u00b7 DoFlow Console');
   assert.equal(titleFor(parseRoute('#/workflows')), 'Workflows \u00b7 DoFlow Console');
   assert.equal(titleFor(parseRoute('#/run/s/t')), 's / t \u00b7 DoFlow Console');
   assert.equal(titleFor(parseRoute('#/run/s/t/tasks')), 'Tasks \u00b7 s / t \u00b7 DoFlow Console');
@@ -798,7 +801,7 @@ test('boot: the stored theme is applied before anything is fetched, and the frag
   assert.ok(rest.every((c) => c.method === 'GET' && !JSON.stringify(c).includes(CODE)));
   assert.equal(page.doc.documentElement.classList.contains('booting'), false);
   assert.equal(page.doc.documentElement.dataset.theme, 'dark');
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.equal(page.doc.activeElement, page.doc.body, 'first load does not move focus');
   assert.equal(page.doc.focusLog.length, 0);
   assert.deepEqual(current(page), ['Now']);
@@ -858,7 +861,7 @@ test('pair: Pair posts the code once with the typed name, then boots as a paired
   const posts = page.calls.filter((c) => c.method === 'POST');
   assert.deepEqual(posts.map((c) => [c.url, c.body]), [['/api/pair', { v: 1, code: PAIR_CODE, name: 'Kai phone' }]]);
   assert.equal(apiCalls(page, '/api/info').length >= 1, true);
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.equal(JSON.stringify(page.history).includes(PAIR_CODE), false);
   assert.equal(text(page.main).includes(PAIR_CODE), false);
 });
@@ -941,7 +944,7 @@ test('boot: blocked storage still renders, as System', async () => {
   const page = await start({ hash: '', throwStorage: true, fetch: standard });
   assert.equal(page.doc.documentElement.dataset.theme, undefined);
   assert.equal(page.doc.documentElement.classList.contains('booting'), false);
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.deepEqual(page.radios.map((r) => r.getAttribute('aria-checked')), ['false', 'false', 'true']);
   page.radios[0].fire('click');
   assert.equal(page.doc.documentElement.dataset.theme, 'light', 'the choice still applies for this page load');
@@ -985,7 +988,7 @@ test('theme control: arrows move and select with wrapping, Home and End jump, an
 test('router: a route change sets the title and the current link, and moves focus to the new heading; first load did not', async () => {
   const page = await start({ hash: '', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? reply(200, { v: 1, run: { ...row('RUNNING'), updatedAt: new Date(Date.now() - 12_000).toISOString() }, timeline: {}, tasks: null, workflow: {} }) : standard(target, init)) });
   assert.equal(page.doc.activeElement, page.doc.body);
-  assert.equal(page.doc.title, '(1) Runs \u00b7 DoFlow Console');
+  assert.equal(page.doc.title, '(1) Now \u00b7 DoFlow Console');
 
   page.location.hash = '#/run/feat-a/run-1';
   page.win.dispatch('hashchange');
@@ -1254,7 +1257,7 @@ test('loaded: the home summary counts the runs by state and flags what needs you
   assert.equal(tiles[0].getAttribute('data-attention'), 'true');
   assert.equal(tiles[1].getAttribute('data-attention'), null);
   assert.match(text(page.main), /2 runs could not be read\./);
-  assert.equal(page.doc.title, '(1) Runs \u00b7 DoFlow Console');
+  assert.equal(page.doc.title, '(1) Now \u00b7 DoFlow Console');
   assert.equal(page.conn.getAttribute('data-state'), 'done');
   assert.match(text(page.conn.querySelector('.conn__long')), /^Updated just now$/);
 });
@@ -1272,7 +1275,7 @@ test('empty: no runs shows the panel with the command block; a poll with the sam
 test('loading: nothing for 300 ms, then the skeleton, held for 300 ms before the data replaces it', async () => {
   let release: (r: Reply) => void = () => {};
   const page = await start({ hash: '', fetch: (target, init) => (target === '/api/runs' ? new Promise<Reply>((resolve) => { release = resolve; }) : standard(target, init)) });
-  assert.equal(text(heading(page)), 'Runs', 'the heading is real text at once');
+  assert.equal(text(heading(page)), 'Now', 'the heading is real text at once');
   assert.equal(page.main.getAttribute('aria-busy'), 'true');
   assert.match(text(page.main), /Loading runs/);
   assert.equal(page.main.querySelectorAll('.skel').length, 0);
@@ -1296,7 +1299,7 @@ test('error: an inline error keeps the heading, shows no server text, retries on
     hash: '',
     fetch: (target, init) => (target === '/api/runs' ? (mode === 'error' ? reply(502, { error: { code: 'core-error', verb: 'list', exit: 1, message: 'SERVER SECRET <b>x</b>' } }) : reply(200, RUNS)) : standard(target, init)),
   });
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.equal(text(page.main.querySelector('.state-panel__title')), 'Could not load runs');
   assert.equal(text(page.main.querySelector('.code-chip')), 'core-error \u00b7 502');
   assert.ok(!text(page.main).includes('SERVER SECRET'));
@@ -1515,7 +1518,7 @@ test('E.1 home: Needs you first and oldest first, then Running and Finished newe
   const note = page.main.querySelector('.view-note');
   assert.equal(text(note), '1 run could not be read.');
   assert.equal(note.parent.children.at(-1), note, 'the unreadable note comes after the last section');
-  assert.equal(page.doc.title, '(2) Runs · DoFlow Console');
+  assert.equal(page.doc.title, '(2) Now · DoFlow Console');
 });
 
 // The Running tile counts live runs only; silent runs (over a day) show as a Stale count beside it, and stay in the list.
@@ -2106,7 +2109,7 @@ test('CD-B4 tiles: the facts follow the tick', async () => {
   assert.equal(text(page.main.querySelector('.tile__sub-long')), 'longest wait 7 min');
 });
 
-test('CD-B8 run head: crumb to Runs, mono title with a muted task id, meta in order, and the step counter per run state', async () => {
+test('CD-B8 run head: crumb to Now, mono title with a muted task id, meta in order, and the step counter per run state', async () => {
   mods.home.resetHome();
   const cases: Array<[any, string, string]> = [
     [frow('run-1', 4), 'step 5 of 5', '5'],
@@ -2118,7 +2121,7 @@ test('CD-B8 run head: crumb to Runs, mono title with a muted task id, meta in or
     const crumb = page.main.querySelector('.run-head__crumb');
     assert.equal(crumb.getAttribute('aria-label'), 'Breadcrumb');
     assert.equal(crumb.querySelector('a').getAttribute('href'), '#/');
-    assert.equal(text(crumb.querySelector('a')), 'Runs');
+    assert.equal(text(crumb.querySelector('a')), 'Now');
     assert.equal(text(crumb.querySelector('.mono')), 'feat-a');
     const title = heading(page);
     assert.equal(text(title), 'feat-a / run-1', 'the accessible text is slug / taskId');
@@ -2155,7 +2158,7 @@ test('CD-B8 the run route loads with a real crumb and title, then meta, step, ra
   mods.home.resetHome();
   const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
   assert.equal(text(heading(page)), 'feat-a / run-1', 'the title is real text from the route params');
-  assert.equal(text(page.main.querySelector('.run-head__crumb').querySelector('a')), 'Runs');
+  assert.equal(text(page.main.querySelector('.run-head__crumb').querySelector('a')), 'Now');
   assert.ok(page.main.querySelector('.run-head__step').getAttribute('hidden') !== null, 'no step counter before data');
   await advance(400);
   assert.deepEqual(page.main.querySelectorAll('.skel').map((x) => x.className.replace('skel ', '')), ['skel--meta', 'skel--stepline', 'skel--railcard', 'skel--slot', 'skel--timeline']);
@@ -3367,8 +3370,8 @@ const layersBody = (over: any = {}) => ({
     sessions: lok([]),
     traffic: lok({ v: 1, projectKey: P1, windowMin: 10, agents: [], models: [], pairs: [], notChecked: 0 }),
     coverage: lok([
-      { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: false, reason: 'no-harness-record' } },
-      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: true } },
+      { harness: 'claude', main: { observed: true }, subagents: { observed: true }, transcript: { observed: true }, permissions: { observed: true }, questions: { observed: true } },
+      { harness: 'opencode', main: { observed: true }, subagents: never, transcript: never, permissions: never, questions: { observed: false, reason: 'no-harness-record' } },
     ]),
     ...over,
   },
@@ -3544,7 +3547,12 @@ test('161 layers project: the page reads layers:<pk> and machine; checkouts hold
   const es = liveES();
   assert.deepEqual(channelsOf(es), [`layers:${P1}`, 'machine'].sort());
   es.open();
-  es.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody({ gates: lok([{ runKey: `${WK_MAIN}/run-1/main`, slug: 'feat-a', taskId: 'T-1', gateId: 'g-design', name: 'Design approval', state: 'awaiting', at: AT(5), by: null }]) }))));
+  // 180 IC-180-D4: a claude session with an open permission ask, and an opencode session whose harness records no asks.
+  const sessions = lok([
+    { sessionKey: 'cc11dd22ee33ff44', harness: 'claude', audit: never, denials: never, attention: { observed: true, pending: { kind: 'permission', tool: 'Bash', at: AT(4) }, count: 1, recent: [{ kind: 'permission', tool: 'Bash', at: AT(4) }] } },
+    { sessionKey: 'cc11dd22ee33ff55', harness: 'opencode', audit: never, denials: never, attention: { observed: false, reason: 'no-harness-record' } },
+  ]);
+  es.emit('message', liveFrame(`layers:${P1}`, 'snapshot', member('layers', layersBody({ sessions, gates: lok([{ runKey: `${WK_MAIN}/run-1/main`, slug: 'feat-a', taskId: 'T-1', gateId: 'g-design', name: 'Design approval', state: 'awaiting', at: AT(5), by: null }]) }))));
   es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody())));
   await settle();
   assert.equal(page.doc.title, 'example-project · Layers · DoFlow Console');
@@ -3563,7 +3571,14 @@ test('161 layers project: the page reads layers:<pk> and machine; checkouts hold
   assert.match(text(opencode), /no audit hook/);
   assert.doesNotMatch(text(opencode), /\bidle\b/i);
   const claude = table.querySelectorAll('tr').find((tr: El) => /claude/.test(text(tr)));
-  assert.match(text(claude!.querySelectorAll('td')[4]), /not observed/, 'questions is not observed for every harness');
+  assert.match(text(claude!.querySelectorAll('td')[4]), /^observed$/, '180: questions is observed for the harness that records asks');
+  assert.match(text(opencode!.querySelectorAll('td')[4]), /not observed no harness record/);
+  const lead = page.main.querySelector('[data-section="lead"]');
+  const ask = lead.querySelector('.lrow[data-kind="ask"]');
+  assert.match(text(ask), /asks permission for Bash/);
+  assert.match(text(ask), /claude/);
+  assert.match(text(ask), /since /);
+  assert.match(text(lead), /not observed whether opencode sessions ask you something: no harness record/);
   assert.equal(loops(page), 1);
   noReads(page);
   assert.equal(apiCalls(page, '/api/info').length, 1, 'the boot read only');
@@ -3836,7 +3851,8 @@ test('133 shortcuts: p pauses, g then w navigates, ? opens the list with focus i
     assert.equal(help.getAttribute('role'), 'dialog');
     assert.equal(help.getAttribute('aria-modal'), 'true');
     assert.equal(page.doc.activeElement.className.includes('help__close'), true, 'focus moves into the dialog');
-    assert.match(text(help), /Go to Runs/);
+    assert.match(text(help), /Go to Now/);
+    assert.doesNotMatch(text(help), /Go to Runs/);
     keydownOn(page, 'p');
     assert.equal(page.pause.getAttribute('aria-pressed'), 'false', 'a modal dialog keeps the page keys off');
     const tab = keydownOn(page, 'Tab');
@@ -3844,6 +3860,9 @@ test('133 shortcuts: p pauses, g then w navigates, ? opens the list with focus i
     keydownOn(page, 'Escape');
     assert.notEqual(help.getAttribute('hidden'), null);
     assert.equal(page.doc.activeElement, page.pause, 'focus returns to the opener');
+    keydownOn(page, 'g');
+    keydownOn(page, 'r');
+    assert.equal(page.location.hash, '#/', 'go.runs, labelled Go to Now, still goes to #/');
   });
 });
 
@@ -4152,6 +4171,29 @@ test('149 live runs: the first paint is the GET, then frames update the view wit
   assert.equal(FakeES.all.length, 1, 'one stream');
   assert.deepEqual(pillOf(page), ['done', 'Live \u00b7 last change 1 min ago', 'Live'], 'the age is the time since the newest frame');
   assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'an open stream is never stale');
+});
+
+test('180 C3 live Now: one stream carries now and machine; another project’s open run joins Needs you, links to its Layers page, and the title and the scope follow', async () => {
+  const page = await startLive('#/', liveRoute(standard));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS)));
+  const waiting = { slug: 'feat-z', taskId: 'Z-1', state: 'AWAITING_GATE', workflowName: 'Feature Delivery', step: { done: 3, total: 9 }, updatedAt: AT(2), gateName: 'Approve plan' };
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody([], { activity: lok({ v: 1, limits: { projects: 2, notShown: 0, watched: 2, fingerprintOnly: 0 }, items: [
+    { projectKey: P1, runs: { open: 1, awaiting: 0 }, gates: [], openRuns: [], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] },
+    { projectKey: P2, runs: { open: 1, awaiting: 1 }, gates: [], openRuns: [waiting], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] },
+  ] }) }))));
+  await settle();
+  const rows = page.main.querySelectorAll(`li[data-project="${P2}"]`);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].querySelector('a').getAttribute('href'), `#/layers/${P2}`);
+  assert.equal(text(rows[0].querySelector('.tag')), 'other-project');
+  assert.equal(tileCounts(page)[0], '2', 'Needs you counts this project’s waiting run and the other one');
+  assert.equal(page.doc.title, '(2) Now · DoFlow Console');
+  page.main.querySelectorAll('button').find((b: El) => text(b) === 'This project')!.fire('click');
+  assert.equal(page.main.querySelectorAll(`li[data-project="${P2}"]`).length, 0);
+  assert.equal(page.doc.title, '(1) Now · DoFlow Console', 'the title counts the scope');
 });
 
 test('149 live runs: a first-paint GET answer that arrives after the snapshot is ignored', async () => {
@@ -5429,14 +5471,14 @@ test('150 C.6 CSS: the Now Chain link stacks above the stretched run link, and t
   assert.doesNotMatch(rule('.run-head__step'), /grid-area/, 'only the aside takes the step area');
 });
 
-test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps its one link to Runs', async () => {
+test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps its one link to Now', async () => {
   mods.home.resetHome();
   const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4), WF_FEATURE, [ev(5, 'start', null)])) });
   const head = page.main.querySelector('.run-head');
   assert.deepEqual(head.children.map((c: El) => c.className), ['run-head__crumb', 'run-head__title', 'run-head__metawrap', 'run-head__aside']);
   const aside = head.querySelector('.run-head__aside');
-  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back', 'run-head__acts'], 'Chain sits beside the step counter, in its grid area (IC-020); the place of Close run (162 IC-010) follows it');
-  assert.deepEqual(linksOf(head), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back', 'graph__back', 'run-head__acts'], 'Chain sits beside the step counter, in its grid area (IC-020), then Export JSON (180 IC-180-B1); the place of Close run (162 IC-010) follows them');
+  assert.deepEqual(linksOf(head), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain'], ['/api/runs/feat-a/run-1/export', 'Export JSON']]);
   assert.equal(text(page.main.querySelector('.run-head__step')), 'step 5 of 5', 'the step counter is unchanged');
   assert.equal(mods.views.parseRoute(head.querySelectorAll('a')[1].getAttribute('href')).id, 'session');
   uninstallPage();
@@ -5444,7 +5486,7 @@ test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps i
 
   mods.home.resetHome();
   const waiting = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
-  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']], 'the link is there before the data, from the route params');
+  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain'], ['/api/runs/feat-a/run-1/export', 'Export JSON']], 'the links are there before the data, from the route params');
 });
 
 test('150 C.6 Tasks head: a Chain link follows Back to the run, on the board and on each no-graph note', async () => {
@@ -5502,7 +5544,7 @@ test('shell attention: gates waiting anywhere on the machine show on every page 
   assert.equal(text(strip(page).querySelector('.attention__count')), '1 gate waiting for you');
   assert.equal(strip(page).querySelector('.attention__link').getAttribute('href'), '#/run/feat-a/T-1', 'one gate in this project: straight to its run');
   assert.equal(text(strip(page).querySelector('.attention__where')), 'on this machine, in this project', 'the strip counts the machine');
-  assert.equal(text(page.main.querySelector('.view-head__meta')), 'Runs of example-project, the project this Console was started in.', 'Now names the one project it lists');
+  assert.equal(text(page.main.querySelector('.view-head__meta')), 'This project is example-project, where this Console was started.', 'Now names the project it was started in');
   assert.equal(text(navLink(page, '#/layers').querySelector('.navrail__badge')), '1 1 gate waiting for you');
 
   const two = machineBody([gateOf('T-2', 'g-b', null, 1), gateOf('T-1', 'g-a', 'Approve the plan')]);
@@ -6108,4 +6150,275 @@ test('165 start: a prompt over the limit turns the count red and keeps Start shu
   assert.equal(page.main.querySelector('#start-count').dataset.over, 'true');
   assert.equal(page.main.querySelector('#start-submit').getAttribute('disabled'), '');
   assert.equal(radios165(page, 'start-harness').some((i: El) => i.getAttribute('value') === 'copilot'), false);
+});
+
+// ---- 180 C5: export link, saved filters, failure explainer, j and k (IC-180-B1..B4) ------------------------------------
+
+/** The elements `j` and `k` walk on Now: each row's link, in the order drawn. */
+const nowLinks = (page: Page) => page.main.querySelectorAll('[data-focus-key]').filter((el: El) => /^(run|other):/.test(el.dataset.focusKey));
+const savedForm = (page: Page) => page.main.querySelector('form[aria-label="Saved filters"]');
+const savedChips = (page: Page) => savedForm(page).querySelectorAll('.chip').map((chip: El) => [text(chip), chip.getAttribute('aria-pressed')]);
+const saveAs = (page: Page, name: string) => {
+  const form = savedForm(page);
+  form.querySelector('input').value = name;
+  return form.fire('submit');
+};
+
+test('180 C5 run head: an Export JSON link to the export route, downloaded as doflow-run-<taskId>.json', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(5, 'start', null)])) });
+  const link = page.main.querySelector('.run-head__aside').querySelectorAll('a').find((a: El) => text(a) === 'Export JSON');
+  assert.ok(link, 'the run head has the link');
+  if (!link) return;
+  assert.equal(link.getAttribute('href'), '/api/runs/feat-a/run-1/export');
+  assert.equal(link.getAttribute('download'), 'doflow-run-run-1.json');
+  const { matchPath } = require('../src/routes.ts');
+  assert.deepEqual(matchPath('/api/runs/:slug/:taskId/export', link.getAttribute('href')), { slug: 'feat-a', taskId: 'run-1' }, 'the href is the C4 route');
+});
+
+test('180 C5 explainer: a rejected run says which gate, when and by whom, as recorded, and gives the timeline command; a healthy run shows none', async () => {
+  mods.home.resetHome();
+  const events = [ev(30, 'start', null), ev(10, 'decide-gate', 'gate-a', { decision: 'reject', by: 'console' })];
+  let page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4, { state: 'REJECTED' }), WF_FEATURE, events)) });
+  const block = page.main.querySelector('.activity__explain');
+  assert.ok(block);
+  assert.equal(text(block.querySelector('h3')), 'Why it stopped');
+  assert.deepEqual(block.querySelectorAll('dt').map(text), ['Gate', 'Rejected']);
+  assert.equal(text(block.querySelectorAll('dd')[0]), 'gate-a');
+  assert.match(text(block.querySelectorAll('dd')[1]), /, from the Console on this machine$/);
+  assert.equal(text(block.querySelector('.cmd__text')), 'doflow orchestrate --action timeline --task-id run-1 --slug feat-a');
+  uninstallPage();
+  mock.timers.reset();
+  page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(5, 'start', null)])) });
+  assert.equal(page.main.querySelector('.activity__explain'), null, 'a running, fresh run has no explainer');
+});
+
+test('180 C5 j and k: Now moves along the row links without wrapping; never while typing, with a modifier, or with a dialog open', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const links = nowLinks(page);
+    assert.ok(links.length >= 3, 'the gate card and the run rows have links');
+    // The keys are bound on the document (B-1), where a key pressed on a row link arrives.
+    const press = (key: string, target: any, extra: any = {}) => keydownOn(page, key, { target, ...extra });
+    links[0].focus();
+    assert.equal(press('j', links[0]).defaultPrevented, true);
+    same(page.doc.activeElement, links[1], 'j moves to the next row');
+    press('j', links[1]);
+    same(page.doc.activeElement, links[2], 'j again');
+    press('k', links[2]);
+    same(page.doc.activeElement, links[1], 'k moves back');
+    links[0].focus();
+    press('k', links[0]);
+    same(page.doc.activeElement, links[0], 'no wrap at the start');
+    const last = links[links.length - 1];
+    last.focus();
+    press('j', last);
+    same(page.doc.activeElement, last, 'no wrap at the end');
+    // Typing a j in the saved-filter name field never moves the focus.
+    const field = savedForm(page).querySelector('input');
+    field.focus();
+    const typed = press('j', field);
+    assert.equal(typed.defaultPrevented, false);
+    same(page.doc.activeElement, field, 'typing stays in the field');
+    links[0].focus();
+    press('j', links[0], { ctrlKey: true });
+    press('j', links[0], { metaKey: true });
+    same(page.doc.activeElement, links[0], 'a held modifier is no step');
+    keydownOn(page, '?');
+    const help = page.doc.getElementById('help');
+    assert.equal(help.getAttribute('hidden'), null);
+    const blocked = press('j', links[0]);
+    assert.equal(blocked.defaultPrevented, false, 'the help list is modal');
+    keydownOn(page, 'Escape');
+    keydownOn(page, 'k', { ctrlKey: true });
+    assert.equal(paletteOf(page).getAttribute('hidden'), null);
+    press('j', links[0]);
+    assert.equal(paletteOf(page).getAttribute('hidden'), null, 'the palette stays open');
+    assert.notEqual(page.doc.activeElement, links[1], 'the palette is modal');
+    paletteInput(page).fire('keydown', { key: 'Escape' });
+    links[0].focus();
+    press('j', links[0]);
+    same(page.doc.activeElement, links[1], 'with the dialogs closed, j works again');
+  });
+});
+
+test('180 B-1 j and k on Now work with the focus on the body, as after a hash navigation; on another view a key from the body moves nothing', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const links = nowLinks(page);
+    assert.ok(links.length >= 2);
+    page.doc.activeElement = page.doc.body;
+    assert.equal(keydownOn(page, 'j', { target: page.doc.body }).defaultPrevented, true);
+    same(page.doc.activeElement, links[0], 'j from the body goes to the first row');
+    keydownOn(page, 'j');
+    same(page.doc.activeElement, links[1], 'and on to the next');
+    page.doc.activeElement = page.doc.body;
+    keydownOn(page, 'k', { target: page.doc.body });
+    same(page.doc.activeElement, links[links.length - 1], 'k from the body goes to the last row');
+    uninstallPage();
+    mock.timers.reset();
+    const other = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+    other.doc.activeElement = other.doc.body;
+    assert.equal(keydownOn(other, 'j', { target: other.doc.body }).defaultPrevented, false, 'Sessions binds j and k on its own rows only');
+    same(other.doc.activeElement, other.doc.body, 'nothing moves');
+  });
+});
+
+test('180 C5 j and k: the ? help lists both from the shortcut table, with the views they work in', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    keydownOn(page, '?');
+    const help = page.doc.getElementById('help');
+    const rows = help.querySelectorAll('dt').map((dt: El, index: number) => [dt.querySelectorAll('kbd').map(text).join('+'), text(help.querySelectorAll('dd')[index])]);
+    const keys = await import(url('keys.js'));
+    for (const id of ['next', 'prev']) {
+      const entry = keys.SHORTCUTS.find((item: any) => item.id === id);
+      assert.ok(rows.some(([kbd, label]: string[]) => kbd === entry.keys[0] && label === `${entry.label} (${entry.where})`), id);
+    }
+    assert.deepEqual(rows.filter(([kbd]: string[]) => kbd === 'j' || kbd === 'k'), [
+      ['j', 'Move to the next row (Now, Sessions, Follow-ups, Run rail)'],
+      ['k', 'Move to the previous row (Now, Sessions, Follow-ups, Run rail)'],
+    ]);
+  });
+});
+
+test('180 C5 j and k: Sessions walks the row heads, as Down and Up do', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+  const host = page.main.querySelector('.sessions__rows');
+  const press = (from: El, key: string, extra: any = {}) => host.fire('keydown', { key, target: from, ...extra }).defaultPrevented;
+  assert.equal(press(srowHeads(page)[0], 'j'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `row:${sk(2)}`);
+  assert.deepEqual(srowHeads(page).map((h: El) => h.getAttribute('tabindex')), ['-1', '0', '-1'], 'the tab stop moves with it');
+  assert.equal(press(srowHeads(page)[1], 'k'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `row:${sk(1)}`);
+  assert.equal(press(srowHeads(page)[2], 'j'), false, 'the last row does not move');
+  assert.equal(press(srowHeads(page)[0], 'j', { altKey: true }), false, 'a held modifier is no step');
+});
+
+test('180 C5 j and k: the run rail steps as Right and Left do, and not while the help list is open', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  buttons()[2].focus();
+  buttons()[2].fire('keydown', { key: 'j' });
+  same(page.doc.activeElement, buttons()[3], 'j');
+  buttons()[3].fire('keydown', { key: 'k' });
+  same(page.doc.activeElement, buttons()[2], 'k');
+  keydownOn(page, '?');
+  const blocked = buttons()[2].fire('keydown', { key: 'j' });
+  assert.equal(blocked.defaultPrevented, false);
+  assert.notEqual(page.doc.activeElement, buttons()[3], 'the help list is modal');
+});
+
+test('180 C5 j and k: Follow-ups moves along the rows’ links; the state field is typing', async () => {
+  mods.home.resetHome();
+  const items = ['FU-000001', 'FU-000002', 'FU-000003'].map((id) => ({ id, state: 'open', statement: `Statement of ${id}` }));
+  const body = { v: 1, sections: { list: { ok: true, at: agoIso(0), data: { items, count: 3, shown: 3, nextCursor: null, unreadable: { n: 0, rows: [] }, conflicts: { n: 0, rows: [] } } }, overview: { ok: false, code: 'core-lacks-verb' } } };
+  const page = await start({ hash: '#/followups', fetch: (target, init) => (target.startsWith('/api/followups') ? reply(200, body) : standard(target, init)) });
+  const links = page.main.querySelectorAll('a').filter((a: El) => /^#\/followups\/FU-/.test(a.getAttribute('href') ?? ''));
+  assert.equal(links.length, 3);
+  let root: any = links[0];
+  while (root && !(root.listeners.get('keydown') ?? []).length) root = root.parent;
+  assert.ok(root, 'the view listens for keys');
+  root.fire('keydown', { key: 'j', target: links[0] });
+  same(page.doc.activeElement, links[1], 'j');
+  root.fire('keydown', { key: 'k', target: links[1] });
+  same(page.doc.activeElement, links[0], 'k');
+  const select = page.main.querySelector('select');
+  select.focus();
+  assert.equal(root.fire('keydown', { key: 'j', target: select }).defaultPrevented, false);
+  same(page.doc.activeElement, select, 'the state field keeps the focus');
+});
+
+test('180 B-4 a stored notification opt-in starts the hidden-tab watcher at app start, with Now never shown; a later visit to Now starts no second one', async () => {
+  const Granted = class { static permission = 'granted'; static requestPermission() { return Promise.resolve('granted'); } };
+  FakeES.all = [];
+  const page = await start({ hash: '#/sessions', fetch: liveRoute(sessionsRoute(BUSY)), eventSource: FakeES, storage: { 'doflow-console-notify': 'on' }, notification: Granted }, freshWeb());
+  const watchers = () => FakeES.all.filter((e) => e.url === '/api/live?ch=machine' && !e.closed);
+  assert.equal(page.main.querySelector('.home'), null, 'Now was never rendered');
+  setHidden(page, true);
+  await advance(200);
+  assert.equal(watchers().length, 1, 'hidden: the watcher follows machine');
+  setHidden(page, false);
+  await advance(200);
+  page.location.hash = '#/';
+  page.win.dispatch('hashchange');
+  await advance(200);
+  assert.ok(page.main.querySelector('.home'), 'Now is shown');
+  setHidden(page, true);
+  await advance(200);
+  assert.equal(watchers().length, 1, 'one watcher, not two');
+});
+
+test('180 C5 saved filters on Now: save the filter shown, apply it with one click, from the palette, and delete it; kept under one storage key', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const tile = (id: string) => page.main.querySelector(`[data-focus-key="tile:${id}"]`);
+    tile('running').fire('click');
+    assert.equal(tile('running').getAttribute('aria-pressed'), 'true');
+    assert.equal(saveAs(page, '   ').defaultPrevented, true, 'the form never navigates');
+    assert.match(text(savedForm(page).querySelector('[role="status"]')), /1 to 40 characters/);
+    saveAs(page, 'Busy');
+    assert.deepEqual(savedChips(page), [['Busy', 'true']], 'the filter shown is the one saved');
+    assert.equal(text(page.region), 'Filter saved.');
+    assert.deepEqual(JSON.parse(page.store.get('doflow-console-filters') as string), { v: 1, views: { runs: [{ name: 'Busy', filter: { chips: ['running'], scope: 'every' } }], sessions: [] } });
+    tile('running').fire('click');
+    assert.deepEqual(savedChips(page), [['Busy', 'false']]);
+    savedForm(page).querySelectorAll('.chip')[0].fire('click');
+    assert.equal(tile('running').getAttribute('aria-pressed'), 'true', 'one click applies it');
+    tile('running').fire('click');
+    // The palette lists it and applies it on the Now that is shown (the address stays #/).
+    keydownOn(page, 'k', { ctrlKey: true });
+    paletteType(page, 'busy');
+    assert.deepEqual(paletteOptions(page), ['Filter: Busy']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/');
+    assert.equal(tile('running').getAttribute('aria-pressed'), 'true', 'the palette applied it');
+    savedForm(page).querySelector('[aria-label="Delete the saved filter Busy"]').fire('click');
+    assert.deepEqual(savedChips(page), []);
+    assert.deepEqual(JSON.parse(page.store.get('doflow-console-filters') as string).views.runs, []);
+  });
+});
+
+test('180 C5 saved filters: chosen in the palette on another screen, the filter waits for its view; without storage they hold for the page load', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: (target, init) => (target === '/api/sessions' ? reply(200, BUSY()) : standard(target, init)), throwStorage: true });
+    page.main.querySelector('[data-focus-key="tile:needs"]').fire('click');
+    saveAs(page, 'Waiting');
+    assert.deepEqual(savedChips(page), [['Waiting', 'true']], 'saved for this page load');
+    page.main.querySelector('[data-focus-key="tile:needs"]').fire('click');
+    page.location.hash = '#/sessions';
+    page.win.dispatch('hashchange');
+    await settle();
+    assert.ok(page.main.querySelector('.sessions__rows'));
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'filter');
+    assert.deepEqual(paletteOptions(page), ['Filter: Waiting']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(page.location.hash, '#/');
+    page.win.dispatch('hashchange');
+    await settle();
+    assert.equal(page.main.querySelector('[data-focus-key="tile:needs"]').getAttribute('aria-pressed'), 'true', 'Now took the filter when it mounted');
+  });
+});
+
+test('180 C5 saved filters on Sessions: the chip shown is saved, applied and listed in the palette', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+    const chip = (id: string) => page.main.querySelector(`[data-focus-key="chip:${id}"]`);
+    chip('records').fire('click');
+    saveAs(page, 'Recorded');
+    assert.deepEqual(savedChips(page), [['Recorded', 'true']]);
+    chip('all').fire('click');
+    assert.deepEqual(savedChips(page), [['Recorded', 'false']]);
+    savedForm(page).querySelectorAll('.chip')[0].fire('click');
+    assert.equal(chip('records').getAttribute('aria-checked'), 'true');
+    chip('all').fire('click');
+    keydownOn(page, 'k', { ctrlKey: true, target: page.doc.body });
+    paletteType(page, 'recorded');
+    assert.deepEqual(paletteOptions(page), ['Filter: Recorded']);
+    paletteInput(page).fire('keydown', { key: 'Enter' });
+    assert.equal(chip('records').getAttribute('aria-checked'), 'true', 'the palette applied it to the Sessions shown');
+  });
 });

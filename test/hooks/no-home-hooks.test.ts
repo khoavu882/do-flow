@@ -244,6 +244,7 @@ const STATE_HOOKS: any = [
   { door: '.claude/hooks/post-compact.sh', native: (cwd: any) => ({ session_id: 's1', cwd, trigger: 'manual', compact_summary: 'the summary' }), wrote: 'session-env/summaries' },
   { door: '.claude/hooks/post-tool-failure.sh', native: () => ({ session_id: 's1', hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_response: { error: 'x' } }), wrote: `${SESSIONS}/tool-failures.log` },
   { door: '.claude/hooks/permission-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'PermissionRequest', tool_name: 'Bash' }), wrote: `${SESSIONS}/permission-audit.log` },
+  { door: '.claude/hooks/attention-audit.sh', args: ['PermissionRequest'], native: () => ({ session_id: 's1', hook_event_name: 'PermissionRequest', tool_name: 'Bash' }), wrote: `${SESSIONS}/attention.log` },
   { door: '.claude/hooks/skill-config-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'ConfigChange' }), wrote: `${SESSIONS}/skill-config-audit.log` },
   { door: '.claude/hooks/post-edit-lint.sh', native: () => ({ session_id: 's1', tool_name: 'Edit', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
   { door: '.codex/hooks/post-edit-lint.impl.sh', native: () => ({ session_id: 's1', tool_name: 'Edit', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
@@ -254,7 +255,7 @@ for (const row of STATE_HOOKS) {
     const door = path.join(mirror(), row.door);
     const run = (extra: any) => {
       const cwd = tempDir(t, 'doflow-no-home-cwd-');
-      return bash(t, [door], { DOFLOW_TELEMETRY: 'off', ...extra }, { input: JSON.stringify(row.native(cwd)), cwd });
+      return bash(t, [door, ...(row.args || [])], { DOFLOW_TELEMETRY: 'off', ...extra }, { input: JSON.stringify(row.native(cwd)), cwd });
     };
     const home = tempDir(t, 'doflow-no-home-home-');
     const withHome = run({ HOME: home });

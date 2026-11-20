@@ -751,8 +751,10 @@ const { validateLoginProbe } = require('./login-recipe.ts');
 const { validateControlChannel } = require('./control-channel.ts');
 // 169 design §4.4: the provider, effort and listing-column grammar (rules 1 to 7).
 const { validateModelParts, validateModelListColumns, levelOrderProblem } = require('./model-parts.ts');
-// 178 design §3.1: the `sessionEffort` key (environment sources only).
+// 178 design §3.1: the `sessionEffort` key (environment sources; since 180 IC-180-E2 also one `hook-state` source).
 const { validateSessionEffort } = require('./session-effort.ts');
+// 180 design §5 (IC-180-D0): the `attention` key, checked against the harness's contract hook events.
+const { validateAttention } = require('./attention.ts');
 const MAIN_SESSION_PLACEHOLDERS = new Set(['{prompt}', '{model}', '{lastMessageFile}']);
 const WORKER_ARGV_MAX = 32;
 const WORKER_ARG_MAX_CHARS = 200;
@@ -1266,6 +1268,10 @@ function validateRegistry(
     validatePrimaryProbe(harness.primaryProbe, typeof harness.id === 'string' ? harness.id : '?', at, errors);
     // Absent is `unknown` for the reader (178 §3.1); only a present key is checked here.
     if (Object.hasOwn(harness, 'sessionEffort')) validateSessionEffort(harness.sessionEffort, at, errors, { effortStatus: harness.worker?.effort?.status });
+    if (Object.hasOwn(harness, 'attention')) {
+      const events = contracts?.find((c: any) => c?.harness === harness.id)?.hookEvents;
+      validateAttention(harness.attention, at, errors, { events: Array.isArray(events) ? events : [] });
+    }
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }
 
