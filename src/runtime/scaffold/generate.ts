@@ -58,7 +58,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { finishRuntime } = require('../cli-result.ts');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
-const { parseRequirement, parseDesign, parsePlan } = require('./artifacts.ts');
+const { parseRequirement, parseDesign, parseSpecs, parsePlan } = require('./artifacts.ts');
 const {
   EXTENSION_LANGUAGE,
   PROSE_EXTENSIONS,
@@ -117,6 +117,9 @@ const ARTIFACT_PATHS: Readonly<Record<string, string>> = Object.freeze({
   'design.md': 'design/design.md',
   'plan.md': 'plan.md',
 });
+
+/** The optional fourth source: the interface contracts a design moved out of design.md. Read when the feature has one, never required. */
+const SPECS_PATH = 'design/specs.md';
 
 /**
  * Uniform exit codes, matching design §4.2's contract for every DoFlow verb.
@@ -195,6 +198,9 @@ function readArtifacts(featureDir: string, fsImpl: any): { sources: any[]; notEv
       notEvaluated.push({ what: name, why: 'artifact not found in the feature directory' });
     }
   }
+  const specs = readIfPresent(path.join(featureDir, SPECS_PATH), fsImpl);
+  texts['specs.md'] = specs;
+  if (specs !== null) sources.push({ name: 'specs.md', present: true, sha256: sha256(specs) });
   return { sources, notEvaluated, texts };
 }
 
@@ -206,7 +212,11 @@ function readArtifacts(featureDir: string, fsImpl: any): { sources: any[]; notEv
  */
 function parseArtifacts(texts: Record<string, string | null>): { requirement: any; design: any; plan: any; notEvaluated: any[] } {
   const requirement = texts['requirement.md'] ? parseRequirement(texts['requirement.md']) : { requirements: new Map(), criteria: [], gaps: [] };
-  const design = texts['design.md'] ? parseDesign(texts['design.md']) : { components: new Map(), gaps: [] };
+  const design = texts['design.md'] ? parseDesign(texts['design.md']) : { components: new Map(), gaps: [], hasContracts: false };
+  const specsDeclare = texts['specs.md'] ? parseSpecs(texts['specs.md'], design.components) : false;
+  if (texts['design.md'] && !design.hasContracts && !specsDeclare) {
+    design.gaps.push({ artifact: 'design.md', what: 'interface contracts', why: 'neither design.md nor specs.md §1 declares an interface — every emitted file falls back to a placeholder signature' });
+  }
   const plan = texts['plan.md'] ? parsePlan(texts['plan.md']) : { tasks: [], gaps: [] };
   const notEvaluated: any[] = [];
   for (const gap of [...requirement.gaps, ...design.gaps, ...plan.gaps]) {
@@ -347,23 +357,23 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
 
     const bodyParts: string[] = [''];
     if (declared.length) {
-      header.push(`shape:         declared in design.md API / Interface Contracts (${[...new Set(declared.map((d: any) => d.component))].join(', ')}), quoted below`);
+      header.push(`shape:         declared in ${[...new Set(declared.map((d: any) => d.source))].join(' and ')} interface contracts (${[...new Set(declared.map((d: any) => d.component))].join(', ')}), quoted below`);
       for (const decl of declared) {
         const lines = decl.block.split('\n');
         const shown = lines.slice(0, 40);
         bodyParts.push([
-          emitter.line(`declared interface — design.md "${decl.heading}", verbatim:`),
+          emitter.line(`declared interface — ${decl.source} "${decl.heading}", verbatim:`),
           ...shown.map((l: string) => emitter.line(`  ${l}`.replace(/\s+$/, ''))),
-          ...(lines.length > shown.length ? [emitter.line(`  … ${lines.length - shown.length} more lines in design.md`)] : []),
+          ...(lines.length > shown.length ? [emitter.line(`  … ${lines.length - shown.length} more lines in ${decl.source}`)] : []),
           '',
         ].join('\n'));
       }
     } else {
-      header.push('shape:         not declared in design.md API / Interface Contracts — placeholder signature below');
+      header.push('shape:         not declared in the design.md or specs.md interface contracts — placeholder signature below');
       // Not a skip — the file was emitted. Conflating the two would let 29 "we wrote it, but the
       // design never said what it should look like" rows hide inside a skip count, which is the
       // opposite of what the manifest is for.
-      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'design.md API / Interface Contracts declares no interface for this file\'s component — the signature below is a placeholder, not a contract' });
+      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'neither design.md nor specs.md §1 declares an interface for this file\'s component — the signature below is a placeholder, not a contract' });
     }
 
     const pkg = snake(words(path.basename(path.dirname(file)) || 'scaffold')).replace(/_/g, '');
@@ -601,7 +611,7 @@ function buildSummaries({ status, blocked, planned, shapeUndeclared, preserved, 
 
   const stateSummary = status === STATUS.BLOCKED
     ? `BLOCKED — ${blockedWhy} could not be read or parsed; no scaffold written`
-    : `${status} — ${planned.size} file(s), ${shapeUndeclared.length} of them with no shape declared in design.md, `
+    : `${status} — ${planned.size} file(s), ${shapeUndeclared.length} of them with no shape declared in design.md or specs.md, `
       + `${preserved.length} preserved (hand-edited), ${skipped.length} skipped `
       + `(${skipped.filter((s: any) => !s.benign).length} of them a real gap), ${notEvaluated.length} not evaluated, `
       + `${externalDependencies.length} dependency reference(s) routed to the contract-frame case`;
@@ -794,7 +804,7 @@ function renderManifest(result: any, planned: Map<string, any>): string {
     '_Nothing generated._');
 
   lines.push('## Emitted without a declared shape', '');
-  lines.push('These files exist and are traceable, but `design.md` API / Interface Contracts never declared an interface for',
+  lines.push('These files exist and are traceable, but neither `design.md` nor `specs.md` §1 ever declared an interface for',
     'them, so their signature is a placeholder rather than a contract. Reviewing the placeholder as',
     'if it were the designed API is the mistake this section exists to prevent.', '');
   table(['Path', 'Why'], result.shapeUndeclared.map((s: any) => [s.path, s.why]),

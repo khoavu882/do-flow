@@ -100,7 +100,7 @@ function coverageFindings(planText: string, planPath: string, requirementText: s
     .filter(({ id }) => !visible.some((line) => new RegExp(`\\b${id}\\b`).test(line)))
     .map(({ id, line }) => ({
       rule: 'coverage', severity: 'fix' as const, path: requirementPath, line, id,
-      message: `${id} is not traced anywhere in ${planPath}: name it on the task that delivers it, or on the §7 row that verifies it`,
+      message: `${id} is not traced anywhere in ${planPath}: name it on the task that delivers it, or on the Validation Strategy row that verifies it`,
     }));
 }
 
