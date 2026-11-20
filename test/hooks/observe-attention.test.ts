@@ -78,7 +78,7 @@ test('(b) a PermissionRequest appends one line with kind permission and the tool
 test('(c) Notification types map to permission, question, idle and other; skipped types write nothing; no message or title is read', (t) => {
   const cases: Array<[any, string | null]> = [
     ['permission_prompt', 'permission'], ['elicitation_dialog', 'question'], ['elicitation_url_dialog', 'question'], ['idle_prompt', 'idle'],
-    ['agent_needs_input', 'other'], ['a_type_added_later', 'other'], [7, 'other'], [undefined, 'other'],
+    ['agent_needs_input', 'question'], ['auth_storage_failure', 'other'], ['a_type_added_later', 'other'], [7, 'other'], [undefined, 'other'],
     ['auth_success', null], ['elicitation_complete', null], ['plugin_notification', null],
   ];
   for (const [type, kind] of cases) {

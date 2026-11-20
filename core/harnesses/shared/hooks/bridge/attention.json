@@ -14,7 +14,8 @@
           "permission_prompt": "permission",
           "elicitation_dialog": "question",
           "elicitation_url_dialog": "question",
-          "idle_prompt": "idle"
+          "idle_prompt": "idle",
+          "agent_needs_input": "question"
         },
         "skip": [
           "auth_success",

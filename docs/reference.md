@@ -1631,7 +1631,7 @@ Row 180. When a harness's agent waits on the person (a permission prompt, a ques
 - With telemetry off, Claude Code's Bash `PostToolUse` hook exits before it reads its input and answers nothing; the next answering event does.
 - Two hooks of one event that run at once can both append `answered`.
 - A subagent's tool hook can mark the main session's ask answered.
-- The declaration maps the `notification_type` values it names. The hooks page, read on 2026-11-20, also lists `agent_needs_input` and `auth_storage_failure`, which the declaration neither maps nor skips, so they record as `other`.
+- The declaration maps the `notification_type` values it names. The hooks page, read on 2026-11-20, also lists `agent_needs_input`, which the declaration maps to `question`, and `auth_storage_failure`, which it neither maps nor skips, so it records as `other`.
 - Not verified: no live Claude Code session was run for row 180. The hook tests feed fake payloads shaped as the hooks page documents.
 
 Sources: `src/registry/attention.ts`, `core/harnesses/shared/hooks/bridge/observe-attention.sh`, `core/harnesses/shared/hooks/bridge/attention.json`, `core/harnesses/claude/hooks/attention-audit.sh`, `src/runtime/events/layers.ts` (`attentionOf`), `src/runtime/events/coverage.ts`, `test/registry/attention.test.ts`.

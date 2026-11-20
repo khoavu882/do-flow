@@ -540,7 +540,8 @@
               "permission_prompt": "permission",
               "elicitation_dialog": "question",
               "elicitation_url_dialog": "question",
-              "idle_prompt": "idle"
+              "idle_prompt": "idle",
+              "agent_needs_input": "question"
             },
             "skip": [
               "auth_success",
@@ -565,7 +566,7 @@
         "evidence": [
           "https://code.claude.com/docs/en/hooks"
         ],
-        "verification": "Read the hooks page for the PermissionRequest input (tool_name) and the Notification input and its notification_type values; a type not listed records as other.",
+        "verification": "Read the hooks page for the PermissionRequest input (tool_name) and the Notification input and its notification_type values, of which agent_needs_input is mapped to a question; a type not listed, auth_storage_failure included, records as other.",
         "verifiedOn": "2026-11-20"
       },
       "contextProfile": {
