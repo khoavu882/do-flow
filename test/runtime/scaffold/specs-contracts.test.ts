@@ -182,3 +182,16 @@ test('the placeholder reason says no contract is attributed to the file\'s compo
   const result = generateScaffold({ featureDir, repoRoot });
   assert.match(result.shapeUndeclared[0].why, /no contract is attributed to this file's component/);
 });
+
+test('the manifest\'s shape cell names the document a declared interface came from', (t) => {
+  const fromSpecs = feature(t, { specs: SPECS });
+  generateScaffold({ featureDir: fromSpecs.featureDir, repoRoot: fromSpecs.repoRoot });
+  const specsManifest = fs.readFileSync(path.join(fromSpecs.featureDir, SCAFFOLD_DIR_NAME, 'MANIFEST.md'), 'utf8');
+  assert.match(specsManifest, /\| declared interface \(specs\.md\) \+ placeholder signature \|/);
+
+  const design = `${DESIGN}\n## 6. API / Interface Contracts\n\n### 6.1 Resolver contract (C1)\n\n\`\`\`text\nresolve(name) -> id | null\n\`\`\`\n`;
+  const fromDesign = feature(t, { design });
+  generateScaffold({ featureDir: fromDesign.featureDir, repoRoot: fromDesign.repoRoot });
+  const designManifest = fs.readFileSync(path.join(fromDesign.featureDir, SCAFFOLD_DIR_NAME, 'MANIFEST.md'), 'utf8');
+  assert.match(designManifest, /\| declared interface \(design\.md\) \+ placeholder signature \|/);
+});

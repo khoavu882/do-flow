@@ -387,7 +387,7 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
     planned.set(path.join('src', file) + STUB_SUFFIX, {
       content: compose(emitter, header, `${bodyParts.join('\n')}\n`),
       from: owners.map((t: any) => t.id).join(', '),
-      shape: declared.length ? 'declared interface + placeholder signature' : 'placeholder signature',
+      shape: declared.length ? `declared interface (${[...new Set(declared.map((d: any) => d.source))].join(' and ')}) + placeholder signature` : 'placeholder signature',
     });
   }
 
