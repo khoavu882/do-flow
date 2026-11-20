@@ -144,19 +144,11 @@ flowchart TB
 ## 3. Concepts
 
 <!-- Write the handful of nouns a reader must hold to follow the Journeys, in plain words: no
-     component IDs, no code names. One `flowchart` of how they relate (every edge labelled with the
-     relationship), then a glossary table. Leave out anything a journey does not use. Write
+     component IDs, no code names. A glossary table only: how the nouns relate is drawn once, in
+     the data-model file the line below points at. Leave out anything a journey does not use. Write
      "N/A: [why]" for a design with no domain vocabulary worth defining. -->
 
-```mermaid
-flowchart LR
-    TERM_A["[Concept A]"]
-    TERM_B["[Concept B]"]
-    TERM_C["[Concept C]"]
-
-    TERM_A -->|"[relationship, e.g. has many]"| TERM_B
-    TERM_B -->|"[relationship, e.g. is checked against]"| TERM_C
-```
+How these relate: ./data-model.md §1 Conceptual domain map.
 
 | Term | Meaning |
 |---|---|

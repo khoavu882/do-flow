@@ -149,7 +149,6 @@ A feature with a decision register compacts History mechanically; see §12.
 |---|---|---|
 | `requirement.md` | §1 | Scope boundary `flowchart` |
 | `design.md` | System Overview (C4) | Three C4 levels, each a `flowchart` with `subgraph` boundaries |
-| `design.md` | Concepts | Relationship `flowchart` of the domain nouns, edges labelled |
 | `design.md` | Journeys | Per journey: one `flowchart` or `sequenceDiagram`, plus a `stateDiagram-v2` for each stateful thing it creates |
 | `plan.md` | §7 | Phase and task dependency `flowchart` |
 | `data-model.md` | §1 | Conceptual domain map `flowchart`, then one `erDiagram` per bounded subdomain |
