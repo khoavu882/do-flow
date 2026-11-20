@@ -474,10 +474,19 @@ function takeFollowups({ root, ids, slug, channel, now = new Date(), fsImpl = no
 }
 
 /** IC-006 `settle`: one `followup.settled` event per id. Each `as` value's required field is in IC-003. */
-function settleFollowups({ root, ids, as, reason, evidence, channel, now = new Date(), fsImpl = nodeFs }: any) {
+function settleFollowups({ root, ids, as, reason, evidence, duplicateOf, channel, now = new Date(), fsImpl = nodeFs }: any) {
   const list = parseIds(ids);
   if (!SETTLE_AS.includes(as)) throw new FollowupUsageError(`--as must be one of ${SETTLE_AS.join(', ')}${as ? ` (got '${as}')` : ''}`);
   const problems: any[] = [];
+  // `--duplicate-of <id>` (180 IC-180-H1) labels a dismissal; its reason defaults to naming the target.
+  let target: string | null = null;
+  if (duplicateOf !== undefined) {
+    if (as !== 'dismissed') throw new FollowupUsageError(`--duplicate-of applies to --as dismissed only (got --as ${as})`);
+    target = String(duplicateOf).trim();
+    if (!FU_ID.test(target)) throw new FollowupUsageError(`--duplicate-of must be one follow-up id (got '${target}')`);
+    if (list.includes(target)) throw new FollowupUsageError(`--duplicate-of ${target} is also in --ids; an item cannot duplicate itself`);
+    if (reason === undefined) reason = `duplicate of ${target}`;
+  }
   const cleanReason = reason === undefined ? null : oneLine(reason, '--reason', problems);
   const cleanEvidence = evidence === undefined ? null : oneLine(evidence, '--evidence', problems);
   // `kept` needs a reason only when it releases a taken item or reopens a dismissed one; the fold knows the state.
@@ -493,7 +502,12 @@ function settleFollowups({ root, ids, as, reason, evidence, channel, now = new D
       return refusal('settle', 'illegal-transition', `${shown} is done because feature ${derivedDone.get(shown)} finished (derived from git and the release records, not recorded on the item); only an open item can be settled as ${as}. Nothing was written.`);
     }
   }
-  const drafts = list.map((id) => ({ type: 'followup.settled', by, data: { id, as, reason: cleanReason, evidence: cleanEvidence } }));
+  if (target) {
+    const known = loadFollowups(root, { fsImpl, now }).followups.find((item: any) => item.id === target);
+    if (!known) return refusal('settle', 'unknown-id', `${target} is not a follow-up in this store, so ${list.join(', ')} cannot duplicate it. Nothing was written.`);
+    if (known.duplicateOf) return refusal('settle', 'illegal-transition', `${target} is itself a duplicate of ${known.duplicateOf}; name ${known.duplicateOf} instead. Nothing was written.`);
+  }
+  const drafts = list.map((id) => ({ type: 'followup.settled', by, data: { id, as, reason: cleanReason, evidence: cleanEvidence, ...(target ? { duplicateOf: target } : {}) } }));
   const out = appendEvents(root, drafts, { now, fsImpl });
   if (!out.ok) return refusalFrom('settle', out);
   const reopened = as === 'kept' ? list.filter((id) => derivedDone.has(id)) : [];

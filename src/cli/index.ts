@@ -317,6 +317,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--ids', 'ids'],                    // followup: comma-separated FU-xxxxxx ids to take, settle or promote
   ['--as', 'as'],                      // followup --action settle: kept | dismissed | fix | done
   ['--evidence', 'evidence'],          // followup --action settle --as done: what shows it was done
+  ['--duplicate-of', 'duplicateOf'],   // followup --action settle --as dismissed: the FU id the dismissed items duplicate (180)
   ['--title', 'title'],                // followup --action promote: the new intent's title
   ['--release', 'release'],            // followup --action add --source release: the release tag
   ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
@@ -861,6 +862,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --kind review|debate, --risk <level>  protocol (--kind filters list and selects what resolve decides; --risk is the change's risk level)
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote; --similar: list)
+      --duplicate-of <FU-id>                followup --action settle --as dismissed (label the dismissed items as duplicates of that item)
       --file <path|->, --stdin, --text,
       --feature                             followup --action report (the body comes from exactly one; - is stdin)
       --take, --goal, --intent, --since,

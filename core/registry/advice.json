@@ -180,7 +180,7 @@
       "staticFrom": "the rule stage: yes when the pair's score reaches params.flagAtPct",
       "askedBy": ["review", "followup"],
       "maxMode": "show",
-      "replay": { "source": "review-findings" },
+      "replay": { "source": "review-findings", "alsoFrom": ["followup-duplicates"] },
       "budgetMs": 9500,
       "params": {
         "itemBytes": 512,

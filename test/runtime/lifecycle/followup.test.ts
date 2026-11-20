@@ -441,3 +441,61 @@ test('settle: an unknown id is a refusal naming it; reason and evidence are mask
   settleFollowups({ root, ids: a, as: 'fix', reason: 'routed with token=ab12cd34' });
   assert.equal(listFollowups({ root }).items[0].fix, 'routed with token=<masked>');
 });
+
+// ── settle --duplicate-of (180 IC-180-H1) ──────────────────────────────────────────────────────
+
+const storedSettled = (root: any) => fs.readdirSync(path.join(root, store.EVENTS_REL)).filter((f: any) => f.endsWith('.json'))
+  .map((f: any) => JSON.parse(fs.readFileSync(path.join(root, store.EVENTS_REL, f), 'utf8'))).filter((e: any) => e.type === 'followup.settled');
+const settledOf = (root: any, id: any) => storedSettled(root).find((e: any) => e.data.id === id);
+
+test('180 (a) settle --duplicate-of writes duplicateOf on each dismissed event and defaults the reason; an explicit reason is kept', () => {
+  const root = plainRoot();
+  const [a, b, c, d]: any = ['a', 'b', 'c', 'd'].map((s) => add(root, s).created[0].id);
+  const out = settleFollowups({ root, ids: `${a},${b}`, as: 'dismissed', duplicateOf: c });
+  assert.equal(out.ok, true);
+  const events = storedSettled(root);
+  assert.deepEqual(events.map((e: any) => [e.data.id, e.data.duplicateOf, e.data.reason]).sort(), [[a, c, `duplicate of ${c}`], [b, c, `duplicate of ${c}`]].sort());
+  settleFollowups({ root, ids: d, as: 'dismissed', duplicateOf: c, reason: 'same cause as the c item' });
+  assert.equal(settledOf(root, d).data.reason, 'same cause as the c item');
+  const plain = add(root, 'e').created[0].id;
+  settleFollowups({ root, ids: plain, as: 'dismissed', reason: 'noise' });
+  assert.equal(Object.hasOwn(settledOf(root, plain).data, 'duplicateOf'), false, 'no key without the flag');
+});
+
+test('180 (b) settle --duplicate-of is refused with nothing written: another --as, unknown target, target in --ids, target a duplicate, malformed id', () => {
+  const root = plainRoot();
+  const [a, b, c, d]: any = ['a', 'b', 'c', 'd'].map((s) => add(root, s).created[0].id);
+  settleFollowups({ root, ids: b, as: 'dismissed', duplicateOf: c });
+  const before = eventCount(root);
+  for (const as of ['kept', 'fix', 'done']) usage(() => settleFollowups({ root, ids: a, as, reason: 'x', evidence: 'x', duplicateOf: c }), /--duplicate-of applies to --as dismissed only/);
+  usage(() => settleFollowups({ root, ids: `${a},${c}`, as: 'dismissed', duplicateOf: c }), /is also in --ids/);
+  usage(() => settleFollowups({ root, ids: a, as: 'dismissed', duplicateOf: 'not-an-id' }), /must be one follow-up id/);
+  const unknown = settleFollowups({ root, ids: a, as: 'dismissed', duplicateOf: 'FU-zzzzzz' });
+  assert.equal(unknown.ok, false);
+  assert.equal(unknown.finding, 'unknown-id');
+  const chained = settleFollowups({ root, ids: `${a},${d}`, as: 'dismissed', duplicateOf: b });
+  assert.equal(chained.ok, false);
+  assert.equal(chained.finding, 'illegal-transition');
+  assert.match(chained.message, new RegExp(`${b} is itself a duplicate of ${c}; name ${c} instead`));
+  assert.equal(eventCount(root), before, 'a refusal writes no event for any id of the batch');
+  assert.equal(listFollowups({ root, state: 'open' }).items.length, 3, 'a, c and d are still open');
+});
+
+test('180 (c) the fold keeps the label; an event with a malformed or unknown duplicateOf dismisses without one; kept reopens without it', () => {
+  const root = plainRoot();
+  const [a, b, c, d, e]: any = ['a', 'b', 'c', 'd', 'e'].map((s) => add(root, s).created[0].id);
+  settleFollowups({ root, ids: a, as: 'dismissed', duplicateOf: b });
+  const raw = (id: any, duplicateOf: any) => store.appendEvents(root, [{ type: 'followup.settled', by: 'user', data: { id, as: 'dismissed', reason: 'noise', evidence: null, duplicateOf } }]);
+  assert.equal(raw(c, 42).ok, true);
+  assert.equal(raw(d, 'FU-zzzzzz').ok, true);
+  assert.equal(raw(e, e).ok, true);
+  const by = Object.fromEntries(listFollowups({ root, state: 'all' }).items.map((i: any) => [i.id, i]));
+  assert.equal(by[a].state, 'dismissed');
+  assert.equal(by[a].duplicateOf, b);
+  for (const id of [c, d, e]) {
+    assert.equal(by[id].state, 'dismissed', `${id} still dismisses`);
+    assert.equal(Object.hasOwn(by[id], 'duplicateOf'), false, `${id} carries no label`);
+  }
+  settleFollowups({ root, ids: a, as: 'kept', reason: 'real after all' });
+  assert.equal(Object.hasOwn(listFollowups({ root, ids: a }).items[0], 'duplicateOf'), false);
+});

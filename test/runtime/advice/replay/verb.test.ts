@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { createScratch, childEnv } = require('../../../helper/scratch-env.ts');
 const { startFakeServer, closedEndpoint, tagsListing, answering } = require('../../../helper/fake-decision-server.ts');
 const { loadStorageRegistry } = require('../../../../src/runtime/storage/registry.ts');
@@ -19,6 +19,10 @@ const { appendPick, appendOutcome } = require('../../../../src/runtime/advice/re
 const { captureState, resetCaptureSetting } = require('../../../../src/runtime/advice/state-text.ts');
 const { REPO_ROOT } = require('../../../../src/helper/repo-root.ts');
 const { renderText } = require('../../../../src/runtime/advice/replay/run.ts');
+const { addFollowups, settleFollowups } = require('../../../../src/runtime/lifecycle/followup.ts');
+const { buildKindCases, getSource } = require('../../../../src/runtime/advice/replay/sources/index.ts');
+const { rejudge, builderDigest, questionDigest, barsDigest } = require('../../../../src/runtime/advice/replay/trust.ts');
+const { materializeKind } = require('../../../../src/runtime/advice/kinds.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 const SENTINEL = 'SENTINEL-c4f1e2';
@@ -534,4 +538,65 @@ test('180 (f) a routing kind replays from its captured states: the model is repo
   assert.deepEqual(body.metrics.accuracy, { model: 5 / 6, rule: 4 / 6 });
   assert.deepEqual([body.metrics.better, body.metrics.worse], [2, 1]);
   assert.ok(!r.stdout.includes(SENTINEL), 'no case text in the report');
+});
+
+test('180 (g) same-issue replays the review records and the labelled follow-ups together, with no id shared, and a result stored before is stale', async (t) => {
+  const f = await fixture(t);
+  fs.cpSync(path.join(REPO_ROOT, 'test', 'fixtures', 'advice-replay', 'review-findings'), path.join(f.project, 'agent-docs', 'doflow'), { recursive: true });
+  const at = (minute: number) => new Date(Date.UTC(2026, 10, 20, 9, minute));
+  const statements = [
+    'omicron rho sigma cache never expires stale entries', 'omicron rho sigma cache never expires its stale entries',
+    'delta epsilon zeta installer ignores the proxy setting', 'delta epsilon zeta installer ignores the proxy setting on windows',
+  ];
+  const added = addFollowups({ root: f.project, cwd: f.project, items: statements.map((statement) => ({ statement })), defaults: { source: 'manual', batch: true }, now: at(0) });
+  const [a, target, p1, p2] = added.created.map((c: any) => c.id);
+  assert.equal(settleFollowups({ root: f.project, ids: a, as: 'dismissed', duplicateOf: target, now: at(1) }).ok, true);
+  assert.equal(settleFollowups({ root: f.project, ids: `${p1},${p2}`, as: 'dismissed', reason: 'noise', now: at(2) }).ok, true);
+
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'advice.json'), 'utf8'));
+  const kind = registry.kinds.find((entry: any) => entry.id === 'same-issue');
+  assert.deepEqual(kind.replay.alsoFrom, ['followup-duplicates']);
+  const input = { projectRoot: f.project, roots: {}, kind };
+  const reviewOnly = getSource('review-findings').build(input).cases;
+  const followups = getSource('followup-duplicates').build(input).cases;
+  assert.equal(reviewOnly.length, 6, 'the fixture holds six review cases');
+  assert.deepEqual(followups.map((c: any) => c.label).sort(), ['no', 'yes']);
+  const both = buildKindCases(kind, input, ['yes', 'no']).cases;
+  assert.equal(both.length, 8);
+  assert.equal(new Set(both.map((c: any) => c.id)).size, 8, 'no id is shared');
+  assert.deepEqual(both.map((c: any) => c.id), both.map((c: any) => c.id).sort(), 'sorted by id');
+  for (const c of followups) assert.ok(!both.some((b: any) => b.id === c.id), 'a follow-up case id is prefixed by its source id before hashing, so it is not the source\'s own id');
+  for (const c of reviewOnly) assert.ok(both.some((b: any) => b.id === c.id), 'the review cases keep their ids');
+
+  const r = await f.run(['--kind', 'same-issue', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.source, 'review-findings');
+  assert.deepEqual([body.caseSet.eligible, body.caseSet.replayed, body.metrics.n], [8, 8, 8]);
+  assert.equal(asked(f), 1, 'eight cases in one batched call');
+  assert.ok(f.seen.asks.some((ask: any) => ask.state.includes('proxy setting on windows')), 'a follow-up pair reached the model');
+
+  // The stored result and the report read the same two-source case set: the report calls it the same, and nothing moved.
+  const written = await f.run(['--kind', 'same-issue', '--write', '--json']);
+  assert.equal(written.status, 0, written.stderr);
+  const report = spawnSync(process.execPath, [BIN, 'advise', '--action', 'report', '--json'], { cwd: f.project, env: childEnv(f.scratch, { CI: null, DOFLOW_SESSION_ROLE: null, DOFLOW_AUTOPILOT_ENABLED: null }), encoding: 'utf8' });
+  assert.equal(report.status, 0, report.stderr);
+  const rows = JSON.parse(report.stdout).localResults.filter((row: any) => row.kind === 'same-issue');
+  assert.deepEqual(rows.map((row: any) => [row.caseSet, row.stale]), [['same', []]]);
+
+  // A result stored before this seam (the builder digest of the kind with no alsoFrom) is stale on the builder, and a current one is not.
+  const built = materializeKind('same-issue', { adviceRegistry: registry, sources: { workflows: {}, verification: {}, mcp: {} } });
+  assert.equal(built.ok, true, built.detail);
+  const source = getSource('review-findings');
+  const bars = registry.bars;
+  const entryWith = (key: any) => ({
+    questionDigest: questionDigest(built.question), builderDigest: builderDigest(source, key), barsDigest: barsDigest(bars, kind.budgetMs),
+    metrics: {},
+  });
+  const before = { ...kind, replay: { source: 'review-findings' } };
+  assert.notEqual(builderDigest(source, before), builderDigest(source, kind));
+  const stale = rejudge({ entry: entryWith(before), kind: 'same-issue', registry, question: built.question, bars });
+  assert.equal(stale.standing, 'stale');
+  assert.equal(stale.staleDigest, 'builder');
+  assert.notEqual(rejudge({ entry: entryWith(kind), kind: 'same-issue', registry, question: built.question, bars }).staleDigest, 'builder');
 });

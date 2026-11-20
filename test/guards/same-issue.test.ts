@@ -7,10 +7,11 @@
 //          `lifecycle/cli.ts`) and no `node:http`, `node:https` or `node:net`. `node:child_process` is not listed: the
 //          closure already reached it on develop through `feature-resolve.ts`, `status.ts` and `tool-lifecycle.ts`
 //          (git), and no model call goes through it.
-//   G89.2  pin: `CODE_DIGEST` of `replay/sources/review-findings.ts` equals `computeCodeDigest()`; the message says to
+//   G89.2  pin: `CODE_DIGEST` of `replay/sources/review-findings.ts` and of `replay/sources/followup-duplicates.ts` (180)
+//          each equal their `computeCodeDigest()`; the message says to
 //          set the pin to the computed digest (moving a pin moves the builder digest, so stored results go stale).
 //   G89.3  neutral: no vendor name (`vendorNames`), provider word or `name:tag` model literal in `same-issue/**`,
-//          `advice/batch.ts`, `replay/sources/review-findings.ts`, `review/similar.ts`,
+//          `advice/batch.ts`, `replay/sources/review-findings.ts`, `replay/sources/followup-duplicates.ts`, `review/similar.ts`,
 //          `lifecycle/followup-similar.ts`, nor in the same-issue kind's texts in `core/registry/advice.json`.
 //   G89.4  advisory: `review/similar.ts`, `same-issue/**` and `lifecycle/followup-similar.ts` hold no write call
 //          except the `--out` writer in `review/similar.ts`, the block from `if (check.shown && outFile) {` to
@@ -25,6 +26,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { CODE_DIGEST, computeCodeDigest } = require('../../src/runtime/advice/replay/sources/review-findings.ts');
+const duplicates = require('../../src/runtime/advice/replay/sources/followup-duplicates.ts');
 
 const FOLLOWUP = 'src/runtime/lifecycle/followup.ts';
 const SAME_ISSUE_DIR = 'src/runtime/advice/same-issue';
@@ -121,6 +123,30 @@ test('G89.2 control: one changed byte of rule.ts moves the digest off the pin, a
   assert.deepEqual(pinFindings(moved, CODE_DIGEST), [`the code digest differs from CODE_DIGEST: set CODE_DIGEST to ${moved}`]);
 });
 
+test('G89.2 (180): followup-duplicates\'s CODE_DIGEST equals its computeCodeDigest()', () => {
+  assert.deepEqual(pinFindings(duplicates.computeCodeDigest(), duplicates.CODE_DIGEST), []);
+  assert.notEqual(duplicates.CODE_DIGEST, CODE_DIGEST, 'each source pins its own file');
+});
+
+test('G89.2 control (180): a changed byte of rule.ts or of the source itself moves the followup-duplicates digest off its pin', () => {
+  const SELF = 'src/runtime/advice/replay/sources/followup-duplicates.ts';
+  const reading = (changed: string | null) => ({
+    readFileSync: (file: string, encoding?: string) => {
+      const data: Buffer = fs.readFileSync(file);
+      if (path.relative(REPO_ROOT, file) !== changed) return encoding ? data.toString(encoding) : data;
+      const out = Buffer.from(data);
+      out[out.length - 2] ^= 0x01;
+      return encoding ? out.toString(encoding) : out;
+    },
+  });
+  assert.deepEqual(pinFindings(duplicates.computeCodeDigest(reading(null)), duplicates.CODE_DIGEST), [], 'the copy is clean before the plant');
+  for (const file of [RULE, SELF]) {
+    const moved = duplicates.computeCodeDigest(reading(file));
+    assert.notEqual(moved, duplicates.CODE_DIGEST, file);
+    assert.deepEqual(pinFindings(moved, duplicates.CODE_DIGEST), [`the code digest differs from CODE_DIGEST: set CODE_DIGEST to ${moved}`]);
+  }
+});
+
 // ---------------------------------------------------------------- G89.3
 
 // A model literal `name:tag`: a lowercase name and a tag that starts with a digit or is `latest`, as in `name:8b`.
@@ -136,7 +162,7 @@ function neutralFindings(label: string, text: string): string[] {
 }
 
 const NEUTRAL_FILES = (): string[] => [
-  ...sameIssueFiles(), 'src/runtime/advice/batch.ts', 'src/runtime/advice/replay/sources/review-findings.ts', SIMILAR, FOLLOWUP_SIMILAR,
+  ...sameIssueFiles(), 'src/runtime/advice/batch.ts', 'src/runtime/advice/replay/sources/review-findings.ts', 'src/runtime/advice/replay/sources/followup-duplicates.ts', SIMILAR, FOLLOWUP_SIMILAR,
 ];
 const kindTexts = (registry: any): string => {
   const kind = registry.kinds.find((entry: any) => entry.id === 'same-issue');

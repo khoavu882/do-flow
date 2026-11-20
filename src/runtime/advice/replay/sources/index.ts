@@ -4,6 +4,8 @@
 // source (how it builds cases, whether its label is the rule's answer) are code, so data cannot mark a source certifying.
 // This is a closed map: a source id the map does not hold is a registry refusal, never a dynamic require.
 
+const crypto = require('node:crypto');
+
 interface ReplayCase {
   id: string;      // first 16 hex characters of sha256 over the source's natural key; cases are sorted by it
   state: string;   // the text the model is asked about
@@ -24,12 +26,14 @@ interface CaseSource {
 
 const { source: capturedState } = require('./captured-state.ts');
 const { source: claimLedger } = require('./claim-ledger.ts');
+const { source: followupDuplicates } = require('./followup-duplicates.ts');
 const { source: instructsReaderCorpus } = require('./instructs-reader-corpus.ts');
 const { source: reviewFindings } = require('./review-findings.ts');
 
 const SOURCES: Readonly<Record<string, CaseSource>> = Object.freeze({
   'captured-state': capturedState,
   'claim-ledger': claimLedger,
+  'followup-duplicates': followupDuplicates,
   'instructs-reader-corpus': instructsReaderCorpus,
   'review-findings': reviewFindings,
 });
@@ -60,4 +64,29 @@ function buildCases(source: CaseSource, input: Parameters<CaseSource['build']>[0
   return { cases, skipped: dropped ? { ...built.skipped, 'bad-label': (built.skipped['bad-label'] || 0) + dropped } : built.skipped };
 }
 
-module.exports = { SOURCES, SOURCE_IDS, getSource, buildCases, optionNames };
+/**
+ * The cases of a kind (180 IC-180-H3): those of `source` (the kind's `replay.source` unless the caller names a stored
+ * result's source) and, when `source` is the kind's own, those of each `replay.alsoFrom` source, in that order. A kind with
+ * one source gets that source's cases unchanged. With several, each further source's ids are rehashed with that source's
+ * id in front, so a case of one source never collides with another's (the kind's own source keeps the ids it always had,
+ * so a stored case-set digest of a kind that gains no case stays what it was); the cases are sorted by id and `skipped`
+ * adds the reasons up across sources.
+ */
+function buildKindCases(registryKind: any, input: Parameters<CaseSource['build']>[0], options: readonly string[] | null, source: CaseSource | null = getSource(registryKind?.replay?.source)) {
+  if (!source) return { cases: [], skipped: {} };
+  const extra: CaseSource[] = source.id === registryKind?.replay?.source
+    ? (registryKind.replay.alsoFrom || []).map(getSource).filter((s: CaseSource | null): s is CaseSource => s !== null)
+    : [];
+  if (extra.length === 0) return buildCases(source, input, options);
+  const cases: ReplayCase[] = [];
+  const skipped: Record<string, number> = {};
+  for (const one of [source, ...extra]) {
+    const built = buildCases(one, input, options);
+    for (const c of built.cases) cases.push(one === source ? c : { ...c, id: crypto.createHash('sha256').update(`${one.id}\n${c.id}`).digest('hex').slice(0, 16) });
+    for (const [reason, n] of Object.entries(built.skipped)) skipped[reason] = (skipped[reason] || 0) + n;
+  }
+  cases.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return { cases, skipped };
+}
+
+module.exports = { SOURCES, SOURCE_IDS, getSource, buildCases, buildKindCases, optionNames };
