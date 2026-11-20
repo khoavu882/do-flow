@@ -91,3 +91,19 @@ test('a SIGINT to the runner\'s process group kills the check\'s own group', { s
   await exited;
   assert.equal(await until(() => markerPids(marker).length === 0, 5000), true, `no process carries ${marker}`);
 });
+
+// Review R-08: the guard re-raised the check's signal on itself, but Node ignores SIGPIPE and takes SIGUSR1
+// for its inspector, so a check that died by either read as PASS. Each death reports as a plain spawn does.
+test('a check killed by a signal reports it as a plain spawn does', { skip: process.platform === 'win32' }, (t) => {
+  const cwd = tempDir(t, 'doflow-verification-pgroup-');
+  const guarded: any = new VerificationContractRunner({ cwd });
+  const plain: any = new VerificationContractRunner({ cwd, exec: spawnSync });
+  const shape = (r: any) => ({ status: r.status, exitCode: r.exitCode, error: r.error, stdout: r.stdout, stderr: r.stderr });
+  for (const signal of ['SIGPIPE', 'SIGUSR1', 'SIGSEGV']) {
+    const command = `echo before; kill -${signal.slice(3)} $$`;
+    const result = guarded.runCheck(`guarded-${signal}`, command, 10000);
+    assert.equal(result.status, 'FAIL', `${signal} is not a PASS`);
+    assert.equal(result.error, `Terminated by signal ${signal}`);
+    assert.deepEqual(shape(result), shape(plain.runCheck(`plain-${signal}`, command, 10000)));
+  }
+});

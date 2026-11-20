@@ -56,6 +56,10 @@ const GROUPED = process.platform !== 'win32';
  * a timeout kills the check's grandchildren too. It also kills the group when doflow dies under it (its
  * parent changes or doflow's end of the output pipe breaks). Output is relayed and the guard waits for
  * the check's pipes to close, as spawnSync does; a check killed by a signal re-raises it.
+ * Review R-08: Node ignores SIGPIPE and takes SIGUSR1 for its inspector, so a bare re-raise exited 0.
+ * Adding a listener and removing the last one puts the signal back to its default action (libuv resets
+ * it to SIG_DFL), so the guard dies by the check's own signal; the 128+n exit code keeps the result
+ * non-zero should a self-signal ever be swallowed anyway.
  * Ceiling: one extra node start per check, and a grandchild that leaves the group escapes the kill.
  */
 const GROUP_GUARD = `
@@ -79,6 +83,8 @@ child.on('close', (code, signal) => {
   if (forced) process.exit(128 + forced);
   if (!signal) { process.exitCode ??= code; return; }
   process.stdout.write('', () => process.stderr.write('', () => {
+    process.exitCode = 128 + require('node:os').constants.signals[signal];
+    try { process.on(signal, () => {}); } catch {}
     process.removeAllListeners(signal);
     process.kill(process.pid, signal);
   }));
