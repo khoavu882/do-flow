@@ -1018,3 +1018,18 @@ test('the viewer stage, which takes focus so arrow keys pan it, shows a focus ri
   const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
   assert.ok(page.includes('.viewer-stage:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}'));
 });
+
+const RUNS = '# D\n\n## 1. Approach\n\n- **IC-060, IC-061:** Before, the path said one thing\n\n### CD-2 and CD-3 — a heading\n\nSee IC-061 and CD-3.\n';
+
+test('reaching an id anchored by an empty span marks its item or heading, not the empty span', () => {
+  const p = runPage(builtPage({ 'design/design.md': RUNS }));
+  const hits = () => p.$$('[data-hit]').map((el: any) => `${el.tagName}#${el.id}`);
+  p.navigate('#d-IC-061');
+  assert.deepEqual(hits(), ['LI#d-IC-060'], 'a later id of a bullet run marks the bullet');
+  p.navigate('#d-CD-2');
+  assert.deepEqual(hits(), ['H3#design-cd-2-and-cd-3-a-heading'], 'an id-led heading is marked');
+  p.navigate('#d-IC-060');
+  assert.deepEqual(hits(), ['LI#d-IC-060']);
+  p.navigate('#design-cd-2-and-cd-3-a-heading');
+  assert.deepEqual(hits(), [], 'a heading reached as a section is not marked');
+});

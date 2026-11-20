@@ -1015,6 +1015,8 @@ function start() {
     // The hash moves without :target (history.pushState), so the reached id is marked here.
     if (reached) reached.removeAttribute('data-hit');
     reached = el && el !== view && !/^H[1-6]$/.test(el.tagName) ? el : null;
+    // An empty span anchors an id at the start of its item or heading: the item or heading is marked.
+    if (reached && reached.tagName === 'SPAN' && !reached.firstChild && reached.parentElement) reached = reached.parentElement;
     if (reached) reached.setAttribute('data-hit', '');
     spy();
   }
