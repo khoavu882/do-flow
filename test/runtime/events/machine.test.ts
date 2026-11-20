@@ -16,7 +16,7 @@ const { cwdHash } = require('../../../src/runtime/context/identity.ts');
 const { handleEventsCommand } = require('../../../src/runtime/events/command.ts');
 const { channelSpec } = require('../../../src/runtime/events/sections.ts');
 const { createProjectsIndex, REFRESH_MS } = require('../../../src/runtime/events/projects-index.ts');
-const { ACTIVITY_PROJECTS, GATE_LIMIT, STARTED_LIMIT } = require('../../../src/runtime/events/machine.ts');
+const { ACTIVITY_PROJECTS, GATE_LIMIT, STARTED_LIMIT, OPEN_RUN_LIMIT } = require('../../../src/runtime/events/machine.ts');
 
 const WIN = process.platform === 'win32';
 const SCRATCH = 'scratch.noindex'; // not in any fixture path, so the scratch projects are listed
@@ -210,8 +210,8 @@ test('161 IC-002: projects is the fleet body without root; activity summarizes t
   assert.deepEqual(activity.limits, { projects: 16, notShown: 1, watched: 7, fingerprintOnly: 2 });
   assert.deepEqual(activity.items.map((i: any) => i.projectKey), keysOf(projects).slice(0, 16), 'the first 16 in projects order');
   for (const item of activity.items) {
-    assert.deepEqual(Object.keys(item).sort(), ['gates', 'projectKey', 'runs', 'sessions', 'started', 'startedCount', 'unreadable', 'workers']);
-    assert.deepEqual([item.runs, item.gates, item.workers, item.sessions, item.started, item.startedCount, item.unreadable], [{ open: 0, awaiting: 0 }, [], { open: 0 }, { observed: 0, harnesses: [] }, [], 0, []]);
+    assert.deepEqual(Object.keys(item).sort(), ['gates', 'openRuns', 'projectKey', 'runs', 'sessions', 'started', 'startedCount', 'unreadable', 'workers']);
+    assert.deepEqual([item.runs, item.gates, item.openRuns, item.workers, item.sessions, item.started, item.startedCount, item.unreadable], [{ open: 0, awaiting: 0 }, [], [], { open: 0 }, { observed: 0, harnesses: [] }, [], 0, []]);
   }
   const text = JSON.stringify(sections);
   for (const root of roots) assert.ok(!text.includes(root), 'no project path');
@@ -267,6 +267,30 @@ test('161 IC-002: awaiting gates newest first and at most 8, open runs and worke
   assert.deepEqual(item.unreadable, ['task-orchestration', 'worker-runs']);
   assert.deepEqual([item.runs.awaiting, item.workers.open], [GATE_LIMIT + 2, 2]);
   assert.equal(counter.calls.length, gitCalls, 'the session reader got its checkout list from the index, not from git');
+});
+
+test('180 C2 IC-180-A: openRuns lists at most 8 open runs newest updatedAt first with seven fields; ended runs and an unreadable record are not listed', async (t) => {
+  const f = fixture(t);
+  const a = project(f, 'proj-a');
+  assert.equal(OPEN_RUN_LIMIT, 8);
+  // Ten open runs: even ones RUNNING (two stages, one done), odd ones AWAITING_GATE; updatedAt rises with i.
+  for (let i = 0; i < 10; i += 1) {
+    const updatedAt = `2026-11-15T0${i}:00:00.000Z`;
+    if (i % 2 === 1) awaiting(a, 'feat-a', `r${i}`, `gate-${i}`, updatedAt);
+    else journal(a, i === 0 ? null : 'feat-a', `r${i}`, { updatedAt, program: [{ type: 'stage', id: 's1', status: 'completed' }, { type: 'stage', id: 's2', status: 'pending' }], cursor: 1 });
+  }
+  for (const state of ['COMPLETED', 'REJECTED', 'CLOSED']) journal(a, 'feat-a', `ended-${state.toLowerCase()}`, { state, updatedAt: '2026-11-15T23:00:00.000Z' });
+  fs.writeFileSync(path.join(a, '.doflow', 'state', 'orchestration', 'feat-a', 'torn.json'), '{"version":');
+  const spec = channelSpec('machine', { cwd: a, env: f.env, index: indexFor(f, a, countingExec().exec) });
+  const item = (await spec.compute()).sections.activity.json.items[0];
+  assert.deepEqual(item.runs, { open: 10, awaiting: 5 }, 'the counts still cover every open run');
+  assert.equal(item.openRuns.length, OPEN_RUN_LIMIT);
+  assert.deepEqual(item.openRuns.map((r: any) => r.taskId), ['r9', 'r8', 'r7', 'r6', 'r5', 'r4', 'r3', 'r2'], 'newest updatedAt first, no ended run');
+  for (const r of item.openRuns) assert.deepEqual(Object.keys(r).sort(), ['gateName', 'slug', 'state', 'step', 'taskId', 'updatedAt', 'workflowName']);
+  assert.deepEqual(item.openRuns[0], { slug: 'feat-a', taskId: 'r9', state: 'AWAITING_GATE', workflowName: 'Feature Delivery', step: { done: 0, total: 1 }, updatedAt: '2026-11-15T09:00:00.000Z', gateName: 'Approve gate-9' });
+  assert.deepEqual(item.openRuns[1], { slug: 'feat-a', taskId: 'r8', state: 'RUNNING', workflowName: 'Feature Delivery', step: { done: 1, total: 2 }, updatedAt: '2026-11-15T08:00:00.000Z', gateName: null });
+  assert.deepEqual(item.unreadable, ['task-orchestration'], 'the torn record is named, not listed');
+  assert.equal(JSON.stringify(item.openRuns).includes('PRIVATE-PROMPT-161'), false, 'the gate prompt is not carried');
 });
 
 test('165 D8: open started sessions are listed newest first, at most 8, and are not counted as worker runs; an ended one is listed only below the cap, an ordinary run never', async (t) => {
