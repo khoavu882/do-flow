@@ -183,7 +183,8 @@
   },
   "retiredValues": {
     "team_site": ["review-check"],
-    "team_rule": ["separation"]
+    "team_rule": ["separation"],
+    "team_reason": ["ERR_REVIEWER_SELF_REVIEW", "no-author", "no-record", "no-seat-agent"]
   },
   "analysis": {
     "minSamples": 5,

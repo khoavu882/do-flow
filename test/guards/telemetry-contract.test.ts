@@ -817,7 +817,11 @@ test('G45.1 self-test: the real writer drops a key the registry lacks and writes
 
 test('G45.1: a retired vocabulary value stays registered, and a stored line that carries one still reads back whole', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
-  assert.deepEqual(registry.retiredValues, { team_site: ['review-check'], team_rule: ['separation'] });
+  assert.deepEqual(registry.retiredValues, {
+    team_site: ['review-check'],
+    team_rule: ['separation'],
+    team_reason: ['ERR_REVIEWER_SELF_REVIEW', 'no-author', 'no-record', 'no-seat-agent'],
+  });
   for (const [name, values] of Object.entries(registry.retiredValues)) {
     for (const value of values as string[]) assert.ok(registry.vocabularies[name].includes(value), `${name} keeps the retired '${value}' so stored lines validate`);
   }
