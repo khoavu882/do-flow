@@ -32,6 +32,9 @@ SESSION_ID=$(json_field "$INPUT" ".session_id")
 [[ -n "$SESSION_DIR" ]] || exit 0
 
 EVENT=$(json_field "$INPUT" ".hook_event_name")
+# Row 180 IC-180-D2: this event answers an open ask (attention-answered step; no output, never fails).
+ATTENTION_STEP="$(dirname "$0")/../../.doflow/shared/hooks/bridge/observe-attention.sh"
+[ ! -f "$ATTENTION_STEP" ] || ( . "$ATTENTION_STEP" && doflow_attention_answered claude "$EVENT" "$SESSION_ID" ) >/dev/null 2>&1 </dev/null || true
 TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 REASON=$(json_field "$INPUT" ".permission_decision_reason")
 TIMESTAMP=$(date -u +%FT%TZ)

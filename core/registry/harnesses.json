@@ -524,6 +524,50 @@
         "verification": "Read the env-vars page for CLAUDE_EFFORT, CLAUDE_CODE_SESSION_ID and CLAUDE_CODE_CHILD_SESSION and the hooks page for effort.level; in a Claude Code Bash tool run `printenv CLAUDE_EFFORT` once per login mode.",
         "verifiedOn": "2026-11-20"
       },
+      "attention": {
+        "status": "supported",
+        "sessionField": "session_id",
+        "asks": [
+          {
+            "event": "PermissionRequest",
+            "kind": "permission",
+            "toolField": "tool_name"
+          },
+          {
+            "event": "Notification",
+            "kindField": "notification_type",
+            "kinds": {
+              "permission_prompt": "permission",
+              "elicitation_dialog": "question",
+              "elicitation_url_dialog": "question",
+              "idle_prompt": "idle"
+            },
+            "skip": [
+              "auth_success",
+              "elicitation_complete",
+              "elicitation_response",
+              "agent_completed",
+              "quota_auto_resume_fired",
+              "quota_auto_resume_stale",
+              "quota_auto_resume_disabled",
+              "plugin_notification"
+            ],
+            "otherwise": "other"
+          }
+        ],
+        "answeredBy": [
+          "UserPromptSubmit",
+          "PermissionDenied",
+          "Stop",
+          "PostToolUse",
+          "PostToolUseFailure"
+        ],
+        "evidence": [
+          "https://code.claude.com/docs/en/hooks"
+        ],
+        "verification": "Read the hooks page for the PermissionRequest input (tool_name) and the Notification input and its notification_type values; a type not listed records as other.",
+        "verifiedOn": "2026-11-20"
+      },
       "contextProfile": {
         "capacityTokens": {
           "value": 200000,
@@ -1298,6 +1342,10 @@
         "verifiedOn": "2026-11-19",
         "reason": "no recorded variable marks a Codex tool shell; `model_reasoning_effort` in `$CODEX_HOME/config.toml` is the source once one is recorded"
       },
+      "attention": {
+        "status": "unknown",
+        "reason": "no-harness-record"
+      },
       "contextProfile": {
         "capacityTokens": {
           "value": 200000,
@@ -1883,6 +1931,10 @@
         "verification": "In an opencode tool shell run `env` once and read the opencode docs for a variable that marks the session and one that holds its effort; record both in this entry.",
         "verifiedOn": "2026-11-19",
         "reason": "no evidence of a marker or a session level for opencode"
+      },
+      "attention": {
+        "status": "unknown",
+        "reason": "no-harness-record"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -2595,6 +2647,10 @@
         "verifiedOn": "2026-11-19",
         "reason": "no recorded variable marks a Pi tool shell; `defaultThinkingLevel` is the startup level, not the running one"
       },
+      "attention": {
+        "status": "unknown",
+        "reason": "no-harness-record"
+      },
       "contextProfile": {
         "capacityTokens": {
           "value": 128000,
@@ -3170,6 +3226,10 @@
         "verifiedOn": "2026-11-19",
         "reason": "no evidence of a marker or a session level for copilot"
       },
+      "attention": {
+        "status": "unknown",
+        "reason": "no-harness-record"
+      },
       "contextProfile": {
         "capacityTokens": {
           "value": 128000,
@@ -3661,6 +3721,10 @@
         "verification": "When `kiro-cli` may be run, run `env` once in one of its tool shells and read its docs for a variable that marks the session and one that holds its effort; record both in this entry.",
         "verifiedOn": "2026-11-19",
         "reason": "`kiro-cli` is not run, so no marker or session level is recorded for kiro"
+      },
+      "attention": {
+        "status": "unknown",
+        "reason": "no-harness-record"
       },
       "contextProfile": {
         "capacityTokens": {
@@ -4175,6 +4239,10 @@
         "verification": "In an `agy` tool shell run `env` once and read its docs for a variable that marks the session and one that holds its effort; record both in this entry.",
         "verifiedOn": "2026-11-19",
         "reason": "no evidence of a marker or a session level for antigravity"
+      },
+      "attention": {
+        "status": "unknown",
+        "reason": "no-harness-record"
       },
       "contextProfile": {
         "capacityTokens": {

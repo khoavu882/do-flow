@@ -2,6 +2,8 @@
 case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # Shared lifecycle bridge. Sourcing defines functions only; it sets no shell options or traps.
 _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_BRIDGE_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_BRIDGE_DIR=. ;; esac
+# The envelope's session id (identity.session, the first key of identity in envelope.jq) for the attention-answered step.
+_DOFLOW_BRIDGE_SESSION_RE='"doflow_event":\{.*"identity":\{"session":"([A-Za-z0-9][A-Za-z0-9._-]{0,127})"'
 
 doflow_bridge_failure() {
   local policy="$1" point="$2"
@@ -171,6 +173,12 @@ doflow_bridge() {
           [ ! -f "$_DOFLOW_BRIDGE_DIR/observe-effort.sh" ] || ( . "$_DOFLOW_BRIDGE_DIR/observe-effort.sh" && doflow_observe_effort "$harness" "$payload" ) >/dev/null 2>&1 </dev/null || true
           ;;
       esac
+      # Step attention-answered (row 180 IC-180-D2): an event the harness's attention entry lists in answeredBy marks the
+      # session's open ask answered; with no attention.log it is one file test. Same rule: no decision, code or stream.
+      # A regex, not ${payload#*...}: a payload can be large, and bash's prefix removal is quadratic in its length.
+      if [[ $payload =~ $_DOFLOW_BRIDGE_SESSION_RE ]] && [ -f "$_DOFLOW_BRIDGE_DIR/observe-attention.sh" ]; then
+        ( . "$_DOFLOW_BRIDGE_DIR/observe-attention.sh" && doflow_attention_answered "$harness" "$event" "${BASH_REMATCH[1]}" ) >/dev/null 2>&1 </dev/null || true
+      fi
     fi
   else
     doflow_bridge_failure "$policy" dependency-missing:jq

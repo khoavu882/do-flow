@@ -17,6 +17,10 @@ INPUT=$(cat)
 SESSION_ID=$(json_field "$INPUT" ".session_id")
 TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 
+# Row 180 IC-180-D2: this event answers an open ask (attention-answered step; no output, never fails).
+ATTENTION_STEP="$(dirname "$0")/../../.doflow/shared/hooks/bridge/observe-attention.sh"
+[ ! -f "$ATTENTION_STEP" ] || ( . "$ATTENTION_STEP" && doflow_attention_answered claude PostToolUse "$SESSION_ID" ) >/dev/null 2>&1 </dev/null || true
+
 # Only handle Edit and Write events
 [[ "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "Write" ]] && exit 0
 

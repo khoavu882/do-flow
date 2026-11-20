@@ -9,7 +9,7 @@
 //   gates      <= 8 runs x <= 8 gate events {runKey, slug, taskId, gateId, name, state, at, by}
 //   artifacts  <= 64 newest briefs, reports, envelopes, prompts, worker logs (artifacts.ts)
 //   reviews    <= 16 features {worktreeKey, feature, state, reason?, counts?} (countFindings, <= 1 MiB each)
-//   sessions   <= 16 sessions {sessionKey, harness, audit, denials}         session dirs, audit tails
+//   sessions   <= 16 sessions {sessionKey, harness, audit, denials, attention} session dirs, audit tails
 //   traffic    the transcript stats body (computeStats)                       derived, <= 1 per 5000 ms
 //   coverage   per registry harness, what is observed and why not (coverage.ts)          full pass
 //   channels   170 IC-004: <= 16 started sessions {runId, channel, turn, sent, recent} (session-channels.ts)  derived, never throttled
@@ -40,7 +40,7 @@ const { computeStats } = require('../transcripts/stats.ts');
 const { isSafeSlug } = require('../task-scope.ts');
 const { isChannelId } = require('./channels.ts');
 const { scanArtifacts, artifactDirs } = require('./artifacts.ts');
-const { coverageBody, AUDIT } = require('./coverage.ts');
+const { coverageBody, attentionCoverage, AUDIT } = require('./coverage.ts');
 const { openConfined, readConfined } = require('./confined.ts');
 const { channelsBody } = require('./session-channels.ts');
 
@@ -80,6 +80,11 @@ const SESSION_LIMIT = 16;
 const AUDIT_RECENT = 8;
 const DENIAL_RECENT = 3;
 const DENIAL_REASON_CHARS = 200;
+/** IC-180-D3: the newest asks a session's attention entry lists. */
+const ATTENTION_RECENT = 4;
+const ATTENTION_KINDS: readonly string[] = Object.freeze(['permission', 'question', 'idle', 'other']);
+/** A tool name as observe-attention.sh writes it; anything else reads as no tool. */
+const ATTENTION_TOOL = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 /** The tail of an audit log read per recompute. Ceiling: counts cover the last 256 KiB (about 1500 lines). */
 const AUDIT_TAIL_BYTES = 256 * 1024;
 /** A tail is fingerprinted by the 250 ms log pass while its file changed in the last 10 minutes. */
@@ -93,6 +98,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const AUDIT_FILE = 'subagent-audit.log';
 const DENIAL_FILE = 'permission-audit.log';
+const ATTENTION_FILE = 'attention.log';
 /** The harnesses whose audit `agent_id` is the tree's subagent id (`tree.ts`: claude files, copilot children). */
 const AUDIT_JOINS: readonly string[] = Object.freeze(['claude', 'copilot']);
 
@@ -288,6 +294,31 @@ function denialsOf(root: string, file: string, harness: string | null, fsImpl: a
   return { observed: true, count: recent.length, recent: recent.slice(-DENIAL_RECENT).reverse() };
 }
 
+/**
+ * An `attention.log` (IC-180-D3): the open ask (`pending`, null once an `answered` line follows it), the count of asks and
+ * the newest ATTENTION_RECENT, newest first. Its lines hold a kind, a tool name and a time only (O-1 a).
+ */
+function attentionOf(root: string, file: string, harness: string | null, fsImpl: any): any {
+  const lines = tailLines(root, file, fsImpl);
+  if (lines === 'unreadable') return { observed: false, reason: 'unreadable' };
+  if (lines === 'absent') {
+    const covered = attentionCoverage(harness);
+    return covered.observed ? { observed: true, pending: null, count: 0, recent: [] } : covered;
+  }
+  const asks: any[] = [];
+  let pending: any = null;
+  for (const line of lines) {
+    const doc = jsonLine(line);
+    const at = doc ? isoAt(doc.at) : null;
+    if (at === null) continue;
+    if (doc.event === 'answered') { pending = null; continue; }
+    if (!ATTENTION_KINDS.includes(doc.kind)) continue;
+    pending = { kind: doc.kind, tool: typeof doc.tool === 'string' && ATTENTION_TOOL.test(doc.tool) ? doc.tool : '', at };
+    asks.push(pending);
+  }
+  return { observed: true, pending, count: asks.length, recent: asks.slice(-ATTENTION_RECENT).reverse() };
+}
+
 /** The project's SESSION_LIMIT newest hook sessions (observedSessions order) with the directory each one's id names. */
 type Shown = { ok: boolean; root: string | null; sessions: Array<{ s: any; dir: string | null }> };
 
@@ -314,6 +345,7 @@ function sessionsSection(shown: Shown, fsImpl: any): SectionResult {
       harness,
       audit: dir === null ? { observed: false, reason: 'no-session-dir' } : auditOf(root, path.join(dir, AUDIT_FILE), harness, fsImpl),
       denials: dir === null ? { observed: false, reason: 'no-session-dir' } : denialsOf(root, path.join(dir, DENIAL_FILE), harness, fsImpl),
+      attention: dir === null ? { observed: false, reason: 'no-session-dir' } : attentionOf(root, path.join(dir, ATTENTION_FILE), harness, fsImpl),
     };
   }));
 }
@@ -366,8 +398,8 @@ function layersSpec(channel: { kind: 'layers'; name: string; projectKey: string 
     if (sessions !== null) directories.push({ path: sessions, match: SESSION_ENTRY, sections: ['tree', 'sessions'] });
     const tails: any[] = [];
     for (const dir of sessionDirs) {
-      directories.push({ path: dir, match: /^(?:subagent|permission)-audit\.log$/, sections: ['sessions'] });
-      for (const name of [AUDIT_FILE, DENIAL_FILE]) {
+      directories.push({ path: dir, match: /^(?:(?:subagent|permission)-audit|attention)\.log$/, sections: ['sessions'] });
+      for (const name of [AUDIT_FILE, DENIAL_FILE, ATTENTION_FILE]) {
         const file = path.join(dir, name);
         tails.push({ path: file, sections: ['sessions'], active: () => { try { return index.now() - fsImpl.statSync(file).mtimeMs < TAIL_ACTIVE_MS; } catch { return false; } } });
       }

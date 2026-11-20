@@ -1,0 +1,40 @@
+{
+  "claude": {
+    "sessionField": "session_id",
+    "asks": [
+      {
+        "event": "PermissionRequest",
+        "kind": "permission",
+        "toolField": "tool_name"
+      },
+      {
+        "event": "Notification",
+        "kindField": "notification_type",
+        "kinds": {
+          "permission_prompt": "permission",
+          "elicitation_dialog": "question",
+          "elicitation_url_dialog": "question",
+          "idle_prompt": "idle"
+        },
+        "skip": [
+          "auth_success",
+          "elicitation_complete",
+          "elicitation_response",
+          "agent_completed",
+          "quota_auto_resume_fired",
+          "quota_auto_resume_stale",
+          "quota_auto_resume_disabled",
+          "plugin_notification"
+        ],
+        "otherwise": "other"
+      }
+    ],
+    "answeredBy": [
+      "UserPromptSubmit",
+      "PermissionDenied",
+      "Stop",
+      "PostToolUse",
+      "PostToolUseFailure"
+    ]
+  }
+}

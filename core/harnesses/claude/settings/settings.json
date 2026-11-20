@@ -213,6 +213,27 @@
           }
         ]
       }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/attention-audit.sh PermissionRequest"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/attention-audit.sh Notification"
+          }
+        ]
+      }
     ]
   }
 }

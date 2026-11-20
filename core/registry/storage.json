@@ -688,6 +688,7 @@
         "core/harnesses/codex/hooks/lib.sh",
         "core/harnesses/codex/hooks/post-edit-lint.impl.sh",
         "core/harnesses/kiro/hooks/lib.sh",
+        "core/harnesses/shared/hooks/bridge/observe-attention.sh",
         "core/harnesses/shared/hooks/policies/emission.sh",
         "core/harnesses/shared/hooks/policies/identity.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",

@@ -1495,6 +1495,10 @@
       "approvedOn": "2026-10-13"
     },
     {
+      "surfaceId": "hook.claude.attention-audit",
+      "unmeasured": "row 180 K3a times the observe-attention step in test/hooks/observe-attention.test.ts; no ceiling is approved"
+    },
+    {
       "surfaceId": "hook.claude.mcp-tool-guard",
       "unmeasured": "measurement deferred to V.2"
     },

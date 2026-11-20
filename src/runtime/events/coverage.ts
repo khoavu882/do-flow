@@ -10,10 +10,12 @@
 //   subagents    the harness's front door runs `subagent-audit` (AUDIT below)
 //   transcript   the transcript registry has a reader for it and a join that is not `none`
 //   permissions  the harness's front door runs `permission-audit` (AUDIT below; claude only, D8)
-//   questions    never: no harness writes a record of a question or a pending prompt (D7)
+//   questions    row 180 IC-180-D3: the harness's registry `attention` entry is `supported` (its front door runs the
+//                shared observe-attention step and writes attention.log), else not observed with the entry's reason
 //
-// AUDIT is checked against the front-door hooks on disk by test/runtime/events/layers.test.ts:
-// a hook added or removed without this table moving fails that test. Read-only; no path leaves.
+// AUDIT, and the harnesses whose `attention` is supported, are checked against the front-door hooks on disk by
+// test/runtime/events/layers.test.ts: a hook added or removed without them moving fails that test. Read-only; no path
+// leaves.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -30,14 +32,27 @@ type Observed = { observed: true } | { observed: false; reason: string };
 const yes = (): Observed => ({ observed: true });
 const no = (reason: string): Observed => ({ observed: false, reason });
 
-/** The registry harnesses and whether their hooks observe the model (`primary.ts`'s rule); read once per process. */
-let harnesses: Array<{ id: string; payload: boolean }> | null = null;
-function registryHarnesses(): Array<{ id: string; payload: boolean }> {
+type RegistryHarness = { id: string; payload: boolean; attention: Observed };
+/**
+ * The registry harnesses, whether their hooks observe the model (`primary.ts`'s rule) and whether they record asks
+ * (their `attention` entry, src/registry/attention.ts); read once per process.
+ */
+let harnesses: RegistryHarness[] | null = null;
+function registryHarnesses(): RegistryHarness[] {
   if (harnesses === null) {
     const parsed = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8'));
-    harnesses = parsed.harnesses.map((h: any) => ({ id: h.id, payload: h.primaryProbe?.model === 'payload' }));
+    harnesses = parsed.harnesses.map((h: any) => ({
+      id: h.id,
+      payload: h.primaryProbe?.model === 'payload',
+      attention: h.attention?.status === 'supported' ? yes() : no(typeof h.attention?.reason === 'string' ? h.attention.reason : 'no-harness-record'),
+    }));
   }
-  return harnesses as Array<{ id: string; payload: boolean }>;
+  return harnesses as RegistryHarness[];
+}
+
+/** Whether a harness's hooks write attention.log, and why not (IC-180-D3); an unknown or null harness is not observed. */
+function attentionCoverage(harness: string | null): Observed {
+  return registryHarnesses().find((h) => h.id === harness)?.attention ?? no('no-harness-record');
 }
 
 /** The IC-003 `coverage` body: one row per registry harness. */
@@ -45,7 +60,7 @@ function coverageBody(): any[] {
   const loaded = loadTranscriptRegistry();
   const transcripts: Record<string, any> = {};
   for (const entry of loaded.ok ? loaded.registry.entries : []) transcripts[entry.harness] = entry;
-  return registryHarnesses().map(({ id, payload }) => {
+  return registryHarnesses().map(({ id, payload, attention }) => {
     const t = transcripts[id];
     return {
       harness: id,
@@ -53,9 +68,9 @@ function coverageBody(): any[] {
       subagents: AUDIT.subagents.includes(id) ? yes() : no('no-audit-hook'),
       transcript: !t || t.reader === null ? no('no-reader') : t.join === 'none' ? no('not-linked') : yes(),
       permissions: AUDIT.permissions.includes(id) ? yes() : no('no-harness-record'),
-      questions: no('no-harness-record'),
+      questions: attention,
     };
   });
 }
 
-module.exports = { coverageBody, AUDIT };
+module.exports = { coverageBody, attentionCoverage, AUDIT };
