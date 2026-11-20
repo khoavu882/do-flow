@@ -11,8 +11,8 @@ native tracking mechanisms — no external memory-server dependency.
 
 ## Task Hierarchy
 
-📋 **Plan** → task-list goal-level entry, or `plan.md`'s Approach when inside a doflow-chain feature
-→ 🎯 **Phase** → task-list entry per phase, or `plan.md` §8's `### Phase X` heading
+📋 **Plan** → task-list goal-level entry, or `plan.md`'s Implementation Approach when inside a doflow-chain feature
+→ 🎯 **Phase** → task-list entry per phase, or `plan.md` §7's `### Phase X` heading
   → 📦 **Task** → task-list entry per deliverable, or `plan.md`'s `- [ ]` task line
     → ✓ **Todo** → task-list entry, marked `completed` immediately on finishing it
 
@@ -20,7 +20,7 @@ native tracking mechanisms — no external memory-server dependency.
 
 > **Two tiers, not one.** The session task list (the harness's own task tool) is session-local — it does not survive a compact or a new
 > session. For anything that must resume after an interruption, the doflow chain's own
-> `agent-docs/doflow/<slug>/state.md` (Completed / In Progress / Blocked / Next Action) is the
+> `agent-docs/doflow/<slug>/state.md` (Task Ledger / In Progress / Blocked / Next Action) is the
 > cross-session record — the same file `/do-execute-plan` reads and writes at every checkpoint.
 > A task outside an active doflow-chain feature has no cross-session record by default; say so
 > plainly rather than assuming persistence that isn't there.
@@ -42,7 +42,7 @@ native tracking mechanisms — no external memory-server dependency.
 1. Task list: exactly one task "in_progress" at a time
 2. Mark a task "completed" immediately on finishing it, not in a batch
 3. Inside a doflow-chain feature: check off the matching plan.md task and update state.md's
-   Completed/In Progress sections at each checkpoint, not just at session end
+   Task Ledger and In Progress sections at each checkpoint, not just at session end
 ```
 
 ### Session End

@@ -10,10 +10,11 @@ How to use it:
   §4 Non-Functional Requirements, with at least one acceptance criterion in §6 that tests it. The
   Kind column takes the closest of the template's values; the row's label names the concern
   (accessibility, cost, privacy, compatibility, freshness).
-- In `design.md`, add each part under "Design" below as a `###` subsection at the end of
-  §5 Components & Boundaries, with the heading given here.
+- In `design.md`, add each part under "Design" below as a `###` subsection at the end of the
+  Components & Boundaries section, with the heading given here.
 - A part that says it belongs in `specs.md` or `data-model.md` goes there, as
-  `references/ARTIFACT_FORMAT.md` places it; `design.md` keeps the pointer those sections already have.
+  `references/ARTIFACT_FORMAT.md` §7 places it; `design.md`'s Components & Boundaries section
+  carries the one line that points at them.
 - A part that does not apply is not written. A part that applies but has nothing to decide is one
   line: `N/A: [why]`.
 

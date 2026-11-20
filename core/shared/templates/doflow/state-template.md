@@ -27,8 +27,8 @@
 
 ## Task Ledger
 
-> Per-task execution facts, appended as each task finishes — the durable record the status sections
-> below summarise. `Rounds` is `<used>/<cap>` review-fix rounds (`0` = review passed first time,
+> Per-task execution facts, appended as each task finishes: the one execution record of which tasks are done.
+> The sections below say only what is true now. `Rounds` is `<used>/<cap>` review-fix rounds (`0` = review passed first time,
 > `—` = not reviewed). `Review` is `clean`, `N open`, or `n/a`. `Status` here is execution state, not
 > the `Live`/`Superseded` vocabulary artifacts use — this file sits outside that convention.
 > A task with a `complete` row is DONE: never re-dispatch it, resume at the first task without one.
@@ -45,9 +45,6 @@
 
 - **[A.2] deferred (minor)** — [one-liner].
 - **[B.1] parked** — [finding] — ruling: [why the code stands, or that it is real and deferred].
-
-## Completed
-- [ ] [task ref, e.g. A.1] — [one-line summary]
 
 ## In Progress
 - [task ref] — [what's happening now]

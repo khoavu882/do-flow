@@ -117,21 +117,21 @@ a `design.md` for it invents an artifact its workflow never reads.
    from concrete interface contracts (`specs.md` with numbered `IC-###` items) and from the
    entity/data-flow shape (`data-model.md`) enables downstream `/do-plan` and implementation tasks
    to cite stable, unambiguous contract IDs and named entities rather than fragile paragraphs.
-   The narrative sections — Architecture Approach, System Overview (C4), Concepts, Journeys,
-   Components & Boundaries, Design Risks, Open Points, Assumptions, History — stay in `design.md`. The
-   technical scaffolding `references/ARTIFACT_FORMAT.md` §7 names — the template's API / Interface Contracts —
-   moves to `specs.md`, built from `templates/doflow/specs-template.md`, where each contract
-   becomes one `IC-###` entry under that template's index-then-detail §1 so `plan.md` and
-   implementation can cite a contract by id instead of a paragraph. The template's Data
-   Model and Sequence / Data Flow move to `data-model.md`, built from
-   `templates/doflow/data-model-template.md`, as its §1 Data Model and §2 Sequence / Data Flow
-   respectively — neither carries an `ID`-bearing index, so `plan.md` cites this content by
-   entity/table name instead of an id. Leave `design.md`'s API / Interface Contracts, Data Model and Sequence / Data Flow sections as a one-line
-   pointer to `./specs.md` §1 and `./data-model.md` §1/§2 respectively rather than restating their
-   content in any of the three files.
+   `design.md` holds the narrative: Architecture Approach, System Overview (C4), Concepts, Journeys,
+   Components & Boundaries, Design Risks & Alternatives Considered, Open Points for Review and
+   History. The interface contracts `references/ARTIFACT_FORMAT.md` §7 routes go to `specs.md`,
+   built from `templates/doflow/specs-template.md`, where each contract becomes one `IC-###` entry
+   under that template's index-then-detail §1 so `plan.md` and implementation can cite a contract
+   by id instead of a paragraph. The data model and the interaction flows go to `data-model.md`,
+   built from `templates/doflow/data-model-template.md`, as its §1 Data Model and §2 Sequence /
+   Data Flow; neither carries an `ID`-bearing index, so `plan.md` cites this content by
+   entity/table name instead of an id. `design.md` has no section for either: the template's one
+   line under Components & Boundaries points at `./specs.md` §1 and `./data-model.md` §1 and §2, and
+   none of the three files restates another's content.
    Fill `data-model.md` §1 to §9. Read `references/data_model_example.md` only while filling it.
-   Each table row ends in a Source tag; copy every `proposed` row to `design.md` Open Points for
-   Review. `design.md` Journeys keep user-visible states only and link to `./data-model.md` §3 for
+   Each table row ends in a Source tag; for every `proposed` or `UNKNOWN -> Open Point` row, write
+   one `design.md` Open Points for Review bullet that asks its question and names the row, without
+   restating it. `design.md` Journeys keep user-visible states only and link to `./data-model.md` §3 for
    the entity states.
 The template is `templates/doflow/design-template.md` in the install step 1 resolved: take `constitution_base` from that JSON and swap its trailing `guidance/references/CONSTITUTION_BASE.md` for that path.
    Fill `[REQUIREMENT_PATH]` with step 1's own resolved `requirement` field, verbatim
@@ -139,9 +139,10 @@ The template is `templates/doflow/design-template.md` in the install step 1 reso
    artifacts sit in sibling subdirectories (`design/design.md` vs `intention/requirement.md`), so a
    hand-computed path would be wrong. Reading it off the resolver, the same way `constitution_base`
    already is, is what keeps the pointer correct.
-   the template's "Assumptions" section must read "None" unless a design-level
-   clarification question was resolved via the defer escape hatch in Step 5, in which case record it
-   there with a one-line rationale.
+   A design-level clarification question resolved via the defer escape hatch in Step 5 becomes a row
+   of `requirement.md` §8 Assumptions, at step 1's `requirement` path, with a one-line rationale:
+   Stage `design`, Affects the component or contract it bears on, numbered on from the last `A#`.
+   `design.md` has no Assumptions section.
 Structure the artifact per the guidance tree's `references/ARTIFACT_FORMAT.md` — read it before filling the template; it names which of this artifact's sections take an index-then-detail table.
 When this feature authors its C4 in PlantUML under `<feature dir>/design/c4/`, run the render and
    projection before finishing this step, so the System Overview inline diagram is current at the moment the
@@ -197,7 +198,7 @@ Run the ideation pass of `../do-document/references/embedded-research.md` before
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read `requirement.md`, produce
 system-shape design decisions, log each clarification round to `design/`, write `design.md`,
-`specs.md` and `data-model.md`, batch the stage's evidence and claims at the boundary, record the
+`specs.md` and `data-model.md`, append a deferred design question to `requirement.md` §8 Assumptions, batch the stage's evidence and claims at the boundary, record the
 stage handoff through `orchestrate`/`render-audit`, with one MCP outcome per server Step 5 names.
 **Will Not:** write `plan.md` (implementation approach/task decomposition — that's `/do-plan`),
 write code, execute anything, design under a class the runtime rejected or replaced with `feature`,
@@ -206,6 +207,7 @@ call `readiness` for a stage that declares no template; or express evidence, an 
 ## CRITICAL BOUNDARIES
 **STOP AFTER DESIGN CREATION.** Output: `agent-docs/doflow/<slug>/design/design.md` (narrative),
 `design/specs.md` (interface contracts), and `design/data-model.md` (data model + data flow),
-alongside that stage's `design/design-<NN>-question.md` dialogue logs.
+alongside that stage's `design/design-<NN>-question.md` dialogue logs, plus any design-stage row
+appended to `intention/requirement.md` §8 Assumptions.
 
 **Next Step:** `/do-plan` to turn the design into an implementation plan (HOW to build it).

@@ -24,7 +24,7 @@
 **Tier:** SHOULD
 [PRINCIPLE_2_STATEMENT.]
 
-## Constraints
+## Repository constraints
 - [stack / tooling / process constraint specific to this repo].
 
 ## Governance

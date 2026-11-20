@@ -2,10 +2,9 @@
 
 **Feature:** [NNN-slug] · **Design:** ./design.md · **Maturity:** Draft · **Created:** [DATE]
 
-> Entity/data model, lifecycles and data-flow diagrams a design decided, split out of design.md's own
-> narrative (Data Model and Sequence / Data Flow) and specs.md's interface-contract detail (§1). Reads
-> ./design.md; distinct from ./specs.md the way a persisted shape and the flows that move through it
-> are distinct from the contracts that expose them.
+> The entity/data model, interaction flows and lifecycles the design decided; the one place for
+> them. Reads ./design.md; distinct from ./specs.md the way a persisted shape and the flows that move
+> through it are distinct from the contracts that expose them.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: the document-level `Maturity` is `Draft`,
 > `In review` or `Approved`. The file has nine sections. Only §9 History carries an `ID`-bearing
@@ -15,7 +14,8 @@
 <!-- Rules for every section below.
      Source: each row of the §1 dictionary and of every table in §3 to §8 ends with a Source cell
      holding exactly one of: FR-###, NFR-###, IC-###, code:<path>:<line>, proposed, UNKNOWN -> Open Point.
-     A `proposed` or `UNKNOWN -> Open Point` row is copied to design.md Open Points for Review.
+     A `proposed` or `UNKNOWN -> Open Point` row gets one bullet in design.md Open Points for Review
+     that asks its question and names the row; the row itself stays here only.
      Placeholders are bracketed and bare; fill them, never leave a row of placeholders in place.
      A conditional section accepts "N/A: [why]" in place of its content.
      Worked example, read only while filling this file: do-design/references/data_model_example.md -->

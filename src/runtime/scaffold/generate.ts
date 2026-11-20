@@ -58,7 +58,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { finishRuntime } = require('../cli-result.ts');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
-const { parseRequirement, parseDesign, parsePlan } = require('./artifacts.ts');
+const { parseRequirement, parseDesign, parseSpecs, parsePlan } = require('./artifacts.ts');
 const {
   EXTENSION_LANGUAGE,
   PROSE_EXTENSIONS,
@@ -117,6 +117,9 @@ const ARTIFACT_PATHS: Readonly<Record<string, string>> = Object.freeze({
   'design.md': 'design/design.md',
   'plan.md': 'plan.md',
 });
+
+/** The optional fourth source: the interface contracts a design moved out of design.md. Read when the feature has one, never required. */
+const SPECS_PATH = 'design/specs.md';
 
 /**
  * Uniform exit codes, matching design §4.2's contract for every DoFlow verb.
@@ -195,6 +198,9 @@ function readArtifacts(featureDir: string, fsImpl: any): { sources: any[]; notEv
       notEvaluated.push({ what: name, why: 'artifact not found in the feature directory' });
     }
   }
+  const specs = readIfPresent(path.join(featureDir, SPECS_PATH), fsImpl);
+  texts['specs.md'] = specs;
+  if (specs !== null) sources.push({ name: 'specs.md', present: true, sha256: sha256(specs) });
   return { sources, notEvaluated, texts };
 }
 
@@ -206,7 +212,11 @@ function readArtifacts(featureDir: string, fsImpl: any): { sources: any[]; notEv
  */
 function parseArtifacts(texts: Record<string, string | null>): { requirement: any; design: any; plan: any; notEvaluated: any[] } {
   const requirement = texts['requirement.md'] ? parseRequirement(texts['requirement.md']) : { requirements: new Map(), criteria: [], gaps: [] };
-  const design = texts['design.md'] ? parseDesign(texts['design.md']) : { components: new Map(), gaps: [] };
+  const design = texts['design.md'] ? parseDesign(texts['design.md']) : { components: new Map(), gaps: [], hasContracts: false };
+  const specsDeclare = texts['specs.md'] ? parseSpecs(texts['specs.md'], design.components) : false;
+  if (texts['design.md'] && !design.hasContracts && !specsDeclare) {
+    design.gaps.push({ artifact: 'design.md', what: 'interface contracts', why: 'neither design.md nor specs.md §1 declares an interface — every emitted file falls back to a placeholder signature' });
+  }
   const plan = texts['plan.md'] ? parsePlan(texts['plan.md']) : { tasks: [], gaps: [] };
   const notEvaluated: any[] = [];
   for (const gap of [...requirement.gaps, ...design.gaps, ...plan.gaps]) {
@@ -280,9 +290,10 @@ function groupTasksByFile(tasks: any[]): { byPath: Map<string, any[]>; skipped: 
  * @param {string} options.slug
  * @param {string} options.message the pinned "not implemented" signal
  * @param {Function} options.traceTask from `buildTraceabilityIndex`
+ * @param {boolean} options.hasSpecs whether `design/specs.md` was read, so the stub header names it
  * @returns {{ planned: Map<string, Object>, skipped: Array<Object>, shapeUndeclared: Array<Object> }}
  */
-function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask }: any): { planned: Map<string, any>; skipped: any[]; shapeUndeclared: any[] } {
+function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask, hasSpecs }: any): { planned: Map<string, any>; skipped: any[]; shapeUndeclared: any[] } {
   const planned = new Map<string, any>();   // relative-to-scaffoldDir path → { body, header, kind, from }
   const skipped: any[] = [];
   const shapeUndeclared: any[] = [];
@@ -332,7 +343,7 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
     const declared = comps.flatMap((c: any) => c.declared.map((d: any) => ({ ...d, component: c.id })));
 
     const header = [
-      `doflow scaffold — generated from ${slug}'s requirement.md, design.md and plan.md.`,
+      `doflow scaffold — generated from ${slug}'s requirement.md, design.md${hasSpecs ? ', design/specs.md' : ''} and plan.md.`,
       'Signatures and stubs only. Do not implement here; this tree is never promoted automatically.',
       '',
       `intended path: ${file}`,
@@ -347,23 +358,23 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
 
     const bodyParts: string[] = [''];
     if (declared.length) {
-      header.push(`shape:         declared in design.md API / Interface Contracts (${[...new Set(declared.map((d: any) => d.component))].join(', ')}), quoted below`);
+      header.push(`shape:         declared in ${[...new Set(declared.map((d: any) => d.source))].join(' and ')} interface contracts (${[...new Set(declared.map((d: any) => d.component))].join(', ')}), quoted below`);
       for (const decl of declared) {
         const lines = decl.block.split('\n');
         const shown = lines.slice(0, 40);
         bodyParts.push([
-          emitter.line(`declared interface — design.md "${decl.heading}", verbatim:`),
+          emitter.line(`declared interface — ${decl.source} "${decl.heading}", verbatim:`),
           ...shown.map((l: string) => emitter.line(`  ${l}`.replace(/\s+$/, ''))),
-          ...(lines.length > shown.length ? [emitter.line(`  … ${lines.length - shown.length} more lines in design.md`)] : []),
+          ...(lines.length > shown.length ? [emitter.line(`  … ${lines.length - shown.length} more lines in ${decl.source}`)] : []),
           '',
         ].join('\n'));
       }
     } else {
-      header.push('shape:         not declared in design.md API / Interface Contracts — placeholder signature below');
+      header.push('shape:         no interface contract is attributed to this file\'s component in design.md or specs.md — placeholder signature below');
       // Not a skip — the file was emitted. Conflating the two would let 29 "we wrote it, but the
       // design never said what it should look like" rows hide inside a skip count, which is the
       // opposite of what the manifest is for.
-      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'design.md API / Interface Contracts declares no interface for this file\'s component — the signature below is a placeholder, not a contract' });
+      shapeUndeclared.push({ path: path.join('src', file) + STUB_SUFFIX, why: 'no contract is attributed to this file\'s component — the signature below is a placeholder, not a contract' });
     }
 
     const pkg = snake(words(path.basename(path.dirname(file)) || 'scaffold')).replace(/_/g, '');
@@ -377,7 +388,7 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
     planned.set(path.join('src', file) + STUB_SUFFIX, {
       content: compose(emitter, header, `${bodyParts.join('\n')}\n`),
       from: owners.map((t: any) => t.id).join(', '),
-      shape: declared.length ? 'declared interface + placeholder signature' : 'placeholder signature',
+      shape: declared.length ? `declared interface (${[...new Set(declared.map((d: any) => d.source))].join(' and ')}) + placeholder signature` : 'placeholder signature',
     });
   }
 
@@ -601,7 +612,7 @@ function buildSummaries({ status, blocked, planned, shapeUndeclared, preserved, 
 
   const stateSummary = status === STATUS.BLOCKED
     ? `BLOCKED — ${blockedWhy} could not be read or parsed; no scaffold written`
-    : `${status} — ${planned.size} file(s), ${shapeUndeclared.length} of them with no shape declared in design.md, `
+    : `${status} — ${planned.size} file(s), ${shapeUndeclared.length} of them with no shape declared in design.md or specs.md, `
       + `${preserved.length} preserved (hand-edited), ${skipped.length} skipped `
       + `(${skipped.filter((s: any) => !s.benign).length} of them a real gap), ${notEvaluated.length} not evaluated, `
       + `${externalDependencies.length} dependency reference(s) routed to the contract-frame case`;
@@ -721,7 +732,7 @@ function generateScaffold(options: any = {}): any {
   const language = repoLanguage(repoRoot, fsImpl);
   const { byPath, skipped: groupSkipped } = groupTasksByFile(plan.tasks);
   const { planned: sourcePlanned, skipped: sourceSkipped, shapeUndeclared } = planSourceStubs({
-    byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask,
+    byPath, scaffoldDir, repoRoot, fsImpl, slug, message, traceTask, hasSpecs: texts['specs.md'] !== null,
   });
   const { planned: testPlanned, skipped: testSkipped, notEvaluated: testNotEvaluated } = planTestStubs({
     requirement, componentsForRequirement, language, slug, message,
@@ -772,7 +783,7 @@ function renderManifest(result: any, planned: Map<string, any>): string {
   lines.push(`# Scaffold manifest — ${result.slug}`, '');
   lines.push(
     'Generated by DoFlow\'s scaffold generator (`src/runtime/scaffold/generate.ts`) from this feature\'s own',
-    '`requirement.md`, `design.md` and `plan.md`. Signatures, types and failing stubs only — no',
+    '`requirement.md`, `design.md`, `design/specs.md` (when present) and `plan.md`. Signatures, types and failing stubs only — no',
     'implementation logic, by design. Nothing here is written into the source tree; promoting any of',
     'it is a deliberate act.',
     '',
@@ -794,8 +805,8 @@ function renderManifest(result: any, planned: Map<string, any>): string {
     '_Nothing generated._');
 
   lines.push('## Emitted without a declared shape', '');
-  lines.push('These files exist and are traceable, but `design.md` API / Interface Contracts never declared an interface for',
-    'them, so their signature is a placeholder rather than a contract. Reviewing the placeholder as',
+  lines.push('These files exist and are traceable, but no interface contract in `design.md` or `specs.md` §1 is attributed to',
+    'their components, so their signature is a placeholder rather than a contract. Reviewing the placeholder as',
     'if it were the designed API is the mistake this section exists to prevent.', '');
   table(['Path', 'Why'], result.shapeUndeclared.map((s: any) => [s.path, s.why]),
     '_Every emitted file has a declared shape behind it._');

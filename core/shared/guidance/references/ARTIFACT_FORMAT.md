@@ -51,8 +51,9 @@ Rules:
     which is reconciled only after the whole file is read.
 
 Which sections take an index: `requirement.md` §3 Functional Requirements, §4 Non-Functional
-Requirements and §8 Assumptions; `design.md` Components & Boundaries, Design Risks & Alternatives
-Considered and Assumptions; `plan.md` §4 Components & Changes and §6 Risks; `specs.md` §1 Interface Contracts.
+Requirements and §8 Assumptions (the assumptions of every stage); `design.md` Components & Boundaries
+and Design Risks & Alternatives Considered; `plan.md` §4 Components & Changes and §5 Delivery Risks &
+Mitigations; `specs.md` §1 Interface Contracts.
 Prose sections do not.
 
 ## 2. Status and Maturity — two closed vocabularies
@@ -84,7 +85,8 @@ Every chain artifact's header carries `**Maturity:** <value>`, one of exactly th
 The two vocabularies are **disjoint**: no value is a member of both, so no reader and no parser has
 to work out which one a value came from. `Maturity` describes the document as a whole; `Status`
 describes one indexed item inside it. A document can be `Approved` while an item inside it is
-`Superseded → <ref>`, and the two say different things.
+`Superseded → <ref>`, and the two say different things. A design-stage Assumptions row appended to
+`requirement.md` §8 does not change the requirement's `Maturity`.
 
 The former header form `**Status:** Draft` is gone. A header carrying `Status` is reading the item
 vocabulary in the wrong place, and `Draft` was never a legal member of it.
@@ -120,7 +122,7 @@ below so the reasoning behind a reversal is not compressed into a cell:
 
 | Date | ID | Change | Replaced by |
 |---|---|---|---|
-| 2026-07-29 | FR-001 | Field renamed during design | design Interface Contracts |
+| 2026-07-29 | FR-001 | Field renamed during design | specs Interface Contracts |
 
 **Detail**
 
@@ -147,9 +149,8 @@ A feature with a decision register compacts History mechanically; see §12.
 |---|---|---|
 | `requirement.md` | §1 | Scope boundary `flowchart` |
 | `design.md` | System Overview (C4) | Three C4 levels, each a `flowchart` with `subgraph` boundaries |
-| `design.md` | Concepts | Relationship `flowchart` of the domain nouns, edges labelled |
 | `design.md` | Journeys | Per journey: one `flowchart` or `sequenceDiagram`, plus a `stateDiagram-v2` for each stateful thing it creates |
-| `plan.md` | §8 | Phase and task dependency `flowchart` |
+| `plan.md` | §7 | Phase and task dependency `flowchart` |
 | `data-model.md` | §1 | Conceptual domain map `flowchart`, then one `erDiagram` per bounded subdomain |
 | `data-model.md` | §2 | Interaction `sequenceDiagram` |
 
@@ -180,7 +181,7 @@ Skip a level with `N/A: [why]`; for C4 Level 3 that is normally
 `N/A: covered by Components & Boundaries`. `DIAGRAM_GUIDE.md` §1 says why the `C4Context` /
 `C4Container` diagram types are excluded, and §8 what each level has to show.
 
-### Task dependency graph — `plan.md` §8
+### Task dependency graph — `plan.md` §7
 
 A `flowchart` showing the phases, the dependency order between tasks, and which tasks carry the
 `[P]` parallel marker, so execution order is visible before the checklist is read. The per-task
@@ -190,7 +191,7 @@ plan too small to have meaningful ordering.
 
 ## 5. plan.md — phase rollup
 
-§8 gains a phase-level summary above the checklists:
+§7 gains a phase-level summary above the checklists:
 
 ```markdown
 ### Task Summary
@@ -235,12 +236,14 @@ Acceptance criteria are formatted as testable Gherkin BDD scenario blocks mapped
 
 ## 7. Technical Scaffolding in specs.md and data-model.md
 
-`specs.md` and `data-model.md` provide dedicated homes for technical implementation anchors — `design.md`'s API / Interface Contracts and Data Model
-sections hold only a one-line pointer to them:
+`specs.md` and `data-model.md` are the one home of the technical implementation anchors. No other
+artifact carries a section for them: `design.md`'s Components & Boundaries section holds one line
+pointing at them, and `plan.md` cites them by `IC-###` id and entity name.
 - **Interface Contracts (`specs.md` §1):** HTTP endpoints (methods, routes, request/response shapes, status codes), CLI verb signatures, and repository/service interfaces (`interface` → `concrete` → `mock`).
 - **Data Model (`data-model.md` §1):** Relational data model diagrams, database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
+- **Sequence / Data Flow (`data-model.md` §2):** interaction sequence diagrams and the swimlane flows.
 
-This section routes *what* belongs in each of those two sections; the shape each one takes is
+This section routes *what* belongs in each of those sections; the shape each one takes is
 governed by §10.
 
 ## 8. Tables for comparison
@@ -311,8 +314,9 @@ reading it whole:
   §9 are Cross-entity coupling, Invariants, Ownership / CRUD matrix, Event catalogue, Retention, PII
   and migration, and History. Each `#### Dictionary: <entity>` row and each row of the §3 to §8
   tables ends in a `Source` cell holding one of `FR-###`, `NFR-###`, `IC-###`, `code:<path>:<line>`,
-  `proposed`, or `UNKNOWN -> Open Point`. A `proposed` or `UNKNOWN -> Open Point` row is copied to
-  `design.md` Open Points for Review. A conditional section takes `N/A: [why]`.
+  `proposed`, or `UNKNOWN -> Open Point`. A `proposed` or `UNKNOWN -> Open Point` row gets one
+  bullet in `design.md` Open Points for Review that asks its question and names the row, without
+  restating it. A conditional section takes `N/A: [why]`.
 
 ### The `N/A: [why]` escape
 
@@ -339,9 +343,8 @@ shape.
 ### The `design.md` section order
 
 In order: `Architecture Approach`, `System Overview (C4)`, `Concepts`, `Journeys`,
-`Components & Boundaries`, `API / Interface Contracts`, `Data Model`, `Sequence / Data Flow`,
-`Design Risks & Alternatives Considered`, `Open Points for Review`, `Assumptions`, `History`. Readers
-locate a section by title, never number, so an older nine-section design still parses. The front half
+`Components & Boundaries`, `Design Risks & Alternatives Considered`, `Open Points for Review`,
+`History`. Readers locate a section by title, never by number. The front half
 (through `Journeys`) uses plain nouns, no component IDs or code names. Each `### Journey N — <name>`
 has one picture, a `stateDiagram-v2` per stateful thing it creates, and a rules table; `Journeys` also
 holds a `### Worked example` and an `### Eligibility / decision inputs` table. A guard compares this
@@ -366,9 +369,13 @@ carries, immediately beneath its heading, a blockquote naming what it governs:
 > **Authoritative:** this section governs [the state, rule or outcome].
 ```
 
-The other section carries a one-line pointer naming the governing section and restates nothing —
-not a summary, not a "briefly". Restating is how the two drift apart, which is the failure the
-callout exists to prevent.
+Any other section that touches the subject carries at most one line, inside its own content, naming
+the governing section, and restates nothing — not a summary, not a "briefly". No section exists only
+to hold that line: a heading whose whole content is a pointer is a second section on the subject.
+Restating is how the two drift apart, which is the failure the callout exists to prevent.
+
+The chain templates follow the same rule between documents: each topic has one owning section in
+one template, and another template mentions it in at most one line inside a section it owns.
 
 Exactly one section may carry the callout for a given subject. Two callouts over the same subject
 is the same ambiguity in a new costume, and neither section then governs.

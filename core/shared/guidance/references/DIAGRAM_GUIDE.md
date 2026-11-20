@@ -157,10 +157,10 @@ write the sentence and mark the slot `N/A: [why]`.
 | C4 Level 1 | Each actor that starts a journey as its own box; each external system, tool or file store the feature reads or writes; this system as one box. An edge label says what crosses, in the direction it moves |
 | C4 Level 2 | Each process, deployable unit and data store the feature spans, files on disk included; the technology or runtime on a node's second line; the call form and the payload on an edge; a `subgraph` at each trust boundary |
 | C4 Level 3 | The components of Components & Boundaries by name, a new or changed one marked in its label (`(new)`, `(changed)`), and the store each reads or writes |
-| Concepts | Each noun the journeys use, with the cardinality or the rule on each relationship |
 | Journey | The trigger, each decision, and for each decision the failure outcome as the actor sees it; the record the journey leaves behind. With three or more participants, a `sequenceDiagram` with the failure in an `alt` |
 | State | Each state the record can hold, terminal ones included, and on each transition the event and its guard |
 | Task dependency | The phase boundaries, the edges that force the order, and the `[P]` mark on a task that may run in parallel |
+| Conceptual domain map | Each entity the journeys use, with the relationship or the rule labelled on each edge; no attributes |
 | ER view | Keys, the cardinality on each relation, and each field a contract or a rule names |
 
 **Name the real thing in `data-model.md`.** A label there carries the name a reader can search for
