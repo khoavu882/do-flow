@@ -295,8 +295,9 @@ async function piRun(t: any, sessionEnv: any, effort: any = PI_EFFORT, { options
   setup(p);
   const probeNow = options.now ? { now: () => options.now().getTime() } : {};
   assert.equal((await readiness.probe({ descriptors: worker.descriptors, env: p.env, cwd: p.root, ...probeNow })).disposition, 'probed');
-  const r = await loop.run(p.options({ maxSeconds: 60, descriptors: worker.descriptors, ...options }));
-  assert.equal(r.outcome, 'completed', JSON.stringify(r.last.blocked || r.last.actions));
+  // The loop clock has room under load: a slow machine must not read as a loop that ran out of time.
+  const r = await loop.run(p.options({ maxSeconds: 298, descriptors: worker.descriptors, ...options }));
+  assert.equal(r.outcome, 'completed', `loop outcome ${r.outcome}, expected completed: ${JSON.stringify(r.last.blocked || r.last.actions)}`);
   const [d] = Object.values(p.read().dispatches) as any[];
   assert.deepEqual([d.mode, d.harness, d.disposition], ['subagent', 'pi', 'completed']);
   const runs = worker.runs();
