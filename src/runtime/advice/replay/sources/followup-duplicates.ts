@@ -1,9 +1,10 @@
 'use strict';
 
 // The `followup-duplicates` case source (180 IC-180-H2, design section 9). The recorded decisions are the follow-up store's
-// `--duplicate-of` labels: a dismissed item that names its target is a `yes` pair (item, target). A `no` pair is a rule
-// candidate pair of items that were both settled (dismissed or done) once the first label existed and neither names the
-// other: from then on people were marking duplicates, so two similar items left unlinked read as "not the same issue".
+// `--duplicate-of` labels, read as links: items in one linked component (siblings and chains included) are `yes` pairs. A
+// `no` pair is a rule candidate pair of items that were both settled (dismissed or done) once the first label existed and
+// sit in different components: from then on people were marking duplicates, so two similar items left unlinked read as
+// "not the same issue".
 // Before the first label there is no such evidence, so no `no` pair is built. The label is a person's judgement, not the
 // rule's answer, so `labelIsRule` is false.
 //
@@ -26,7 +27,7 @@ const CODE_FILES = ['src/runtime/advice/same-issue/rule.ts', 'src/runtime/advice
 const SELF_FILE = 'src/runtime/advice/replay/sources/followup-duplicates.ts';
 const SOURCE_ID = 'followup-duplicates';
 
-const CODE_DIGEST = 'c900c5b9356225eb3c5c4d81d8ba012e901aa4f3f2586feed7f0a121cd0664bf';
+const CODE_DIGEST = '7205b325c3a139742b747f29d4eda9abeaa23a10149a9e6b4aebb83175c0e6aa';
 
 /** Lowercase hex over the two code files' bytes, then this file's text without its pin line; null when one is unreadable. */
 function computeCodeDigest(fsImpl: any = nodeFs): string | null {
@@ -54,25 +55,42 @@ function build({ projectRoot, kind, fsImpl = nodeFs }: any = {}): { cases: any[]
   const items = new Map<string, any>(fold.followups.map((item: any) => [item.id, item]));
   const asItem = (item: any) => ({ id: item.id, text: itemText(item.statement, kind.params.itemBytes) });
   const pairs = new Map<string, any>();
-  const linked = new Set<string>();
 
+  // Union-find over the labels: items in one component are the same issue, so siblings (b and c both duplicates of a) and
+  // chains (a of b, b of c) are `yes` pairs too, not only the pair a label names directly.
+  const parent = new Map<string, string>();
+  const find = (id: string): string => {
+    let root = id;
+    while (parent.has(root) && parent.get(root) !== root) root = parent.get(root) as string;
+    parent.set(id, root);
+    return root;
+  };
   const labelled = fold.followups.filter((item: any) => item.state === 'dismissed' && typeof item.duplicateOf === 'string');
   for (const item of labelled) {
-    const target = items.get(item.duplicateOf);
-    if (!target) { skip('unknown-target'); continue; }
-    const [a, b] = item.id < target.id ? [item, target] : [target, item];
-    linked.add(`${a.id}\n${b.id}`);
-    pairs.set(caseId(a.id, b.id), {
-      id: caseId(a.id, b.id), state: pairState(asItem(a), asItem(b)), label: 'yes',
-      rule: score(asItem(a), asItem(b), kind.params) >= kind.params.flagAtPct / 100 ? 'yes' : 'no',
-    });
+    if (!items.has(item.duplicateOf)) { skip('unknown-target'); continue; }
+    parent.set(find(item.id), find(item.duplicateOf));
   }
-  if (labelled.length === 0) return { cases: [], skipped };
-
+  const components = new Map<string, string[]>();
+  for (const id of parent.keys()) {
+    const root = find(id);
+    components.set(root, [...(components.get(root) || []), id]);
+  }
+  for (const members of components.values()) {
+    members.sort();
+    for (let i = 0; i < members.length; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        const a = asItem(items.get(members[i])), b = asItem(items.get(members[j]));
+        pairs.set(caseId(a.id, b.id), {
+          id: caseId(a.id, b.id), state: pairState(a, b), label: 'yes',
+          rule: score(a, b, kind.params) >= kind.params.flagAtPct / 100 ? 'yes' : 'no',
+        });
+      }
+    }
+  }
   const first = Math.min(...labelled.map(settledAt));
   const settled = fold.followups.filter((item: any) => (item.state === 'dismissed' || item.state === 'done') && settledAt(item) >= first).map(asItem);
   for (const pair of candidatePairs(settled, kind.params)) {
-    if (linked.has(`${pair.a}\n${pair.b}`)) continue;
+    if (find(pair.a) === find(pair.b)) continue;
     const id = caseId(pair.a, pair.b);
     pairs.set(id, { id, state: pairState(settled.find((item: any) => item.id === pair.a), settled.find((item: any) => item.id === pair.b)), label: 'no', rule: pair.rule });
   }

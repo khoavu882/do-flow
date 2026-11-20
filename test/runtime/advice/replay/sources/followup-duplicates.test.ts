@@ -84,6 +84,23 @@ test('180 (e) the source: no label gives no case at all, and a pair that names e
   assert.deepEqual(cases.map((c: any) => [c.id, c.label]), [[caseId(ids.p1, ids.p2), 'yes']]);
 });
 
+test('180 (e) the source: siblings and chains are yes pairs by union, and a no pair never joins two items of one component', (t) => {
+  const { root, ids } = project(t, STATEMENTS);
+  settle(root, ids.x2, 1, { duplicateOf: ids.x1 });                      // siblings: x2 and a are both duplicates of x1
+  settle(root, ids.a, 2, { duplicateOf: ids.x1 });
+  settle(root, ids.p1, 3, { duplicateOf: ids.p2 });                      // chain: p1 of p2, p2 of q, so p1 ~ q
+  settle(root, ids.p2, 4, { duplicateOf: ids.q });
+  settle(root, ids.t, 5);                                                // settled, unlinked, similar to a: a no pair with a
+
+  const { cases, skipped } = build({ projectRoot: root, kind: KIND });
+  assert.deepEqual(skipped, {});
+  const byId = new Map(cases.map((c: any) => [c.id, c]));
+  const label = (l: string, r: string) => (byId.get(caseId(ids[l], ids[r])) as any)?.label;
+  for (const [l, r] of [['x1', 'x2'], ['x1', 'a'], ['x2', 'a'], ['p1', 'p2'], ['p2', 'q'], ['p1', 'q']]) assert.equal(label(l, r), 'yes', `${l}/${r}`);
+  assert.equal(label('a', 't'), 'no');
+  assert.equal(cases.filter((c: any) => c.label === 'yes').length, 6, 'three pairs per component of three, no more');
+});
+
 test('180 (e) the source reads only: the store is byte for byte the same after a build', (t) => {
   const { root, ids } = project(t, STATEMENTS);
   settle(root, ids.a, 2, { duplicateOf: ids.t });
