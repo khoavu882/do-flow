@@ -145,8 +145,8 @@ test('buildPage writes the documents that exist, in chain order, and reports the
   assert.ok(page.indexOf('id="doc-requirement"') < page.indexOf('id="doc-design"'));
   assert.ok(page.indexOf('id="doc-design"') < page.indexOf('id="doc-plan"'));
   assert.match(page, /<a href="#doc-plan">the plan<\/a>/);
-  assert.match(page, /<li><a href="#requirement-1-summary">1\. Summary<\/a><\/li>/);
-  assert.match(page, /3 documents · 3 diagrams shown as source · generated 2026-11-14 10:20 UTC/);
+  assert.match(page, /<li class="nav-sec" data-section="requirement-1-summary"><a href="#requirement-1-summary" data-section-link="requirement-1-summary" data-view="requirement"><span class="num">1\.<\/span> Summary<\/a><\/li>/);
+  assert.match(page, /<footer class="foot">Generated 2026-11-14 10:20 UTC from <code>agent-docs\/doflow\/001-x<\/code><\/footer>/);
   assert.match(page, /A\[&quot;&lt;b&gt;x&lt;\/b&gt;&quot;\]/);
   // A source page carries no script at all.
   assert.ok(!page.includes('<script'));
@@ -182,7 +182,6 @@ test('buildPage in inline mode embeds each rendered diagram, and a block the ren
   const page = fs.readFileSync(result.file, 'utf8');
   assert.match(page, /<img alt="Design diagram 1" src="data:image\/svg\+xml;base64,[A-Za-z0-9+/=]+">/);
   assert.match(page, /Diagram source, not rendered/);
-  assert.match(page, /1 of 2 diagrams rendered/);
 });
 
 test('buildPage without the renderer shows source and says how to get diagrams, for auto and for inline alike', () => {
@@ -540,7 +539,7 @@ test('a status word and the values of an enumerated column render as labels', ()
 
 test('a History section, up to the next heading of its level, starts closed', () => {
   const out = html('# D\n\n## 3. History\n\nfirst\n\n### Older\n\n```text\n## not a heading\n```\n\n## 4. Next\n\n### History\n\nlast\n');
-  assert.match(out, /<details class="history"><summary><h2 id="design-3-history">3\. History<\/h2><\/summary>\n<p>first<\/p>\n<h3 id="design-older">Older<\/h3>\n<pre><code>## not a heading<\/code><\/pre>\n<\/details>\n<h2 id="design-4-next">4\. Next<\/h2>/);
+  assert.match(out, /<details class="history"><summary><h2 id="design-3-history"><span class="num">3\.<\/span> History<\/h2><\/summary>\n<p>first<\/p>\n<h3 id="design-older">Older<\/h3>\n<pre><code>## not a heading<\/code><\/pre>\n<\/details>\n<h2 id="design-4-next"><span class="num">4\.<\/span> Next<\/h2>/);
   assert.match(out, /<details class="history"><summary><h3 id="design-history">History<\/h3><\/summary>\n<p>last<\/p>\n<\/details>$/);
 });
 
@@ -551,8 +550,110 @@ test('buildPage collects per-document counts on a field the --json result does n
   });
   const result = buildPage({ paths, root, mode: 'source', now: NOW });
   assert.deepEqual(result.counts, [
-    { key: 'requirement', label: 'Requirement', h2: 2, words: 20, tables: 1, diagrams: 0, ids: { AB: 2, Item: 1, R: 1 } },
-    { key: 'design', label: 'Design', h2: 0, words: 1, tables: 0, diagrams: 1, ids: {} },
+    { key: 'requirement', label: 'Requirement', h2: 2, words: 20, tables: 1, diagrams: 0, ids: { AB: 2, Item: 1, R: 1 }, open: 0 },
+    { key: 'design', label: 'Design', h2: 0, words: 1, tables: 0, diagrams: 1, ids: {}, open: 0 },
   ]);
   assert.ok(!('counts' in JSON.parse(JSON.stringify(result))), 'the --json result shape is unchanged');
+});
+
+// Row 179: the page opens on an overview of the feature; state.md is the overview, not a document view.
+const STATE = [
+  '# State: 001-x (Pay with a code)', '',
+  '**Updated:** 2026-11-19 · **Stage:** design; FR-001 settled · **Next:** data-team meeting', '',
+  'The design was rebuilt.', '',
+  '## Status', '', '| Stage | State |', '|---|---|', '| Requirement | Baseline |', '',
+  '## Open, for decision owners', '', '| Item | Owner |', '|---|---|',
+  ...Array.from({ length: 9 }, (_v, k) => `| question ${k} | Product |`), '',
+  '## Next steps', '', '1. Meet the data team.', '2. Design the next part.', '',
+].join('\n');
+const REQUIREMENT = [
+  '# Feature Requirement: Pay with a <b>code</b>', '',
+  '**Feature:** 001-x · **Maturity:** Draft  ', '**Created:** 2026-11-04 · **Owner:** Kai', '',
+  '## 1. Summary', '', '| ID | Text |', '|---|---|', '| FR-001 | one |', '| FR-002 | two |', '| NFR-001 | fast |', '',
+  '## 7. Open Questions', '', '- first open question', '- second open question', '',
+].join('\n');
+const between = (page: string, from: string, to: string) => page.slice(page.indexOf(from), page.indexOf(to, page.indexOf(from)));
+
+test('the overview is the first view of main: name from an H1, state facts, Next and Open cards, one card per document', () => {
+  const { root, paths } = feature({
+    'state.md': STATE, 'intention/requirement.md': REQUIREMENT,
+    'design/design.md': '# Design: Pay with a code\n\n**Maturity:** In review\n\n## 1. Approach\n\n- **R1:** risk\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const main = page.slice(page.indexOf('<main'));
+  assert.match(main, /^<main id="main">\n<section class="view overview" id="overview" data-view="overview">/);
+  const overview = between(main, 'id="overview"', '</section>');
+  assert.ok(overview.includes('<h1 id="overview-name">Pay with a &lt;b&gt;code&lt;/b&gt;</h1>'), 'the name is the requirement title after its kind, escaped');
+  assert.ok(overview.includes('<code>001-x</code>'), 'the slug shows small');
+  assert.match(page, /<title>Pay with a &lt;b&gt;code&lt;\/b&gt;<\/title>/);
+  assert.ok(overview.includes('<div class="fact"><dt>Updated</dt><dd>2026-11-19</dd></div>'), overview);
+  assert.ok(overview.includes('<dt>Stage</dt><dd>design; <a class="ref" href="#r-FR-001">FR-001</a> settled</dd>'), 'an id in a fact links to its definition');
+  assert.ok(overview.includes('<dt>Next</dt><dd>data-team meeting</dd>'));
+  // The chain strip: one step per document, with its maturity label.
+  assert.match(overview, /<ol class="chain"[^>]*><li><a href="#doc-requirement" data-view-link="requirement">Requirement<span class="tag tag--warn">Draft<\/span><\/a><\/li><li><a href="#doc-design" data-view-link="design">Design<span class="tag tag--info">In review<\/span><\/a><\/li><\/ol>/);
+  // Next before Open, each its state section rendered in place; the long Open card clamps with a control that needs no script.
+  const next = overview.indexOf('data-card="next"');
+  const open = overview.indexOf('data-card="open"');
+  assert.ok(next > 0 && open > next, 'Next card then Open card');
+  assert.match(overview, /<div class="card card--next" data-card="next">\n<div class="clamp">\n<h2 id="state-next-steps">Next steps<\/h2>\n<ol>\n<li>Meet the data team\.<\/li>/);
+  assert.match(overview, /<div class="card card--open card--long" data-card="open">[\s\S]*question 8[\s\S]*<details class="more"><summary>/);
+  // One card per document, with ids per prefix and open items.
+  const cards = overview.match(/<a class="doc-card"[\s\S]*?<\/a>/g) || [];
+  assert.equal(cards.length, 2);
+  const [requirement = '', design = ''] = cards;
+  assert.ok(requirement.includes('<ul class="id-counts" aria-label="Ids defined"><li>FR <b>2</b></li><li>NFR <b>1</b></li></ul>'), requirement);
+  assert.ok(requirement.includes('<li>2 open</li>'), 'the items under Open Questions are counted');
+  assert.ok(requirement.includes('<li>2 sections</li>'));
+  assert.match(design, /<li>R <b>1<\/b><\/li>/);
+  // The rest of state.md follows, in its own order; the cards' sections are not repeated.
+  const rest = between(overview, '<div class="state-rest">', '</div>\n</section>');
+  assert.ok(rest.includes('The design was rebuilt.') && rest.includes('id="state-status"'), rest);
+  assert.ok(!rest.includes('state-next-steps') && !rest.includes('state-open-for-decision-owners'));
+});
+
+test('state.md is the overview, not a document view or a sidebar entry', () => {
+  const { root, paths } = feature({ 'state.md': STATE, 'intention/requirement.md': REQUIREMENT });
+  const result = buildPage({ paths, root, mode: 'source', now: NOW });
+  const page = fs.readFileSync(result.file, 'utf8');
+  assert.ok(!page.includes('id="doc-state"'));
+  assert.ok(!page.includes('data-view="state"') && !page.includes('data-view-link="state"'));
+  assert.equal(page.split('<h1 id="state-').length - 1, 0, 'the state title is not rendered');
+  assert.deepEqual(result.documents.map((d: any) => d.key), ['requirement', 'state'], 'the --json result still lists it');
+});
+
+test('a page without state or design still opens on an overview with the name, the chain and the document cards', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT, 'plan.md': '# Plan\n\n## 1. Tasks\n' });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const overview = between(page, 'id="overview"', '</section>');
+  assert.ok(overview.includes('<h1 id="overview-name">Pay with a &lt;b&gt;code&lt;/b&gt;</h1>'));
+  assert.ok(overview.includes('<dt>Created</dt><dd>2026-11-04</dd>'), 'without state, the requirement header facts');
+  assert.equal((overview.match(/<a class="doc-card"/g) || []).length, 2);
+  assert.ok(!overview.includes('data-card='), 'no Next or Open card without state');
+  const bare = feature({ 'plan.md': '# Plan\n' });
+  const plain = fs.readFileSync(buildPage({ paths: bare.paths, root: bare.root, mode: 'source', now: NOW }).file, 'utf8');
+  assert.ok(plain.includes('<h1 id="overview-name">001-x</h1>'), 'a title without a name falls back to the slug');
+});
+
+test('a document opens on a header band: label, its own H1 promoted once, its facts, maturity label and path', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const doc = between(page, 'id="doc-requirement"', '</section>');
+  assert.match(doc, /^id="doc-requirement" data-view="requirement">\n<header class="doc-head">\n<p class="kicker">Requirement<\/p>\n<h1 id="requirement-feature-requirement-pay-with-a-bcodeb">Feature Requirement: Pay with a &lt;b&gt;code&lt;\/b&gt;<\/h1>/);
+  assert.equal(doc.split('<h1').length - 1, 1, 'the H1 is not repeated in the body');
+  assert.ok(doc.includes('<dl class="facts"><div class="fact"><dt>Feature</dt><dd>001-x</dd></div><div class="fact"><dt>Created</dt>'), 'facts strip without the maturity');
+  assert.ok(doc.includes('<p class="doc-meta"><span class="tag tag--warn">Draft</span><code class="path">intention/requirement.md</code></p>'));
+  assert.ok(!doc.includes('**Feature:**') && !doc.includes('<p><strong>Feature:'), 'the facts paragraph is not in the body');
+  assert.match(doc, /<h2 id="requirement-1-summary"><span class="num">1\.<\/span> Summary<\/h2>/);
+  // Sidebar: the document with its level-2 sections, marked for the next task's script.
+  assert.match(page, /<li class="nav-doc" data-view="requirement"><a href="#doc-requirement" data-view-link="requirement"><span>Requirement<\/span><span class="tag tag--warn">Draft<\/span><\/a><ol class="nav-secs">/);
+});
+
+test('the app bar carries the name, the slug and the controls, and no render counts or generation details', () => {
+  const { root, paths } = feature({ 'intention/requirement.md': REQUIREMENT, 'design/design.md': `# Design\n\n${DIAGRAM}` });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const bar = between(page, '<header class="appbar">', '</header>');
+  assert.ok(bar.includes('<span class="name">Pay with a &lt;b&gt;code&lt;/b&gt;</span><code class="slug">001-x</code>'));
+  assert.ok(bar.includes('placeholder="Filter sections and ids"') && bar.includes('data-theme-toggle'));
+  assert.ok(!/document|diagram|generated|UTC|\d{4}-\d{2}-\d{2}/i.test(bar.replace(/data-[a-z-]+/g, '')), bar);
+  assert.match(page, /<footer class="foot">Generated 2026-11-14 10:20 UTC/);
 });

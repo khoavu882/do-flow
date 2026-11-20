@@ -318,6 +318,29 @@ function toneOf(value: string, enumerated: boolean): string | null {
   return `n${hash % NEUTRAL_TONES}`;
 }
 
+/**
+ * Column floors in characters (design §7: cells at least 8ch). An overflowing table gives every column
+ * only its narrowest width, so a long-text column would shrink to one word a line; each column's header
+ * cell instead carries a floor fitting its longest cell, up to COLUMN_FLOOR_CH. A table whose floors
+ * add up past WIDE_TABLE_CH scrolls in its frame anyway, so its floors go up to WIDE_COLUMN_FLOOR_CH and
+ * a long column reads in lines rather than a word a line. A browser ignores a maximum width on a table
+ * cell, so no ceiling is set.
+ */
+const COLUMN_MIN_CH = 8;
+const COLUMN_FLOOR_CH = 20;
+const WIDE_COLUMN_FLOOR_CH = 40;
+const WIDE_TABLE_CH = 112;
+const COLUMN_STEP_CH = 4;
+
+/** Each column's header-cell width class, '' where the default floor is enough. */
+function columnFloors(head: string[], rows: string[][]): string[] {
+  const longest = head.map((h, c) => Math.max(plainText(h).length, ...rows.map((row) => plainText(row[c] ?? '').length)) + 1);
+  const fit = (cap: number) => longest.map((n) => Math.min(cap, Math.max(COLUMN_MIN_CH, Math.ceil(n / COLUMN_STEP_CH) * COLUMN_STEP_CH)));
+  const narrow = fit(COLUMN_FLOOR_CH);
+  const floors = narrow.reduce((sum, ch) => sum + ch, 0) > WIDE_TABLE_CH ? fit(WIDE_COLUMN_FLOOR_CH) : narrow;
+  return floors.map((ch) => (ch > COLUMN_MIN_CH ? ` class="min${ch}"` : ''));
+}
+
 const isTableStart = (lines: string[], i: number) =>
   lines[i].includes('|') && i + 1 < lines.length && lines[i + 1].includes('-') && TABLE_DIVIDER.test(lines[i + 1])
   && splitRow(lines[i]).length === splitRow(lines[i + 1]).length;
@@ -348,7 +371,7 @@ function diagramHtml(source: string, ctx: any): string {
   return `<figure class="diagram diagram--source"><figcaption>Diagram source, not rendered</figcaption>${text}</figure>`;
 }
 
-function listHtml(lines: string[], start: number, ctx: any, depth: number): { html: string; next: number } {
+function listHtml(lines: string[], start: number, ctx: any, depth: number): { html: string; next: number; items: number } {
   const base = indentOf(lines[start]);
   const ordered = /^\s*\d/.test(lines[start]);
   const items: string[] = [];
@@ -392,7 +415,7 @@ function listHtml(lines: string[], start: number, ctx: any, depth: number): { ht
   }
   const tag = ordered ? 'ol' : 'ul';
   const first = ordered ? parseInt(lines[start].trim(), 10) : 1;
-  return { html: `<${tag}${first > 1 ? ` start="${first}"` : ''}>\n${items.join('\n')}\n</${tag}>`, next: i };
+  return { html: `<${tag}${first > 1 ? ` start="${first}"` : ''}>\n${items.join('\n')}\n</${tag}>`, next: i, items: items.length };
 }
 
 /** Short anchor prefixes, one per document: the page carries thousands of id links. */
@@ -449,6 +472,12 @@ function headingId(text: string): string | null {
 /** What follows a leading id, as a summary: `**FR-001:** The page …` → `The page …`. */
 const afterId = (text: string, id: string) => plainText(text).slice(plainText(text).indexOf(id) + id.length).replace(/^[\s:.)\-–—]+/, '');
 
+/** A level-2 heading that names open questions, open points or open items; its rows and bullets are counted. */
+const OPEN_SECTION = /\bopen\s+(questions?|points?|items?|issues?)\b/i;
+
+/** A heading's leading section number (`3.`, `4.2`) wrapped so the page can mute it; `html` is already escaped. */
+const mutedNumber = (html: string) => html.replace(/^(\d+(?:\.\d+)*\.|\d+(?:\.\d+)+)(?=\s)/, '<span class="num">$1</span>');
+
 /** Quote and list levels converted as nested blocks; real documents stay in single digits. */
 const MAX_BLOCK_DEPTH = 64;
 
@@ -486,10 +515,15 @@ function blocksHtml(lines: string[], ctx: any, depth = 0): string[] {
       const seen = ctx.slugs.get(slug) || 0;
       ctx.slugs.set(slug, seen + 1);
       const id = `${keyId(ctx.key)}-${seen ? `${slug}-${seen}` : slug}`;
-      if (level === 2) ctx.sections.push({ id, text: heading[2].replace(/`/g, '') });
+      const text = heading[2].replace(/`/g, '');
+      if (level === 2) {
+        ctx.sections.push({ id, text });
+        if (ctx.counts) ctx.counts.inOpen = OPEN_SECTION.test(text);
+      }
+      if (level === 3 && ctx.subsections && ctx.sections.length) ctx.subsections.push({ id, text, parent: ctx.sections[ctx.sections.length - 1].id });
       const defined = headingId(heading[2]);
       const def = defined ? defineId(ctx, defined, afterId(heading[2], defined)) : null;
-      const tag = `<h${level} id="${escapeHtml(id)}">${def ? `<span id="${escapeHtml(def.anchor)}"></span>` : ''}${inline(heading[2], ctx, false)}</h${level}>`;
+      const tag = `<h${level} id="${escapeHtml(id)}">${def ? `<span id="${escapeHtml(def.anchor)}"></span>` : ''}${mutedNumber(inline(heading[2], ctx, false))}</h${level}>`;
       i++;
       // A History section, up to the next heading of its level or higher, starts closed.
       if ((level === 2 || level === 3) && /^history$/i.test(heading[2].replace(/`/g, '').replace(/^\d+(\.\d+)*\.?\s+/, '').trim())) {
@@ -523,7 +557,7 @@ function blocksHtml(lines: string[], ctx: any, depth = 0): string[] {
       i += 2;
       const rows: string[][] = [];
       while (i < lines.length && lines[i].trim() !== '' && lines[i].includes('|')) { rows.push(splitRow(lines[i])); i++; }
-      if (ctx.counts) ctx.counts.tables++;
+      if (ctx.counts) { ctx.counts.tables++; if (ctx.counts.inOpen && depth === 0) ctx.counts.open += rows.length; }
       // The first column is the row's key, never a set of labels.
       const enumerated = head.map((_h, c) => c > 0 && isEnumerated(rows.map((row) => row[c] ?? '')));
       // A row defines the id in its first cell when the header's first cell is `ID` or every first cell is an id.
@@ -544,14 +578,16 @@ function blocksHtml(lines: string[], ctx: any, depth = 0): string[] {
         const tone = toneOf(plainText(raw), enumerated[c]);
         return `<td>${tone ? `<span class="tag tag--${tone}">${body}</span>` : body}</td>`;
       };
-      out.push(`<div class="table-wrap" data-cols="${head.length}"><table>\n`
-        + `<thead><tr>${head.map((h) => `<th>${inline(h, ctx, false)}</th>`).join('')}</tr></thead>\n`
+      const floors = columnFloors(head, rows);
+      out.push(`<div class="table-wrap" data-cols="${head.length}"><table${defines ? ' class="id-first"' : ''}>\n`
+        + `<thead><tr>${head.map((h, c) => `<th${floors[c]}>${inline(h, ctx, false)}</th>`).join('')}</tr></thead>\n`
         + `<tbody>\n${rows.map((row) => `<tr>${head.map((_h, c) => td(row, c)).join('')}</tr>`).join('\n')}\n</tbody>\n</table></div>`);
       continue;
     }
 
     if (LIST_ITEM.test(line)) {
       const list = listHtml(lines, i, ctx, depth);
+      if (ctx.counts?.inOpen && depth === 0) ctx.counts.open += list.items;
       out.push(list.html);
       i = list.next;
       continue;
@@ -592,71 +628,200 @@ function countWords(lines: string[]): number {
  */
 function documentParts(text: string, ctx: any) {
   const lines = stripComments(text).split('\n');
-  const state = { ...ctx, slugs: new Map(), sections: [], diagramIndex: 0, registry: ctx.registry || new Map(), counts: { tables: 0 }, skipRef: null };
-  const html = blocksHtml(lines, state).join('\n');
-  return { html, sections: state.sections as Array<{ id: string; text: string }>, registry: state.registry as Map<string, any[]>, tables: state.counts.tables, words: countWords(lines) };
+  const state = {
+    ...ctx, slugs: ctx.slugs || new Map(), sections: [], subsections: [], diagramIndex: 0, registry: ctx.registry || new Map(),
+    counts: { tables: 0, open: 0, inOpen: false }, skipRef: null,
+  };
+  const blocks = blocksHtml(lines, state);
+  return {
+    html: blocks.join('\n'), blocks, sections: state.sections as Array<{ id: string; text: string }>,
+    subsections: state.subsections as Array<{ id: string; text: string; parent: string }>,
+    registry: state.registry as Map<string, any[]>, tables: state.counts.tables, open: state.counts.open, words: countWords(lines),
+  };
 }
 
+/** Light and dark colours, as custom properties (design §7). */
+const LIGHT = '--bg:#f6f6f4;--surface:#ffffff;--ink:#1c2028;--muted:#5b6475;--line:#e4e4e7;--accent:#b4491c;--ref:#9a3d14;'
+  + '--code:#efefec;--tint:rgba(28,32,40,.045);--zebra:rgba(28,32,40,.02);--shadow:rgba(28,32,40,.18);--figure:#fbfbfa;color-scheme:light';
+const DARK = '--bg:#101217;--surface:#171a21;--ink:#e8eaef;--muted:#9aa3b5;--line:#2a2f3a;--accent:#f0915f;--ref:#f4a77e;'
+  + '--code:#1f232c;--tint:rgba(232,234,239,.055);--zebra:rgba(232,234,239,.02);--shadow:rgba(0,0,0,.6);--figure:#f3f3f1;color-scheme:dark';
+/** Label colours per tone: light background and text, then dark background and text. */
+const TONE_COLORS: Record<string, [string, string, string, string]> = {
+  good: ['#e3f3e6', '#1e6b34', 'rgba(74,190,110,.16)', '#86d9a0'],
+  warn: ['#fbefd9', '#86560b', 'rgba(240,170,60,.16)', '#f2c378'],
+  info: ['#e2ecfb', '#1f4f99', 'rgba(90,150,240,.18)', '#9cc0f5'],
+  quiet: ['#efeff0', '#6b6f78', 'rgba(232,234,239,.07)', '#9aa3b5'],
+  bad: ['#fbe3e1', '#a1281c', 'rgba(240,90,80,.18)', '#f3a097'],
+  n0: ['#f3e8e1', '#7a4422', 'rgba(220,150,110,.16)', '#e7b796'],
+  n1: ['#ece6f7', '#5a3d8f', 'rgba(160,130,230,.18)', '#c4b0f0'],
+  n2: ['#e1f2f2', '#1d6363', 'rgba(80,190,190,.16)', '#8fd6d6'],
+  n3: ['#f6e6ef', '#8a2f5f', 'rgba(230,110,170,.16)', '#eda6c9'],
+  n4: ['#eef0dd', '#5b6115', 'rgba(180,190,80,.16)', '#cdd48a'],
+  n5: ['#e6ebf0', '#3c4b5c', 'rgba(140,160,190,.16)', '#b5c3d6'],
+};
+const MONO = 'ui-monospace,SFMono-Regular,Menlo,Consolas,monospace';
+/** The dark theme under one selector: the colours, and labels switched to their dark pair. */
+const darkTheme = (sel: string) => `${sel}{${DARK}}${sel} .tag{background:var(--tbd);color:var(--tfd)}`;
+
 const STYLE = `
-:root{--bg:#fbfbfa;--panel:#ffffff;--ink:#22252e;--muted:#5d6577;--line:#dcdde0;--accent:#b4491c;--code:#f1f1ef;--figure:#f5f5f5}
-@media (prefers-color-scheme:dark){:root{--bg:#16181d;--panel:#1d2027;--ink:#e6e7ea;--muted:#a0a7b6;--line:#343842;--accent:#f0915f;--code:#262a33}}
+:root{${LIGHT}}
+@media (prefers-color-scheme:dark){${darkTheme('html:not([data-theme=light])')}}
+${darkTheme('html[data-theme=dark]')}
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:16px}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Helvetica,Arial,sans-serif}
-a{color:var(--accent)}
-.top{padding:28px 32px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
-.kicker{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.slug{margin:4px 0 6px;font-size:26px;line-height:1.25;overflow-wrap:anywhere}
-.meta{margin:0;font-size:14px;color:var(--muted)}
-.layout{display:grid;grid-template-columns:260px minmax(0,1fr);align-items:start}
-.contents{position:sticky;top:0;max-height:100vh;overflow:auto;padding:24px 16px 24px 32px;font-size:14px}
-.contents ol{list-style:none;margin:0;padding:0}
-.contents>ol>li{margin-bottom:14px}
-.contents>ol>li>a{font-weight:600;color:var(--ink);text-decoration:none}
-.contents ol ol{margin-top:4px;padding-left:12px;border-left:1px solid var(--line)}
-.contents ol ol a{display:block;padding:2px 0;color:var(--muted);text-decoration:none}
-.contents a:hover{color:var(--accent)}
-main{min-width:0;padding:24px 32px 64px;max-width:980px}
-.doc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 32px 28px;margin-bottom:28px}
-.doc-label{margin:16px 0 0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
-.doc-label .path{margin-left:8px;letter-spacing:0;text-transform:none;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-h1{font-size:28px;line-height:1.25;margin:8px 0 16px}
-h2{font-size:21px;margin:36px 0 12px;padding-top:20px;border-top:1px solid var(--line)}
-h3{font-size:17px;margin:28px 0 8px}
-h4,h5,h6{font-size:15px;margin:22px 0 6px}
+html{scroll-behavior:smooth;scroll-padding-top:76px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-underline-offset:2px}
+code,pre{font-family:${MONO}}
+.appbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:16px;height:56px;padding:0 20px;background:var(--surface);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 auto;color:var(--ink);text-decoration:none}
+.mark{position:relative;flex:none;width:18px;height:18px;border:2px solid var(--accent);border-radius:5px}
+.mark::after{content:"";position:absolute;inset:3px;border-radius:1px;background:var(--accent)}
+.brand .name{min-width:0;overflow:hidden;font-size:15px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}
+.brand .slug{flex:none;font-size:12px;color:var(--muted);background:none;padding:0}
+.bar-tools{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:0}
+.bar-tools [hidden]{display:none}
+.filter{width:300px;min-width:0;height:34px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;font-size:14px}
+.filter:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.theme{flex:none;width:34px;height:34px;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-size:16px;cursor:pointer}
+.nav-toggle{display:none}
+.layout{display:grid;grid-template-columns:288px minmax(0,1fr);align-items:start}
+.sidebar{position:sticky;top:56px;height:calc(100vh - 56px);overflow:auto;padding:20px 14px 48px 16px;border-right:1px solid var(--line);font-size:14px;line-height:1.45}
+.sidebar ol{list-style:none;margin:0;padding:0}
+.nav-doc{margin:0 0 4px}
+.nav-doc>a{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;color:var(--ink);font-weight:600;text-decoration:none}
+.nav-doc>a:hover,.nav-doc[data-current]>a{background:var(--tint)}
+.nav-secs{margin:2px 0 12px 10px}
+.nav-sec>a{display:block;padding:4px 10px 4px 12px;border-left:2px solid var(--line);color:var(--muted);text-decoration:none}
+.nav-sec>a:hover{color:var(--ink)}
+.nav-sec[data-current]>a{border-left-color:var(--accent);color:var(--ink)}
+.nav-sub{display:none}
+.nav-sec[data-current]>.nav-sub{display:block}
+.nav-sub .nav-sec>a{padding-left:24px;font-size:13px}
+html[data-script] .nav-doc:not([data-current])>.nav-secs{display:none}
+.num{color:var(--muted);font-weight:500}
+main{min-width:0;max-width:1276px;padding:32px 48px 40px;overflow-wrap:break-word}
+.view{margin:0 0 64px}
+:is(.doc,.state-rest,details.history)>:is(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6,pre,hr){max-width:820px}
+h1,h2,h3,h4,h5,h6{font-weight:650;line-height:1.3}
+h1{font-size:30px;margin:0 0 16px;letter-spacing:-.01em}
+h2{font-size:22px;margin:48px 0 14px}
+h3{font-size:18px;margin:32px 0 10px}
+h4{font-size:16px;margin:24px 0 8px}
+h5,h6{font-size:15px;margin:20px 0 6px}
 p{margin:0 0 14px}
 ul,ol{margin:0 0 14px;padding-left:24px}
 li{margin:4px 0}
 li.task{list-style:none;margin-left:-22px}
-blockquote{margin:0 0 14px;padding:10px 16px;border-left:3px solid var(--line);color:var(--muted)}
+blockquote{margin:0 0 16px;padding:10px 16px;border-left:3px solid var(--line);color:var(--muted)}
 blockquote p:last-child{margin-bottom:0}
-code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
-pre{margin:0 0 14px;padding:14px 16px;background:var(--code);border-radius:8px;overflow:auto}
+code{font-size:13px;background:var(--code);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+pre{margin:0 0 16px;padding:14px 16px;font-size:13px;line-height:1.55;background:var(--code);border-radius:8px;overflow:auto}
 pre code{padding:0;background:none;overflow-wrap:normal}
-hr{border:0;border-top:1px solid var(--line);margin:24px 0}
-.table-wrap{overflow-x:auto;margin:0 0 16px}
-table{border-collapse:collapse;width:100%;font-size:14px}
-th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
-th{background:var(--code);font-weight:600}
-a.ref{text-decoration:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+hr{border:0;border-top:1px solid var(--line);margin:28px 0}
+.kicker{margin:0 0 6px;font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.facts{display:flex;flex-wrap:wrap;gap:12px 32px;margin:0}
+.fact{min-width:0;max-width:100%}
+.fact dt{font-size:11.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.fact dd{margin:2px 0 0;font-size:14.5px;line-height:1.5;overflow-wrap:anywhere}
+.doc-head{margin:0 0 32px;padding:24px 28px;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.doc-head h1{margin:0 0 16px}
+.doc-meta{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:18px 0 0;font-size:13px;color:var(--muted)}
+.doc-meta .path{font-size:12.5px;color:var(--muted);background:none;padding:0}
+.ov-head{margin:0 0 28px}
+.ov-head h1{margin:0}
+.ov-slug{margin:6px 0 22px}
+.ov-slug code{font-size:13px;color:var(--muted);background:none;padding:0}
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:8px 0;list-style:none;margin:0 0 32px;padding:0;counter-reset:step}
+.chain li{display:flex;align-items:center;margin:0}
+.chain li+li::before{content:"";width:14px;height:1px;background:var(--line)}
+.chain a{display:flex;align-items:center;gap:7px;padding:4px 10px 4px 4px;background:var(--surface);border:1px solid var(--line);border-radius:999px;color:var(--ink);font-size:13.5px;font-weight:600;text-decoration:none}
+.chain a::before{counter-increment:step;content:counter(step);display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--tint);color:var(--muted);font-size:12px}
+.chain a:hover,.doc-card:hover{border-color:var(--accent)}
+.ov-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(400px,100%),1fr));gap:16px;align-items:start;margin:0 0 16px}
+.card{min-width:0;padding:20px;font-size:14.5px;line-height:1.6;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.card h2{margin:0 0 12px;font-size:16px}
+.card>.clamp>:last-child,.card li:last-child{margin-bottom:0}
+.card .table-wrap{margin-bottom:0}
+.card--long>.clamp{max-height:360px;overflow:hidden;-webkit-mask-image:linear-gradient(#000 72%,transparent);mask-image:linear-gradient(#000 72%,transparent)}
+.card:has(>details.more[open])>.clamp{max-height:none;-webkit-mask-image:none;mask-image:none}
+@supports not selector(:has(*)){.card--long>.clamp{max-height:none;-webkit-mask-image:none;mask-image:none}.more{display:none}}
+.more{margin-top:10px}
+.more>summary{display:inline-block;list-style:none;cursor:pointer;font-size:13.5px;font-weight:650;color:var(--accent)}
+.more>summary::-webkit-details-marker{display:none}
+.more[open] .more-show,.more:not([open]) .more-hide{display:none}
+.ov-title{margin:40px 0 14px}
+.doc-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:16px;margin:0 0 48px}
+.doc-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:20px;background:var(--surface);border:1px solid var(--line);border-radius:12px;color:var(--ink);text-decoration:none}
+.doc-card .top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.doc-card .kicker{margin:0}
+.doc-card .title{font-size:16px;font-weight:650;line-height:1.35}
+.stats{display:flex;flex-wrap:wrap;gap:2px 14px;margin:0;padding:0;list-style:none;font-size:13px;color:var(--muted)}
+.stats li{margin:0}
+.id-counts{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 0;padding:0;list-style:none}
+.id-counts li{margin:0;padding:2px 7px;border-radius:6px;background:var(--tint);font:12px/1.5 ${MONO}}
+.id-counts b{font-weight:650}
+.table-wrap{max-width:100%;overflow-x:auto;margin:0 0 22px;border:1px solid var(--line);border-radius:10px;background-color:var(--surface);
+background-image:linear-gradient(90deg,var(--surface) 40%,transparent),linear-gradient(270deg,var(--surface) 40%,transparent),radial-gradient(farthest-side at 0 50%,var(--shadow),transparent),radial-gradient(farthest-side at 100% 50%,var(--shadow),transparent);
+background-position:left center,right center,left center,right center;background-size:40px 100%,40px 100%,14px 100%,14px 100%;background-repeat:no-repeat;background-attachment:local,local,scroll,scroll}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px;line-height:1.5}
+th,td{min-width:calc(${COLUMN_MIN_CH}ch + 24px);padding:8px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th+th,td+td{border-left:1px solid var(--line)}
+th{background:var(--tint);font-weight:650}
+${Array.from({ length: (WIDE_COLUMN_FLOOR_CH - COLUMN_MIN_CH) / COLUMN_STEP_CH }, (_v, k) => COLUMN_MIN_CH + (k + 1) * COLUMN_STEP_CH).map((ch) => `th.min${ch}{min-width:calc(${ch}ch + 24px)}`).join('')}
+.card th[class],.card th,.card td{min-width:calc(${COLUMN_MIN_CH}ch + 24px)}
+tbody tr:nth-child(even)>td{background:var(--zebra)}
+tbody tr:last-child>td{border-bottom:0}
+table.id-first td:first-child{white-space:nowrap;font-family:${MONO};font-size:12.5px}
+a.ref{color:var(--ref);text-decoration:none;white-space:nowrap;font-family:${MONO};font-size:.9em;border-bottom:1px dotted currentColor}
+a.ref:hover{border-bottom-style:solid}
 .ids{display:inline-flex;flex-wrap:wrap;gap:2px 8px}
-.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;line-height:1.4;white-space:nowrap;background:#ececef;color:#3f4552}
-.tag--good{background:#e3f3e6;color:#1e6b34}.tag--warn{background:#fbefd9;color:#86560b}.tag--info{background:#e2ecfb;color:#1f4f99}
-.tag--quiet{background:#efefef;color:#6b6f78}.tag--bad{background:#fbe3e1;color:#a1281c}
-.tag--n1{background:#ece6f7;color:#5a3d8f}.tag--n2{background:#e1f2f2;color:#1d6363}.tag--n3{background:#f6e6ef;color:#8a2f5f}
-.tag--n4{background:#eef0dd;color:#5b6115}.tag--n5{background:#e6ebf0;color:#3c4b5c}
-details.history>summary{cursor:pointer}details.history>summary>*{display:inline}
-.diagram{margin:0 0 18px;padding:16px;background:var(--figure);border:1px solid var(--line);border-radius:8px;text-align:center;overflow-x:auto}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;line-height:1.4;white-space:nowrap;--tb:#ececef;--tf:#3f4552;--tbd:rgba(232,234,239,.08);--tfd:#c9ced8;background:var(--tb);color:var(--tf)}
+${Object.entries(TONE_COLORS).map(([tone, [tb, tf, tbd, tfd]]) => `.tag--${tone}{--tb:${tb};--tf:${tf};--tbd:${tbd};--tfd:${tfd}}`).join('\n')}
+details.history{max-width:820px;margin:40px 0 0;padding:0 18px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+details.history[open]{padding-bottom:6px}
+details.history>summary{padding:12px 0;cursor:pointer;color:var(--muted)}
+details.history>summary>*{display:inline;margin:0;font-size:16px}
+.diagram{margin:0 0 22px;padding:16px;background:var(--figure);border:1px solid var(--line);border-radius:10px;text-align:center;overflow-x:auto}
 .diagram img{max-width:100%;height:auto}
 img.image{display:block;max-width:100%;height:auto;margin:0 auto 18px}
 .image-missing{color:var(--muted);font-style:italic}
 .diagram pre{text-align:left;margin:0}
-.diagram pre.mermaid{background:none;color:#22252e}
-.diagram details{margin-top:10px;text-align:left;font-size:13px;color:#5d6577}
-.diagram--source{background:var(--panel);text-align:left}
+.diagram pre.mermaid{background:none;color:#1c2028}
+.diagram details{margin-top:10px;text-align:left;font-size:13px;color:#5b6475}
+.diagram--source{background:var(--surface);text-align:left}
 .diagram figcaption{margin-bottom:8px;font-size:13px;color:var(--muted)}
-@media (max-width:860px){.layout{grid-template-columns:1fr}.contents{position:static;max-height:none;padding:16px 16px 0}main{padding:16px}.doc{padding:4px 16px 20px}.top{padding:20px 16px}}
-@media print{.contents{display:none}.layout{display:block}body{background:#fff}.doc{border:0;padding:0;break-before:page}.diagram{break-inside:avoid}}
+.foot{margin:0;padding:20px 0 0;border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+.foot code{font-size:12px;background:none;padding:0}
+@media (max-width:900px){
+.appbar{gap:10px;padding:0 12px}
+.nav-toggle{display:inline-flex;align-items:center;flex:none;height:34px;padding:0 12px;border:1px solid var(--line);border-radius:8px;color:var(--ink);font-size:14px;font-weight:600;text-decoration:none}
+.brand{flex:0 1 auto}
+.brand .slug{display:none}
+.bar-tools{flex:1 1 auto;justify-content:flex-end}
+.filter{flex:1 1 auto;width:auto;max-width:300px}
+.chain{gap:8px}
+.chain li+li::before{display:none}
+.layout{display:block}
+.sidebar{position:fixed;z-index:40;top:56px;bottom:0;left:0;width:min(320px,86vw);height:auto;background:var(--surface);box-shadow:0 12px 32px var(--shadow);transform:translateX(-100%);visibility:hidden;transition:transform .2s,visibility .2s}
+.sidebar:target,.sidebar[data-open]{transform:none;visibility:visible}
+main{padding:20px 16px 32px}
+.doc-head{padding:18px}
+h1{font-size:24px}
+}
+@media (max-width:600px){.brand .name{display:none}}
+@media print{
+html[data-theme],html:not([data-theme]){${LIGHT}}
+html[data-theme] .tag,html:not([data-theme]) .tag{background:var(--tb);color:var(--tf)}
+.appbar,.sidebar,.foot,.more{display:none!important}
+body{background:#fff}
+.layout{display:block}
+main{max-width:none;padding:0}
+.view{display:block!important;content-visibility:visible!important}
+.view+.view{break-before:page}
+.card--long>.clamp{max-height:none;-webkit-mask-image:none;mask-image:none}
+.table-wrap{overflow:visible;background-image:none}
+.diagram,.card,.doc-card,tr{break-inside:avoid}
+}
 `.trim();
 
 /** A renderer for `inline` mode: Mermaid text in, SVG text out, or null when `mmdc` failed on it. */
@@ -697,6 +862,120 @@ function mermaidScript(theme: string | null): string {
     + `<script>mermaid.initialize(${settings});</script>`;
 }
 
+/** One `**Label:** value` fact; a header line may carry several, separated by ` · `. */
+const FACT = /^\*\*([^*]+?):\*\*\s*(.*)$/;
+
+/** The facts a paragraph states, when every part of it is a `**Label:** value` pair; else null. */
+function factsOf(lines: string[]): Array<[string, string]> | null {
+  const facts: Array<[string, string]> = [];
+  for (const line of lines) {
+    for (const piece of line.trim().split(/\s+·\s+/)) {
+      const m = FACT.exec(piece.trim());
+      if (!m) return null;
+      facts.push([m[1].trim(), m[2].trim()]);
+    }
+  }
+  return facts.length ? facts : null;
+}
+
+/**
+ * A document's opening, read apart from its body: the H1 on its first line, and the paragraph of
+ * `**Label:** value` facts right under it. The page shows both in the document's header band, so the
+ * body starts after them; a document that opens otherwise keeps all of its text as the body.
+ */
+function documentHead(text: string): { title: string | null; facts: Array<[string, string]>; body: string } {
+  const lines = text.split('\n');
+  let i = 0;
+  while (i < lines.length && lines[i].trim() === '') i++;
+  const h1 = i < lines.length ? HEADING.exec(lines[i]) : null;
+  if (!h1 || h1[1].length !== 1) return { title: null, facts: [], body: text };
+  let j = i + 1;
+  while (j < lines.length && lines[j].trim() === '') j++;
+  let k = j;
+  while (k < lines.length && lines[k].trim() !== '' && (k === j || !startsBlock(lines, k))) k++;
+  const facts = k > j ? factsOf(lines.slice(j, k)) : null;
+  return { title: h1[2], facts: facts || [], body: lines.slice(facts ? k : i + 1).join('\n') };
+}
+
+/** What a title says after its kind: `Feature Requirement: Direct discount` → `Direct discount`; null without a `: `. */
+function titleRest(title: string | null): string | null {
+  if (!title) return null;
+  const at = title.indexOf(': ');
+  return at === -1 ? null : plainText(title.slice(at + 2)) || null;
+}
+
+/** A value as a label, in the tone its word takes or a neutral one by hash. */
+function labelHtml(value: string): string {
+  const text = plainText(value);
+  return `<span class="tag tag--${toneOf(text, true) || 'n0'}">${escapeHtml(text)}</span>`;
+}
+
+/** A strip of facts; each value is inline markdown, so its ids link like any other mention. */
+function factsHtml(facts: Array<[string, string]>, ctx: any): string {
+  if (!facts.length) return '';
+  return `<dl class="facts">${facts.map(([label, value]) => `<div class="fact"><dt>${escapeHtml(label)}</dt><dd>${inline(value, ctx) || '—'}</dd></div>`).join('')}</dl>\n`;
+}
+
+/** A state section that names next steps or the next action, and one that names open or blocked items. */
+const NEXT_SECTION = /\bnext\s+(steps?|actions?)\b|^(\d+(\.\d+)*\.?\s+)?next$/i;
+const OPEN_STATE_SECTION = /\b(open|blocked)\b/i;
+/** A card longer than this, in characters of text or table rows, clamps with a "Show all" control. */
+const CLAMP_CHARS = 900;
+const CLAMP_ROWS = 6;
+/** Reading speed for a document card's reading time, in words a minute. */
+const WORDS_PER_MINUTE = 230;
+
+/** One document's blocks grouped by level-2 heading; the first group holds what comes before any. */
+function sectionGroups(blocks: string[], sections: Array<{ id: string; text: string }>) {
+  const groups: Array<{ id: string | null; text: string; html: string[] }> = [{ id: null, text: '', html: [] }];
+  for (const block of blocks) {
+    const m = /^<h2 id="([^"]+)">/.exec(block);
+    if (m) groups.push({ id: m[1], text: sections.find((s) => escapeHtml(s.id) === m[1])?.text || '', html: [block] });
+    else groups[groups.length - 1].html.push(block);
+  }
+  return groups;
+}
+
+/** A state section rendered in place as an overview card; a long one clamps, and `<details>` lifts the clamp without script. */
+function stateCard(group: { html: string[] }, kind: string): string {
+  const body = group.html.join('\n');
+  const rows = (body.match(/<tr>/g) || []).length - 1;
+  const long = body.replace(/<[^>]+>/g, '').length > CLAMP_CHARS || rows > CLAMP_ROWS;
+  return `<div class="card card--${kind}${long ? ' card--long' : ''}" data-card="${kind}">\n<div class="clamp">\n${body}\n</div>\n`
+    + (long ? '<details class="more"><summary><span class="more-show">Show all</span><span class="more-hide">Show less</span></summary></details>\n' : '')
+    + '</div>';
+}
+
+const plural = (count: number, word: string) => `${count.toLocaleString('en-US')} ${word}${count === 1 ? '' : 's'}`;
+
+/** A document's card on the overview: label, title, sizes and the ids it defines, per prefix. */
+function docCardHtml(view: any, count: any, name: string, slug: string): string {
+  const rest = titleRest(view.title) ?? (view.title ? plainText(view.title) : null);
+  const title = rest && ![name, slug, view.label].some((same) => same.toLowerCase() === rest.toLowerCase()) ? rest : null;
+  const stats = [
+    plural(count.h2, 'section'),
+    `${plural(count.words, 'word')} · ${Math.max(1, Math.round(count.words / WORDS_PER_MINUTE))} min read`,
+    count.tables ? plural(count.tables, 'table') : '',
+    count.diagrams ? plural(count.diagrams, 'diagram') : '',
+    count.open ? `${count.open.toLocaleString('en-US')} open` : '',
+  ].filter(Boolean);
+  const ids = Object.entries(count.ids as Record<string, number>).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return `<a class="doc-card" href="#doc-${keyId(view.key)}" data-view-link="${keyId(view.key)}">\n`
+    + `<span class="top"><span class="kicker">${escapeHtml(view.label)}</span>${view.maturity ? labelHtml(view.maturity) : ''}</span>\n`
+    + (title ? `<span class="title">${escapeHtml(title)}</span>\n` : '')
+    + `<ul class="stats">${stats.map((stat) => `<li>${escapeHtml(stat)}</li>`).join('')}</ul>\n`
+    + (ids.length ? `<ul class="id-counts" aria-label="Ids defined">${ids.map(([prefix, n]) => `<li>${escapeHtml(prefix)} <b>${n}</b></li>`).join('')}</ul>\n` : '')
+    + '</a>';
+}
+
+/** A sidebar section link, with its H3 links nested; the next task shows the nested list for the current section. */
+function navSection(view: string, section: { id: string; text: string }, subs: Array<{ id: string; text: string }>): string {
+  const id = escapeHtml(section.id);
+  return `<li class="nav-sec" data-section="${id}"><a href="#${id}" data-section-link="${id}" data-view="${view}">${mutedNumber(escapeHtml(section.text))}</a>`
+    + (subs.length ? `<ol class="nav-sub">${subs.map((sub) => navSection(view, sub, [])).join('')}</ol>` : '')
+    + '</li>';
+}
+
 /**
  * Build the page for one feature.
  *
@@ -735,34 +1014,42 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   const featureDir = typeof paths.feature_dir === 'string' ? paths.feature_dir : '';
   const target = path.resolve(out || path.join(root, featureDir, 'page.html'));
 
-  let sectionsHtml = '';
-  let contents = '';
   const documents: any[] = [];
   const counts: any[] = [];
-  const parts: Array<{ key: string; html: string }> = [];
+  const views: any[] = [];
   // Every id a document defines is known before any mention is linked: collect over all documents first.
   const registry = new Map<string, any[]>();
   try {
     for (const doc of found) {
       const before = diagrams.blocks;
-      const text = fs.readFileSync(path.join(root, doc.rel), 'utf8');
-      const collected = documentParts(text, {
+      const text = stripComments(fs.readFileSync(path.join(root, doc.rel), 'utf8'));
+      const head = documentHead(text);
+      const docCtx = {
         key: doc.key, label: doc.label, mode: resolved, diagrams, render: render || renderer?.render,
         docs, dir: path.dirname(path.resolve(root, doc.rel)), outDir: path.dirname(target), root, images, registry,
-      });
+      };
+      const titleSlug = head.title ? slugify(head.title) || 'section' : '';
+      const collected = documentParts(head.body, { ...docCtx, slugs: new Map(titleSlug ? [[titleSlug, 1]] : []) });
+      const maturity = head.facts.find(([label]) => /^maturity$/i.test(label));
       const shown = featureDir && doc.rel.startsWith(`${featureDir}/`) ? doc.rel.slice(featureDir.length + 1) : doc.rel;
-      parts.push({ key: doc.key, html: `<section class="doc" id="doc-${keyId(doc.key)}">\n`
-        + `<p class="doc-label">${escapeHtml(doc.label)}<span class="path">${escapeHtml(shown)}</span></p>\n${collected.html}\n</section>\n` });
-      contents += `<li><a href="#doc-${keyId(doc.key)}">${escapeHtml(doc.label)}</a>`
-        + (collected.sections.length ? `<ol>${collected.sections.map((s) => `<li><a href="#${escapeHtml(s.id)}">${escapeHtml(s.text)}</a></li>`).join('')}</ol>` : '')
-        + '</li>\n';
+      const band = `<header class="doc-head">\n<p class="kicker">${escapeHtml(doc.label)}</p>\n`
+        + (head.title ? `<h1 id="${escapeHtml(`${keyId(doc.key)}-${titleSlug}`)}">${inline(head.title, docCtx, false)}</h1>\n` : '')
+        + factsHtml(head.facts.filter((fact) => fact !== maturity), docCtx)
+        + `<p class="doc-meta">${maturity ? labelHtml(maturity[1]) : ''}<code class="path">${escapeHtml(shown)}</code></p>\n</header>\n`;
+      views.push({
+        key: doc.key, label: doc.label, title: head.title, maturity: maturity ? maturity[1] : null, collected,
+        facts: factsHtml(head.facts, docCtx),
+        html: `<section class="view doc" id="doc-${keyId(doc.key)}" data-view="${keyId(doc.key)}">\n${band}${collected.html}\n</section>\n`,
+      });
       documents.push({ key: doc.key, path: doc.rel, diagrams: diagrams.blocks - before });
-      counts.push({ key: doc.key, label: doc.label, h2: collected.sections.length, words: collected.words, tables: collected.tables, diagrams: diagrams.blocks - before, ids: {} });
+      counts.push({
+        key: doc.key, label: doc.label, h2: collected.sections.length, words: countWords(text.split('\n')), tables: collected.tables,
+        diagrams: diagrams.blocks - before, ids: {}, open: collected.open,
+      });
     }
   } finally {
     renderer?.dispose();
   }
-  for (const part of parts) sectionsHtml += resolveRefs(part.html, part.key, registry);
   const idData: Record<string, any[]> = {};
   for (const [id, entries] of registry) {
     idData[id] = entries.map((e) => ({ doc: e.label, anchor: e.anchor, summary: e.summary, ...(e.status ? { status: e.status } : {}) }));
@@ -776,17 +1063,51 @@ function buildPage({ paths, root, out, mode = 'auto', theme = null, now = new Da
   const idScript = registry.size ? `<script type="application/json" id="page-ids">${JSON.stringify(idData).replace(/</g, '\\u003c')}</script>\n` : '';
 
   const slug = typeof paths.feature_slug === 'string' && paths.feature_slug ? paths.feature_slug : path.basename(featureDir || root);
-  const how = diagrams.blocks === 0 ? 'no diagrams'
-    : resolved === 'inline' ? `${diagrams.rendered} of ${diagrams.blocks} diagrams rendered`
-      : resolved === 'cdn' ? `${diagrams.blocks} diagrams, drawn by Mermaid loaded from jsDelivr`
-        : `${diagrams.blocks} diagrams shown as source`;
+  const byKey = new Map(views.map((view) => [view.key, view]));
+  // The feature's name: what the first of these titles says after its kind, else the slug.
+  const name = ['requirement', 'design', 'plan', 'state'].map((key) => titleRest(byKey.get(key)?.title ?? null)).find(Boolean) || slug;
+  const state = byKey.get('state');
+  const chain = views.filter((view) => view !== state);
+
+  // The overview: name and stage facts, the chain, the state's Next and Open sections as cards, one card
+  // per document, then the rest of the state document in its own order. The state is not a view of its own.
+  const groups = state ? sectionGroups(state.collected.blocks, state.collected.sections) : [];
+  const next = groups.find((g) => g.id && NEXT_SECTION.test(g.text));
+  const open = groups.find((g) => g.id && g !== next && OPEN_STATE_SECTION.test(g.text));
+  const rest = groups.filter((g) => g !== next && g !== open);
+  const stageFacts = state ? state.facts : byKey.get('requirement')?.facts || '';
+  const overview = '<section class="view overview" id="overview" data-view="overview">\n<header class="ov-head">\n<p class="kicker">Feature overview</p>\n'
+    + `<h1 id="overview-name">${escapeHtml(name)}</h1>\n<p class="ov-slug"><code>${escapeHtml(slug)}</code></p>\n${stageFacts}</header>\n`
+    + `<ol class="chain" aria-label="Documents in chain order">${chain.map((view) => `<li><a href="#doc-${keyId(view.key)}" data-view-link="${keyId(view.key)}">`
+      + `${escapeHtml(view.label)}${view.maturity ? labelHtml(view.maturity) : ''}</a></li>`).join('')}</ol>\n`
+    + (next || open ? `<div class="ov-cards">\n${[next && stateCard(next, 'next'), open && stateCard(open, 'open')].filter(Boolean).join('\n')}\n</div>\n` : '')
+    + `<h2 class="ov-title" id="overview-documents">Documents</h2>\n<div class="doc-cards">\n`
+    + `${chain.map((view) => docCardHtml(view, counts.find((c) => c.key === view.key), name, slug)).join('\n')}\n</div>\n`
+    + (rest.some((g) => g.html.length) ? `<div class="state-rest">\n${rest.map((g) => g.html.join('\n')).join('\n')}\n</div>\n` : '')
+    + '</section>\n';
+  const viewsHtml = resolveRefs(overview, 'state', registry)
+    + chain.map((view) => resolveRefs(view.html, view.key, registry)).join('');
+
+  // The sidebar: the overview and its sections, then each document with its level-2 sections and their level-3 ones.
+  const overviewSections = [next, open, { id: 'overview-documents', text: 'Documents' }, ...rest.filter((g) => g.id)].filter(Boolean) as any[];
+  const navDoc = (view: string, href: string, label: string, maturity: string | null, sections: any[], subs: any[]) =>
+    `<li class="nav-doc" data-view="${view}"><a href="${href}" data-view-link="${view}"><span>${escapeHtml(label)}</span>${maturity ? labelHtml(maturity) : ''}</a>`
+    + (sections.length ? `<ol class="nav-secs">${sections.map((s) => navSection(view, s, subs.filter((sub) => sub.parent === s.id))).join('')}</ol>` : '')
+    + '</li>\n';
+  const contents = navDoc('overview', '#overview', 'Overview', null, overviewSections, [])
+    + chain.map((view) => navDoc(keyId(view.key), `#doc-${keyId(view.key)}`, view.label, view.maturity, view.collected.sections, view.collected.subsections)).join('');
+
+  const generated = escapeHtml(now.toISOString().slice(0, 16).replace('T', ' '));
   const page = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
     + '<meta name="viewport" content="width=device-width, initial-scale=1">\n<meta name="generator" content="doflow render-page">\n'
-    + `<title>${escapeHtml(slug)}</title>\n<style>\n${STYLE}\n</style>\n</head>\n<body>\n`
-    + `<header class="top">\n<p class="kicker">DoFlow feature</p>\n<p class="slug">${escapeHtml(slug)}</p>\n`
-    + `<p class="meta">${found.length} document${found.length === 1 ? '' : 's'} · ${how} · generated ${escapeHtml(now.toISOString().slice(0, 16).replace('T', ' '))} UTC`
-    + `${featureDir ? ` from <code>${escapeHtml(featureDir)}</code>` : ''}</p>\n</header>\n`
-    + `<div class="layout">\n<nav class="contents" aria-label="Documents">\n<ol>\n${contents}</ol>\n</nav>\n<main>\n${sectionsHtml}</main>\n</div>\n`
+    + `<title>${escapeHtml(name)}</title>\n<style>\n${STYLE}\n</style>\n</head>\n<body>\n`
+    + '<header class="appbar">\n<a class="nav-toggle" href="#sidebar" aria-controls="sidebar" data-nav-toggle>Contents</a>\n'
+    + `<a class="brand" href="#overview" data-view-link="overview"><span class="mark" aria-hidden="true"></span><span class="name">${escapeHtml(name)}</span>`
+    + `${name === slug ? '' : `<code class="slug">${escapeHtml(slug)}</code>`}</a>\n`
+    + '<div class="bar-tools">\n<input class="filter" type="search" placeholder="Filter sections and ids" aria-label="Filter sections and ids" autocomplete="off" data-filter hidden>\n'
+    + '<button class="theme" type="button" aria-label="Switch theme" title="Switch theme" data-theme-toggle hidden>◐</button>\n</div>\n</header>\n'
+    + `<div class="layout">\n<nav class="sidebar" id="sidebar" aria-label="Contents">\n<ol>\n${contents}</ol>\n</nav>\n`
+    + `<main id="main">\n${viewsHtml}<footer class="foot">Generated ${generated} UTC${featureDir ? ` from <code>${escapeHtml(featureDir)}</code>` : ''}</footer>\n</main>\n</div>\n`
     + idScript
     + (resolved === 'cdn' && diagrams.blocks > 0 ? `${mermaidScript(themeFile)}\n` : '')
     + '</body>\n</html>\n';
