@@ -27,7 +27,7 @@
 
 ## Task Ledger
 
-> Per-task execution facts, appended as each task finishes: the one record of which tasks are done.
+> Per-task execution facts, appended as each task finishes: the one execution record of which tasks are done.
 > The sections below say only what is true now. `Rounds` is `<used>/<cap>` review-fix rounds (`0` = review passed first time,
 > `—` = not reviewed). `Review` is `clean`, `N open`, or `n/a`. `Status` here is execution state, not
 > the `Live`/`Superseded` vocabulary artifacts use — this file sits outside that convention.
