@@ -1037,6 +1037,17 @@ test('FR-011: a double tap with one request id starts once and replays the first
   assert.equal(v.lines().find((line) => line.phase === 'end').outcome, 'replayed', 'the log says the core started nothing');
 });
 
+test('start-session: the envelope outcome is replayed when the core answered a run it already started, applied for a first start and for the memo replay of it', async (t) => {
+  const first = await loopback(t, startRunner(() => startedReply()));
+  const body = startBody();
+  const one = await first.post('start-session', body);
+  const two = await first.post('start-session', body);
+  assert.deepEqual([json(one).outcome, json(one).replayed, json(two).outcome, json(two).replayed], ['applied', false, 'applied', true]);
+  const core = await loopback(t, startRunner(() => startedReply({}, true)));
+  const again = await core.post('start-session', startBody());
+  assert.deepEqual([json(again).outcome, json(again).replayed, json(again).result.replayed], ['replayed', false, true]);
+});
+
 test('every start-session refusal id maps to IC-004\'s status with the core\'s current; an older core\'s usage is 501 core-lacks-action and GET /api/actions says so; an unknown project is 404 after one refresh and nothing spawns', async (t) => {
   const refusal = (code: string, current?: unknown) => ({ ok: true, exit: 1, json: { ok: false, code, message: 'words', ...(current === undefined ? {} : { current }) } });
   const cases: Array<[any, number, string, unknown, number | null]> = [

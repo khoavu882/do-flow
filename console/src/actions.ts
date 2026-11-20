@@ -832,7 +832,7 @@ function createActions({ runner, log, now = Date.now, warn = () => {} }: Options
   const withRetry = (reply: Reply, done: Answer): Reply => (done.retryAfter === undefined ? reply : withHeader(reply, 'Retry-After', String(done.retryAfter)));
 
   function replyOf(spec: ActionSpec, body: Body, actor: Actor, done: Answer, replayed: boolean): Reply {
-    if (done.status === 200) return jsonReply(200, { v: 1, action: spec.id, requestId: body.requestId, outcome: 'applied', replayed, by: actor.relay, result: done.result });
+    if (done.status === 200) return jsonReply(200, { v: 1, action: spec.id, requestId: body.requestId, outcome: done.outcome === 'replayed' ? 'replayed' : 'applied', replayed, by: actor.relay, result: done.result });
     const reply = errorReply(done.status, done.code as string, done.verb, done.exit);
     if (done.current === undefined && done.errorId === undefined && done.message === undefined && !replayed) return withRetry(reply, done);
     // 162 review 11: a replayed error says so, with the first reply's status and `current`. 165 F1: a core error says which id. 170: and its words.

@@ -3133,7 +3133,7 @@
           "evidence": [],
           "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that sends a prompt and exits, and its source",
           "verifiedOn": "2026-11-15",
-          "reason": "copilot's non-interactive prompt mode needs `--allow-all-tools` (`copilot --help` on 1.0.105: 'required for non-interactive mode'), a flag that widens what the session may do; no widening flag is ever used for a started session (row 165 owner ruling P-2), so copilot is not started from the Console"
+          "reason": "its non-interactive prompt mode needs `--allow-all-tools` (`copilot --help` on 1.0.105), which widens what the session may do; no widening flag is ever used for a started session, so copilot is not started from the Console"
         },
         "provider": {
           "status": "unknown",
