@@ -172,6 +172,26 @@ test('IC-012 DEC-052 a refused launch emission that returns text is still delive
   assert.equal(Buffer.byteLength(prompt), result.launched.bytes + 2 + Buffer.byteLength(brief), 'bytes counts the text delivered');
 });
 
+test('FU-d8dmwp a framed prompt keeps <role> first and gets the launch emission as one <context> block right after it', POSIX_ONLY, async (t) => {
+  const w = world(t);
+  const tail = '<instructions>\nDo the work.\n</instructions>\n\n<output_format>\nReply in one line.\n</output_format>\n';
+  const framed = `<role>\nYou are the implementer of task A.1.\n</role>\n\n${tail}`;
+  const { result, lines } = await launchOnce(w, 'claude', framed);
+  assert.equal(result.launched.reason, 'emit');
+  const prompt = lines[0].argv[4];
+  assert.ok(prompt.startsWith('<role>\nYou are the implementer of task A.1.\n</role>\n\n<context>\n## ContextPack'), 'role first, then the pack in a context block');
+  assert.ok(prompt.endsWith(`\n</context>\n\n${tail}`), 'the context block closes and the rest of the frame follows unchanged');
+  assert.equal(prompt.split('<context>').length, 2, 'one context block');
+  assert.ok(result.launched.bytes > 0);
+
+  // A frame with its own context gets one block: the pack, then the caller's lines.
+  const own = `<role>\nYou are the implementer of task A.1.\n</role>\n\n<context>\nTask A.1 of the plan.\n</context>\n\n${tail}`;
+  const merged = (await launchOnce(w, 'claude', own, { token: 2, runKey: 'abcdef0123456789/local/other' })).lines.at(-1).argv[4];
+  assert.equal(merged.split('<context>').length, 2, 'still one context block');
+  assert.ok(merged.includes('\nTask A.1 of the plan.\n</context>\n\n<instructions>'), 'the caller context stays, last in the block');
+  assert.ok(merged.indexOf('## ContextPack') < merged.indexOf('Task A.1 of the plan.'));
+});
+
 test('IC-012 the worker runs detached in its own process group with no shell', POSIX_ONLY, async (t) => {
   const w = world(t, { run: [{ sleep: 200 }] });
   const { identity } = launchEnv({ env: w.env, runKey: 'abcdef0123456789/r1/w1', token: 1, execWorktree: w.worktree, runId: RUN_ID });
