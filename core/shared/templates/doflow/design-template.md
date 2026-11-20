@@ -2,7 +2,7 @@
 
 **Feature:** [NNN-slug] · **Requirement:** [REQUIREMENT_PATH] · **Maturity:** Draft · **Created:** [DATE]
 
-> System shape — architecture, journeys, APIs, data/interface contracts. Reads [REQUIREMENT_PATH].
+> System shape: architecture, journeys and component boundaries. Reads [REQUIREMENT_PATH].
 > Distinct from plan.md's HOW-to-implement; this is HOW-it's-shaped.
 >
 > Journey-first: business and engineering read the front half (Architecture Approach through
@@ -167,8 +167,9 @@ flowchart LR
 
 <!-- One `### Journey N — <name>` per user or system journey, in the order a reader meets them. Each
      carries one picture (a `flowchart`, or a `sequenceDiagram` with the failure in an `alt` when
-     three or more participants act), a `stateDiagram-v2` for EVERY stateful thing the journey
-     creates, and a small rules table. Each decision shows its failure outcome as the actor sees it. Write in plain nouns: no component
+     three or more participants act), a `stateDiagram-v2` of the states the actor sees for EVERY
+     stateful thing the journey creates (the full entity lifecycle is in ./data-model.md §3), and a
+     small rules table. Each decision shows its failure outcome as the actor sees it. Write in plain nouns: no component
      IDs, no code names. Leave out internal calls that no actor sees. Write "N/A: [why]" for the
      whole section when the design has no user or system journey (a pure library or refactor). -->
 
@@ -222,6 +223,8 @@ stateDiagram-v2
 
 ## 5. Components & Boundaries
 
+Interface contracts are in `./specs.md` §1; the data model and its flows are in `./data-model.md` §1 and §2.
+
 | ID | Component | Kind | Serves | Status |
 |---|---|---|---|---|
 | C1 | [component name] | service / script / template / reference | FR-001 | Live |
@@ -241,32 +244,7 @@ stateDiagram-v2
      public library/CLI surface adds the matching parts of `templates/doflow/discipline-sections.md` (in the
      DoFlow folder this template was copied from) here as `###` subsections. A plain service adds none. -->
 
-## 6. API / Interface Contracts
-
-<!-- Endpoints, CLI verb signatures, and repository/service interfaces that anchor implementation
-     live in ./specs.md §1 Interface Contracts, not here — each as one ID-bearing IC-### entry so
-     plan.md and implementation can cite a contract by id instead of a paragraph. Write `N/A: [why]` if
-     this feature genuinely introduces no interface contracts; otherwise leave a one-line pointer,
-     e.g. "See ./specs.md §1." -->
-
-## 7. Data Model
-
-The data-model shape is governed by `./data-model.md` §1.
-
-<!-- Data model diagrams (ER diagrams, table schema catalogs) and UX design tokens live in
-     ./data-model.md §1 Data Model, not here. Write `N/A: [why]` if this feature introduces no data
-     model or UX changes; otherwise leave a one-line pointer, e.g. "See ./data-model.md §1." -->
-
-## 8. Sequence / Data Flow
-
-The data-flow shape is governed by `./data-model.md` §2.
-
-<!-- Sequence diagrams showing key interaction flows (a `sequenceDiagram` works well here) live in
-     ./data-model.md §2 Sequence / Data Flow, not here. Write `N/A: [why]` if this feature introduces
-     no non-trivial interaction sequence; otherwise leave a one-line pointer, e.g.
-     "See ./data-model.md §2." -->
-
-## 9. Design Risks & Alternatives Considered
+## 6. Design Risks & Alternatives Considered
 
 | ID | Risk / Alternative | Disposition | Status |
 |---|---|---|---|
@@ -276,32 +254,18 @@ The data-flow shape is governed by `./data-model.md` §2.
 
 - **R1** → [why this shape was chosen, or why the risk is accepted and what it costs if it lands].
 
-## 10. Open Points for Review
+## 7. Open Points for Review
 
 <!-- The questions this design could not answer, ending the design instead of a bare risk list. One
      bold-led question per bullet, followed by the reasoning already known (a figure, a trade-off, the
-     option you lean to). Lead each with the question in bold; do not number them with an ID. Write
+     option you lean to). Lead each with the question in bold; do not number them with an ID. A
+     `proposed` or `UNKNOWN -> Open Point` row of ./data-model.md gets one bullet here that asks its
+     question and names the row by section and entity, without restating the row. Write
      "None — no open points." when every question was settled. -->
 
 - **[A question a reviewer must answer?]** [The reasoning already known and the option leaned to.]
 
-## 11. Assumptions
-
-<!-- With a decision register, a row from a "Decide for me" pick cites its DEC-### in Basis: see ARTIFACT_FORMAT.md §12. -->
-
-| ID | Assumption | Affects | Basis |
-|---|---|---|---|
-| A1 | [assumption stated] | C1 | [why this default, or "user deferred"] |
-
-**Detail**
-
-- **A1** — [the reasoning, and what would change if it turns out wrong].
-
-<!-- Write "None — no design-level clarification questions were deferred." in place of the table
-     and detail if every design-level ambiguity was resolved by a direct answer rather than the
-     defer escape hatch during /do-design's clarification loop. -->
-
-## 12. History
+## 8. History
 
 <!-- Superseded design decisions move here; the index row above stays as a tombstone with
      `Superseded → <ref>`. -->

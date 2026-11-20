@@ -2,10 +2,10 @@
 
 **Feature:** [NNN-slug] · **Design:** ./design.md · **Maturity:** Draft · **Created:** [DATE]
 
-> Machine-checkable interface/schema contracts split out of design.md's own narrative — endpoints,
-> CLI verb signatures, repository/service interfaces, data schemas and file formats a design
-> decided. Reads ./design.md; distinct from it the way a contract is distinct from the rationale
-> that produced it.
+> The machine-checkable interface contracts a design decided, and the one place for them:
+> endpoints, CLI verb signatures, repository/service interfaces and file formats. Persisted data
+> shapes are in ./data-model.md. Reads ./design.md; distinct from it the way a contract is distinct
+> from the rationale that produced it.
 >
 > Structure follows `references/ARTIFACT_FORMAT.md`: indexed sections carry a table above full
 > `**Detail**`, the document-level `Maturity` is `Draft`, `In review` or `Approved`, the item-level

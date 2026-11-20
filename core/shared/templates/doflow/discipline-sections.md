@@ -13,7 +13,7 @@ How to use it:
 - In `design.md`, add each part under "Design" below as a `###` subsection at the end of
   §5 Components & Boundaries, with the heading given here.
 - A part that says it belongs in `specs.md` or `data-model.md` goes there, as
-  `references/ARTIFACT_FORMAT.md` places it; `design.md` keeps the pointer those sections already have.
+  `references/ARTIFACT_FORMAT.md` §7 places it; `design.md` §5 carries the one line that points at them.
 - A part that does not apply is not written. A part that applies but has nothing to decide is one
   line: `N/A: [why]`.
 

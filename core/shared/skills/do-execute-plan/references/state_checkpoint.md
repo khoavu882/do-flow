@@ -2,7 +2,7 @@
 
 - Every checkpoint: append the finished task(s) to the Task Ledger (`Commits` as the actual
   `[base7]..[head7]` range once committed, or `uncommitted (working tree)` when this run doesn't
-  commit on its own), move them from **In Progress** to **Completed**, and rewrite **Status**,
+  commit on its own), remove them from **In Progress**, and rewrite **Status**,
   **Blocked**, **Findings** and **Next Action** (the next pending task) in place, deleting a
   blocker or finding that no longer applies, so a resumed session (or a different one) can pick up
   from this file and `git log` alone, never from conversation memory. A `Findings` entry records

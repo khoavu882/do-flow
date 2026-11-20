@@ -417,9 +417,11 @@ function declaredDesignOrder() {
   return titles;
 }
 
-test('G18: design-template.md\'s section titles equal the order ARTIFACT_FORMAT.md §10 declares, twelve of them', () => {
+test('G18: design-template.md\'s section titles equal the order ARTIFACT_FORMAT.md §10 declares, eight of them', () => {
+  // Eight since row 179: contracts, the data model, the flows and the assumptions each have one owner
+  // in another template (specs.md, data-model.md, requirement.md), so design.md carries no section for them.
   const declared = declaredDesignOrder();
-  assert.equal(declared.length, 12, `ARTIFACT_FORMAT.md §10 should declare 12 design.md sections, found ${declared.length}`);
+  assert.equal(declared.length, 8, `ARTIFACT_FORMAT.md §10 should declare 8 design.md sections, found ${declared.length}`);
   assert.deepEqual(templateTitles(), declared,
     'ARTIFACT_FORMAT.md §10 declares the design.md section order; templates/doflow/design-template.md must carry the same titles in the same order');
 });

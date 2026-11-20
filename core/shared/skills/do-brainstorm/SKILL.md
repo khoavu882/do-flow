@@ -126,7 +126,8 @@ The template is `templates/doflow/requirement-template.md` in the install step 1
    WHAT/WHY only: user stories (P1/P2/P3 → US#), `FR-###`, NFRs, out-of-scope, acceptance criteria. Zero `[NEEDS CLARIFICATION]` markers remain in §7 at
    hand-off — every ambiguity from Step 2/3 is either a resolved answer folded into the relevant
    US/FR/NFR, or an assumption recorded in `requirement-template.md`'s §8 "Assumptions" section
-   with a one-line rationale.
+   with a one-line rationale and Stage `requirement`. §8 is the feature's one Assumptions section:
+   later stages append their own rows to it.
    The `[NEEDS CLARIFICATION]` marker is only a fallback for a session aborted
    mid-loop. Populate the `**Ticket:**` header field only if the user
    referenced a PBI/epic/ticket ID during the dialogue (confirm the exact ID via the question tool
