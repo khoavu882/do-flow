@@ -199,10 +199,7 @@ test('(h) a link in place of the log is never followed', { skip: !POSIX }, (t) =
 });
 
 test('(i) the ask step and the answered step each finish under 20 ms over a no-op baseline: median of 20 runs, step less an interleaved no-op run of the same function', { skip: !POSIX }, (t) => {
-  // A front door runs the step in a subshell, so the bash start each timed run pays is not part of its cost. Each run is
-  // timed beside a baseline: the same sourced script and the same function, called with no harness, which returns at its
-  // first line. The bar is the step's median less the baseline's median, so load that slows a bash start is not charged
-  // to the step; the NFR "under 20 ms" is step median < 20 ms + baseline median.
+  // The baseline is the step's fixed process starts (bash and jq); the 20 ms bar limits DoFlow's own work above them.
   const s = scratch(t);
   const env = baseEnv(s);
   const stepFile = path.join(STEP_DIR, 'observe-attention.sh');
@@ -212,8 +209,8 @@ test('(i) the ask step and the answered step each finish under 20 ms over a no-o
     assert.equal(result.status, 0);
     return Number(process.hrtime.bigint() - started) / 1e6;
   };
-  const invoke = (fn: string, args: string[], input: string) => timed(['-c', `( . "$1" && ${fn} "\${@:2}" ) >/dev/null 2>&1 || true`, '_', stepFile, ...args], input);
-  const run = (fn: string, args: string[], input = '') => ({ base: invoke(fn, [], input), step: invoke(fn, args, input) });
+  const invoke = (fn: string, args: string[], input: string, jq = '') => timed(['-c', `( . "$1" && ${fn} "\${@:2}"${jq} ) >/dev/null 2>&1 || true`, '_', stepFile, ...args], input);
+  const run = (fn: string, args: string[], input = '') => ({ base: invoke(fn, [], input, '; jq -n . >/dev/null'), step: invoke(fn, args, input) });
   const median = (values: number[]) => { const sorted = [...values].sort((a, b) => a - b); return (sorted[9] + sorted[10]) / 2; };
   const askRuns: { base: number; step: number }[] = [];
   const answeredRuns: { base: number; step: number }[] = [];

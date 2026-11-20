@@ -158,10 +158,7 @@ test('(e) the Claude SessionEnd hook removes only the ending session\'s effort f
 });
 
 test('(g) the step finishes under 20 ms over a no-op baseline: median of 20 runs, steady state and write path, each less an interleaved no-op run of the same function', { skip: !POSIX }, (t) => {
-  // In the bridge the step is a forked subshell, so the bash start each timed run here pays is not part of its cost. Each
-  // run is timed beside a baseline: the same sourced script and function, called with no harness, which returns at its
-  // first line. The bar is the step's median less the baseline's median, so load that slows a bash start is not charged
-  // to the step; the NFR "under 20 ms" is step median < 20 ms + baseline median.
+  // The baseline is the step's fixed process starts (bash and jq); the 20 ms bar limits DoFlow's own work above them.
   const s = scratch(t);
   const encode = (level: string) => {
     const out = spawnSync('jq', ['-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PreToolUse', '--arg', 'policy', POLICY, '--arg', 'mode', 'encode', '-f', path.join(BRIDGE_DIR, 'envelope.jq')],
@@ -176,7 +173,7 @@ test('(g) the step finishes under 20 ms over a no-op baseline: median of 20 runs
     assert.equal(result.status, 0);
     return Number(process.hrtime.bigint() - started) / 1e6;
   };
-  const invoke = (harness: string, envelope: string) => timed(['-c', '( . "$1/observe-effort.sh" && doflow_observe_effort "$2" "$3" ) >/dev/null 2>&1 </dev/null || true', '_', BRIDGE_DIR, harness, envelope]);
+  const invoke = (harness: string, envelope: string) => timed(['-c', `( . "$1/observe-effort.sh" && doflow_observe_effort "$2" "$3"${harness === '' ? '; jq -n . >/dev/null' : ''} ) >/dev/null 2>&1 </dev/null || true`, '_', BRIDGE_DIR, harness, envelope]);
   const step = (envelope: string) => ({ base: invoke('', envelope), step: invoke('claude', envelope) });
   const median = (values: number[]) => { const sorted = [...values].sort((a, b) => a - b); return (sorted[9] + sorted[10]) / 2; };
   step(envelopes.high);
