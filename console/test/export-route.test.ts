@@ -98,6 +98,15 @@ test('export: the body passes the second mask once more, so an address or a toke
   assert.equal(JSON.parse((await second(`/api/runs/${token}/t1/export`)).body).run.featureSlug, '<masked>');
 });
 
+test('export: a task id the mask changes names the file the fixed doflow-run.json, so the raw id does not leave in the header', async (t) => {
+  const taskId = 'AbCdEfGh12345678AbCdEfGh12345678x9';
+  const fetch = await loopback(scripted(), t);
+  const reply = await fetch(`/api/runs/093-console-web-ui/${taskId}/export`);
+  assert.equal(reply.status, 200);
+  assert.equal(reply.headers['content-disposition'], 'attachment; filename="doflow-run.json"');
+  assert.ok(!reply.body.includes(taskId), 'the task id is not in the file');
+});
+
 test('export: a bad slug or task id is 400 usage with no verb run; an unknown run, a malformed plan and a missing status are the run page\'s reply', async (t) => {
   const calls: string[] = [];
   const runner = { run: async (shape: string, params: any) => { calls.push(shape); return scripted().run(shape, params); } };

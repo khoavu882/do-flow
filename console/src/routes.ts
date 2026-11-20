@@ -328,7 +328,9 @@ async function runExport(runner: Runner, slug: string, taskId: string): Promise<
   if (page.status !== 200) return page;
   const { run, timeline, tasks } = JSON.parse(page.body as string);
   const reply = jsonReply(200, maskLeaves({ v: 1, exportedAt: new Date().toISOString(), console: manifest.version, run, timeline, tasks }));
-  return { ...reply, headers: { ...reply.headers, 'Content-Disposition': `attachment; filename="doflow-run-${taskId}.json"` } };
+  // A task id the mask would change names no file: the header is not masked, so it gets the fixed name.
+  const filename = maskLite(taskId) === taskId ? `doflow-run-${taskId}.json` : 'doflow-run.json';
+  return { ...reply, headers: { ...reply.headers, 'Content-Disposition': `attachment; filename="${filename}"` } };
 }
 
 // ---- IC-018 e: GET /api/sessions ----
