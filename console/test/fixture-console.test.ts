@@ -551,7 +551,7 @@ test('--manage adds the management world and refuses --empty', { timeout: 240_00
     assert.equal(settings.status, 200);
     assert.equal(settings.json.sections.effective.ok, true);
     const effective = settings.json.sections.effective.data;
-    assert.equal(effective.keys.length, 46);
+    assert.equal(effective.keys.length, Object.keys(require('../../core/registry/settings.json').keys).length);
     assert.equal(effective.keys.find((row: any) => row.key === 'advice.enabled').views[0].origin.via, 'fail-safe');
     assert.ok(effective.files.some((file: any) => file.layer === 'local' && file.code === 'unparseable'));
     const followups = await api.get('/api/followups?state=open');

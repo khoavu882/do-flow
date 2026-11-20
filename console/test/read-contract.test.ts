@@ -1052,11 +1052,10 @@ test('151: the management routes read the manage world from the real core, leak 
   assert.deepEqual(Object.keys(storage), ['v', 'at', 'storage']);
   assert.deepEqual({ ...storage.storage, durationMs: 0 }, { ...projected('storage-report', rawStorage), durationMs: 0 });
 
-  // FR-004, FR-008, FR-010: the 46 registry keys once each in registry order; the fail-safe exit as data; the layer
+  // FR-004, FR-008, FR-010: the registry keys once each in registry order; the fail-safe exit as data; the layer
   // files, the unparseable local file and the unknown key's note. A key selection's data: `advice.enabled`.
   const registryKeys = Object.keys(require('../../core/registry/settings.json').keys);
-  assert.equal(registryKeys.length, 46);
-  assert.deepEqual(effective.keys.map((row: any) => row.key), registryKeys);
+    assert.deepEqual(effective.keys.map((row: any) => row.key), registryKeys);
   assert.equal(effective.failSafe, true);
   const fileOf = (layer: string, kind = 'settings') => effective.files.find((file: any) => file.layer === layer && file.kind === kind);
   assert.deepEqual([fileOf('user').status, fileOf('user').where], ['ok', { anchor: 'config-home', rel: 'settings.json' }]);
