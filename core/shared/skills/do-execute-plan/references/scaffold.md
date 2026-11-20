@@ -108,7 +108,7 @@ What the generator does, so you can read its output rather than guess at it:
    already lives in `src/`, that reads as `scaffold/src/src/runtime/thing.js.stub`; the doubling is
    deliberate, so a path can never collide with `MANIFEST.md` or `contracts/`.
 4. **Emits per-file frames** in the language of the file's own extension — the plan already stated
-   it, so nothing is inferred. Where `specs.md` §1 (or, in an older design, `design.md`'s API / Interface Contracts) declares an interface for the file's component (an `IC-###` heading or index row that names its `C#`),
+   it, so nothing is inferred. Where `specs.md` §1 Interface Contracts (or, in an older design, `design.md`'s API / Interface Contracts) declares an interface for the file's component (an `IC-###` heading or index row that names its `C#`, or an id on the component's `- **Contracts:**` line in design §5 Components & Boundaries, where a run `IC-003 to IC-006` counts every id in it),
    that block is carried through verbatim as a quoted comment; where it does not, the file gets one
    clearly labelled placeholder signature and is listed under **Emitted without a declared shape**.
    No API nobody wrote down is ever invented.

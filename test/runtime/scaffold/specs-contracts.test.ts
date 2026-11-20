@@ -2,8 +2,9 @@
 
 // Row 179: interface contracts are owned by specs.md §1, so the scaffold reads them there as well as in
 // an older design.md's API / Interface Contracts section. An `IC-###` detail heading that names its
-// component (`(C1)`), or whose index row does, is attributed to that component; the "interface
-// contracts" gap is reported only when neither document declares any.
+// component (`(C1)`), or whose index row does, is attributed to that component, as is every id on the
+// component's `- **Contracts:**` line in design §5 Components & Boundaries (a run `IC-003 to IC-006` counts
+// every id in it); the "interface contracts" gap is reported only when neither document declares any.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
