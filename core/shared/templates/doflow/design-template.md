@@ -144,11 +144,14 @@ flowchart TB
 ## 3. Concepts
 
 <!-- Write the handful of nouns a reader must hold to follow the Journeys, in plain words: no
-     component IDs, no code names. A glossary table only: how the nouns relate is drawn once, in
-     the data-model file the line below points at. Leave out anything a journey does not use. Write
-     "N/A: [why]" for a design with no domain vocabulary worth defining. -->
+     component IDs, no code names. A glossary table only. When the feature has a data-model.md, how
+     the nouns relate is drawn once in its §1 Conceptual domain map, and the line below points there.
+     When data-model.md is N/A (a UI or model-prompt feature with domain nouns but no stored entity),
+     that line says instead, in one or two plain sentences, how the nouns relate. Leave out anything
+     a journey does not use. Write "N/A: [why]" for a design with no domain vocabulary worth defining. -->
 
-How these relate: ./data-model.md §1 Conceptual domain map.
+How these relate: ./data-model.md §1 Conceptual domain map, or, when data-model.md is N/A, [one or
+two plain sentences on how the nouns relate].
 
 | Term | Meaning |
 |---|---|
