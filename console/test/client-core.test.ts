@@ -740,8 +740,9 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   for (const bad of ['#/session/a', '#/session/a/b/c', '#/session/a/b/worker/w-0123', '#/session/a/b/worker/w-0123456789ab/last', '#/session/a/b/attempt/A.1/0']) {
     assert.equal(id(bad), 'not-found', bad);
   }
-  assert.equal(titleFor(parseRoute('#/')), 'Runs \u00b7 DoFlow Console');
-  assert.equal(titleFor(parseRoute('#/'), { runs: [row('AWAITING_GATE'), row('AWAITING_GATE'), row('RUNNING')], unreadableCount: 0 }), '(2) Runs \u00b7 DoFlow Console');
+  assert.equal(id('#/'), 'runs', 'the home is called Now; its route id stays runs');
+  assert.equal(titleFor(parseRoute('#/')), 'Now \u00b7 DoFlow Console');
+  assert.equal(titleFor(parseRoute('#/'), { runs: [row('AWAITING_GATE'), row('AWAITING_GATE'), row('RUNNING')], unreadableCount: 0 }), '(2) Now \u00b7 DoFlow Console');
   assert.equal(titleFor(parseRoute('#/workflows')), 'Workflows \u00b7 DoFlow Console');
   assert.equal(titleFor(parseRoute('#/run/s/t')), 's / t \u00b7 DoFlow Console');
   assert.equal(titleFor(parseRoute('#/run/s/t/tasks')), 'Tasks \u00b7 s / t \u00b7 DoFlow Console');
@@ -798,7 +799,7 @@ test('boot: the stored theme is applied before anything is fetched, and the frag
   assert.ok(rest.every((c) => c.method === 'GET' && !JSON.stringify(c).includes(CODE)));
   assert.equal(page.doc.documentElement.classList.contains('booting'), false);
   assert.equal(page.doc.documentElement.dataset.theme, 'dark');
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.equal(page.doc.activeElement, page.doc.body, 'first load does not move focus');
   assert.equal(page.doc.focusLog.length, 0);
   assert.deepEqual(current(page), ['Now']);
@@ -858,7 +859,7 @@ test('pair: Pair posts the code once with the typed name, then boots as a paired
   const posts = page.calls.filter((c) => c.method === 'POST');
   assert.deepEqual(posts.map((c) => [c.url, c.body]), [['/api/pair', { v: 1, code: PAIR_CODE, name: 'Kai phone' }]]);
   assert.equal(apiCalls(page, '/api/info').length >= 1, true);
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.equal(JSON.stringify(page.history).includes(PAIR_CODE), false);
   assert.equal(text(page.main).includes(PAIR_CODE), false);
 });
@@ -941,7 +942,7 @@ test('boot: blocked storage still renders, as System', async () => {
   const page = await start({ hash: '', throwStorage: true, fetch: standard });
   assert.equal(page.doc.documentElement.dataset.theme, undefined);
   assert.equal(page.doc.documentElement.classList.contains('booting'), false);
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.deepEqual(page.radios.map((r) => r.getAttribute('aria-checked')), ['false', 'false', 'true']);
   page.radios[0].fire('click');
   assert.equal(page.doc.documentElement.dataset.theme, 'light', 'the choice still applies for this page load');
@@ -985,7 +986,7 @@ test('theme control: arrows move and select with wrapping, Home and End jump, an
 test('router: a route change sets the title and the current link, and moves focus to the new heading; first load did not', async () => {
   const page = await start({ hash: '', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? reply(200, { v: 1, run: { ...row('RUNNING'), updatedAt: new Date(Date.now() - 12_000).toISOString() }, timeline: {}, tasks: null, workflow: {} }) : standard(target, init)) });
   assert.equal(page.doc.activeElement, page.doc.body);
-  assert.equal(page.doc.title, '(1) Runs \u00b7 DoFlow Console');
+  assert.equal(page.doc.title, '(1) Now \u00b7 DoFlow Console');
 
   page.location.hash = '#/run/feat-a/run-1';
   page.win.dispatch('hashchange');
@@ -1254,7 +1255,7 @@ test('loaded: the home summary counts the runs by state and flags what needs you
   assert.equal(tiles[0].getAttribute('data-attention'), 'true');
   assert.equal(tiles[1].getAttribute('data-attention'), null);
   assert.match(text(page.main), /2 runs could not be read\./);
-  assert.equal(page.doc.title, '(1) Runs \u00b7 DoFlow Console');
+  assert.equal(page.doc.title, '(1) Now \u00b7 DoFlow Console');
   assert.equal(page.conn.getAttribute('data-state'), 'done');
   assert.match(text(page.conn.querySelector('.conn__long')), /^Updated just now$/);
 });
@@ -1272,7 +1273,7 @@ test('empty: no runs shows the panel with the command block; a poll with the sam
 test('loading: nothing for 300 ms, then the skeleton, held for 300 ms before the data replaces it', async () => {
   let release: (r: Reply) => void = () => {};
   const page = await start({ hash: '', fetch: (target, init) => (target === '/api/runs' ? new Promise<Reply>((resolve) => { release = resolve; }) : standard(target, init)) });
-  assert.equal(text(heading(page)), 'Runs', 'the heading is real text at once');
+  assert.equal(text(heading(page)), 'Now', 'the heading is real text at once');
   assert.equal(page.main.getAttribute('aria-busy'), 'true');
   assert.match(text(page.main), /Loading runs/);
   assert.equal(page.main.querySelectorAll('.skel').length, 0);
@@ -1296,7 +1297,7 @@ test('error: an inline error keeps the heading, shows no server text, retries on
     hash: '',
     fetch: (target, init) => (target === '/api/runs' ? (mode === 'error' ? reply(502, { error: { code: 'core-error', verb: 'list', exit: 1, message: 'SERVER SECRET <b>x</b>' } }) : reply(200, RUNS)) : standard(target, init)),
   });
-  assert.equal(text(heading(page)), 'Runs');
+  assert.equal(text(heading(page)), 'Now');
   assert.equal(text(page.main.querySelector('.state-panel__title')), 'Could not load runs');
   assert.equal(text(page.main.querySelector('.code-chip')), 'core-error \u00b7 502');
   assert.ok(!text(page.main).includes('SERVER SECRET'));
@@ -1515,7 +1516,7 @@ test('E.1 home: Needs you first and oldest first, then Running and Finished newe
   const note = page.main.querySelector('.view-note');
   assert.equal(text(note), '1 run could not be read.');
   assert.equal(note.parent.children.at(-1), note, 'the unreadable note comes after the last section');
-  assert.equal(page.doc.title, '(2) Runs · DoFlow Console');
+  assert.equal(page.doc.title, '(2) Now · DoFlow Console');
 });
 
 // The Running tile counts live runs only; silent runs (over a day) show as a Stale count beside it, and stay in the list.
@@ -2106,7 +2107,7 @@ test('CD-B4 tiles: the facts follow the tick', async () => {
   assert.equal(text(page.main.querySelector('.tile__sub-long')), 'longest wait 7 min');
 });
 
-test('CD-B8 run head: crumb to Runs, mono title with a muted task id, meta in order, and the step counter per run state', async () => {
+test('CD-B8 run head: crumb to Now, mono title with a muted task id, meta in order, and the step counter per run state', async () => {
   mods.home.resetHome();
   const cases: Array<[any, string, string]> = [
     [frow('run-1', 4), 'step 5 of 5', '5'],
@@ -2118,7 +2119,7 @@ test('CD-B8 run head: crumb to Runs, mono title with a muted task id, meta in or
     const crumb = page.main.querySelector('.run-head__crumb');
     assert.equal(crumb.getAttribute('aria-label'), 'Breadcrumb');
     assert.equal(crumb.querySelector('a').getAttribute('href'), '#/');
-    assert.equal(text(crumb.querySelector('a')), 'Runs');
+    assert.equal(text(crumb.querySelector('a')), 'Now');
     assert.equal(text(crumb.querySelector('.mono')), 'feat-a');
     const title = heading(page);
     assert.equal(text(title), 'feat-a / run-1', 'the accessible text is slug / taskId');
@@ -2155,7 +2156,7 @@ test('CD-B8 the run route loads with a real crumb and title, then meta, step, ra
   mods.home.resetHome();
   const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
   assert.equal(text(heading(page)), 'feat-a / run-1', 'the title is real text from the route params');
-  assert.equal(text(page.main.querySelector('.run-head__crumb').querySelector('a')), 'Runs');
+  assert.equal(text(page.main.querySelector('.run-head__crumb').querySelector('a')), 'Now');
   assert.ok(page.main.querySelector('.run-head__step').getAttribute('hidden') !== null, 'no step counter before data');
   await advance(400);
   assert.deepEqual(page.main.querySelectorAll('.skel').map((x) => x.className.replace('skel ', '')), ['skel--meta', 'skel--stepline', 'skel--railcard', 'skel--slot', 'skel--timeline']);
@@ -3836,7 +3837,8 @@ test('133 shortcuts: p pauses, g then w navigates, ? opens the list with focus i
     assert.equal(help.getAttribute('role'), 'dialog');
     assert.equal(help.getAttribute('aria-modal'), 'true');
     assert.equal(page.doc.activeElement.className.includes('help__close'), true, 'focus moves into the dialog');
-    assert.match(text(help), /Go to Runs/);
+    assert.match(text(help), /Go to Now/);
+    assert.doesNotMatch(text(help), /Go to Runs/);
     keydownOn(page, 'p');
     assert.equal(page.pause.getAttribute('aria-pressed'), 'false', 'a modal dialog keeps the page keys off');
     const tab = keydownOn(page, 'Tab');
@@ -3844,6 +3846,9 @@ test('133 shortcuts: p pauses, g then w navigates, ? opens the list with focus i
     keydownOn(page, 'Escape');
     assert.notEqual(help.getAttribute('hidden'), null);
     assert.equal(page.doc.activeElement, page.pause, 'focus returns to the opener');
+    keydownOn(page, 'g');
+    keydownOn(page, 'r');
+    assert.equal(page.location.hash, '#/', 'go.runs, labelled Go to Now, still goes to #/');
   });
 });
 
@@ -5429,14 +5434,14 @@ test('150 C.6 CSS: the Now Chain link stacks above the stretched run link, and t
   assert.doesNotMatch(rule('.run-head__step'), /grid-area/, 'only the aside takes the step area');
 });
 
-test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps its one link to Runs', async () => {
+test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps its one link to Now', async () => {
   mods.home.resetHome();
   const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4), WF_FEATURE, [ev(5, 'start', null)])) });
   const head = page.main.querySelector('.run-head');
   assert.deepEqual(head.children.map((c: El) => c.className), ['run-head__crumb', 'run-head__title', 'run-head__metawrap', 'run-head__aside']);
   const aside = head.querySelector('.run-head__aside');
   assert.deepEqual(aside.children.map((c: El) => c.className), ['run-head__step', 'graph__back', 'run-head__acts'], 'Chain sits beside the step counter, in its grid area (IC-020); the place of Close run (162 IC-010) follows it');
-  assert.deepEqual(linksOf(head), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']]);
+  assert.deepEqual(linksOf(head), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain']]);
   assert.equal(text(page.main.querySelector('.run-head__step')), 'step 5 of 5', 'the step counter is unchanged');
   assert.equal(mods.views.parseRoute(head.querySelectorAll('a')[1].getAttribute('href')).id, 'session');
   uninstallPage();
@@ -5444,7 +5449,7 @@ test('150 C.6 Run head: a Chain link follows the step counter; the crumb keeps i
 
   mods.home.resetHome();
   const waiting = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
-  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Runs'], ['#/session/feat-a/run-1', 'Chain']], 'the link is there before the data, from the route params');
+  assert.deepEqual(linksOf(waiting.main.querySelector('.run-head')), [['#/', 'Now'], ['#/session/feat-a/run-1', 'Chain']], 'the link is there before the data, from the route params');
 });
 
 test('150 C.6 Tasks head: a Chain link follows Back to the run, on the board and on each no-graph note', async () => {
@@ -5502,7 +5507,7 @@ test('shell attention: gates waiting anywhere on the machine show on every page 
   assert.equal(text(strip(page).querySelector('.attention__count')), '1 gate waiting for you');
   assert.equal(strip(page).querySelector('.attention__link').getAttribute('href'), '#/run/feat-a/T-1', 'one gate in this project: straight to its run');
   assert.equal(text(strip(page).querySelector('.attention__where')), 'on this machine, in this project', 'the strip counts the machine');
-  assert.equal(text(page.main.querySelector('.view-head__meta')), 'Runs of example-project, the project this Console was started in.', 'Now names the one project it lists');
+  assert.equal(text(page.main.querySelector('.view-head__meta')), 'This project is example-project, where this Console was started.', 'Now names the project it was started in');
   assert.equal(text(navLink(page, '#/layers').querySelector('.navrail__badge')), '1 1 gate waiting for you');
 
   const two = machineBody([gateOf('T-2', 'g-b', null, 1), gateOf('T-1', 'g-a', 'Approve the plan')]);

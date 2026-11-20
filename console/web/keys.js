@@ -15,7 +15,7 @@ const SHORTCUTS = Object.freeze([
   { id: 'help', scope: 'global', keys: ['?'], label: 'Show or hide this list' },
   { id: 'palette', scope: 'global', keys: ['k'], mod: true, label: 'Open the command palette' },
   { id: 'pause', scope: 'global', keys: ['p'], label: 'Pause or resume updates for this view' },
-  { id: 'go.runs', scope: 'global', keys: ['g', 'r'], chord: true, label: 'Go to Runs' },
+  { id: 'go.runs', scope: 'global', keys: ['g', 'r'], chord: true, label: 'Go to Now' },
   { id: 'go.workflows', scope: 'global', keys: ['g', 'w'], chord: true, label: 'Go to Workflows' },
   { id: 'go.sessions', scope: 'global', keys: ['g', 's'], chord: true, label: 'Go to Sessions' },
   { id: 'go.layers', scope: 'global', keys: ['g', 'l'], chord: true, label: 'Go to Layers' },

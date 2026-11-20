@@ -81,12 +81,12 @@ const graphSize = (data) => (data && data.graph && Array.isArray(data.graph.task
 const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
 
 /**
- * The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line, and the step counter with, beside it in
+ * The run head (CD-B8): crumb to Now, the title with a muted task id, the meta line, and the step counter with, beside it in
  * the same grid area, the link to the run's Session screen (150 IC-020) and the place of the Close run button (162 IC-010). @param {any} params
  */
 function buildRunHead(params) {
   const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
-    h('a', { href: '#/' }, 'Runs'), h('span', { 'aria-hidden': 'true' }, ' / '), h('span', { class: 'mono' }, params.slug),
+    h('a', { href: '#/' }, 'Now'), h('span', { 'aria-hidden': 'true' }, ' / '), h('span', { class: 'mono' }, params.slug),
   ]);
   const h1 = h('h1', { class: 'run-head__title', tabindex: '-1' }, [h('span', {}, params.slug), params.taskId === params.slug ? null : h('span', { class: 'run-head__task' }, ` / ${params.taskId}`)]);
   const meta = h('div', { class: 'run-head__metawrap' });
@@ -176,19 +176,19 @@ const VIEWS = Object.freeze({
     pollMs: 5000,
     wide: false,
     skeleton: skeletonHome,
-    head: () => ({ text: 'Runs', mono: false }),
-    // The scope, in words: the attention strip above counts this machine, this page lists one project and names it once the page knows it.
+    head: () => ({ text: 'Now', mono: false }),
+    // The scope, in words: the attention strip above counts this machine; this line names the project the Console was started in once the page knows it.
     meta: (/** @type {any} */ _params, /** @type {any} */ _data, /** @type {number} */ _nowMs, /** @type {{ project: string | null }} */ shell) =>
-      h('p', { class: 'view-head__meta' }, shell && shell.project ? `Runs of ${shell.project}, the project this Console was started in.` : 'The runs of the project this Console was started in.'),
+      h('p', { class: 'view-head__meta' }, shell && shell.project ? `This project is ${shell.project}, where this Console was started.` : 'This project is the one this Console was started in.'),
     render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => renderHome(data, { badge, local }),
     isEmpty: (/** @type {any} */ data) => data.runs.length === 0,
     empty: {
       title: 'No runs yet',
-      sentence: 'A run appears here as soon as a workflow starts in this project. Start one from your coding tool:',
+      sentence: 'A run of this project appears here as soon as its workflow starts. Start one from your coding tool:',
       command: '/do <describe the change you want>',
       note: 'Runs refresh every 5 seconds while this tab is open.',
     },
-    title: (/** @type {any} */ params, /** @type {any} */ data) => `${data && awaitingCount(data) > 0 ? `(${awaitingCount(data)}) ` : ''}Runs`,
+    title: (/** @type {any} */ params, /** @type {any} */ data) => `${data && awaitingCount(data) > 0 ? `(${awaitingCount(data)}) ` : ''}Now`,
   },
   run: {
     id: 'run',
@@ -519,8 +519,8 @@ function titleFor(route, data = null) {
 const MANAGE_VIEWS = Object.freeze(['followups', 'workflows', 'workers', 'advice', 'settings', 'health']);
 
 /**
- * Which navigation link is current: Now on `#/`, every `#/run/...` and every `#/session/...` (the id stays `runs`; the Runs
- * heading and title keep Runs), Sessions on `#/sessions...` and `#/compare...`, Layers on every `#/layers...`, More on `#/more`, Start on `#/start`,
+ * Which navigation link is current: Now on `#/`, every `#/run/...` and every `#/session/...` (the id stays `runs`; the
+ * heading, crumb and title read Now), Sessions on `#/sessions...` and `#/compare...`, Layers on every `#/layers...`, More on `#/more`, Start on `#/start`,
  * each Manage view on its own link, else none.
  * @param {any} route
  */
