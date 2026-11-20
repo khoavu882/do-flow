@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
+const { ACTIVE_HARNESS_IDS } = require('../helper/harness-ids.ts');
 const { validateAttention, projectAttention, attentionProblems } = require('../../src/registry/attention.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -93,7 +94,7 @@ test('(a) every shipped harness declares a valid attention entry: Claude Code su
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(attentionProblems(registry), []);
   const status = Object.fromEntries(registry.harnesses.map((h: any) => [h.id, h.attention?.status]));
-  assert.deepEqual(status, { claude: 'supported', codex: 'unknown', opencode: 'unknown', pi: 'unknown', copilot: 'unknown', kiro: 'unknown', antigravity: 'unknown' });
+  assert.deepEqual(status, Object.fromEntries(ACTIVE_HARNESS_IDS.map((id) => [id, id === 'claude' ? 'supported' : 'unknown'])));
   for (const h of registry.harnesses.filter((x: any) => x.id !== 'claude')) assert.deepEqual(h.attention, unknown(), h.id);
   // attentionProblems names a harness without the key, and a supported entry checked against its own contract.
   const missing = { ...registry, harnesses: registry.harnesses.map((h: any) => (h.id === 'kiro' ? { ...h, attention: undefined } : h)) };
