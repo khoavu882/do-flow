@@ -164,14 +164,14 @@ function coverageViolations(verbs: ReadonlySet<string>, measured: ReadonlySet<st
 }
 
 let fixture: any;
-const results: { argv: string; status: number | null; bytes: number; stdout: string }[] = [];
+const results: { argv: string; status: number | null; bytes: number; stdout: string; stderr: string }[] = [];
 const byArgv = new Map<string, any>();
 
 before(() => {
   fixture = buildFixture();
   for (const [argv] of CEILINGS) {
     const out = measureVerb(fixture, DISPATCHER_ARGV(argv));
-    const row = { argv, status: out.status, bytes: out.bytes, stdout: out.stdout };
+    const row = { argv, status: out.status, bytes: out.bytes, stdout: out.stdout, stderr: out.stderr };
     results.push(row);
     byArgv.set(argv, row);
   }
@@ -182,7 +182,11 @@ test('G80: the measured rows are the IC-009 rows, in order', () => {
 });
 
 test('G80: every measured verb answers with its expected exit', () => {
-  const wrong = CEILINGS.filter(([argv, exit]) => byArgv.get(argv).status !== exit).map(([argv, exit]) => `${argv}: exit ${byArgv.get(argv).status}, expected ${exit}`);
+  const excerpt = (text: string) => JSON.stringify(text.slice(0, 800));
+  const wrong = CEILINGS.filter(([argv, exit]) => byArgv.get(argv).status !== exit).map(([argv, exit]) => {
+    const row = byArgv.get(argv);
+    return `${argv}: exit ${row.status}, expected ${exit}; stdout ${excerpt(row.stdout)}; stderr ${excerpt(row.stderr)}`;
+  });
   assert.deepEqual(wrong, []);
 });
 

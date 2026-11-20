@@ -162,7 +162,8 @@ async function handleReplay(options: any, runtime: any, { inspectFailure, create
   const projectRoot = options.projectRoot || null;
   const setting = resolveSetting({ adviceRegistry, roots, env });
   if (setting.state !== 'on') return fail('off', `decision model is off (${setting.reason}); nothing was asked`);
-  const model = resolveShadowConfig(kind, { projectRoot: projectRoot || undefined, env, roots, global: options.global }).model || setting.model;
+  // The kind's model comes from the settings layer's checkout (runtime.settingsRoot); the replay's stores from projectRoot.
+  const model = resolveShadowConfig(kind, { projectRoot: runtime.settingsRoot || projectRoot || undefined, env, roots, global: options.global }).model || setting.model;
   if (typeof model !== 'string' || !model) return fail('no-model', `no model is named for kind ${kind}; nothing was asked`);
   const provider = (adviceRegistry.providers || []).find((entry: any) => entry.id === setting.provider);
   if (!provider) return fail('provider-unknown', `provider '${setting.provider}' is not in core/registry/advice.json; nothing was asked`);

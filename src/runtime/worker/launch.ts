@@ -21,7 +21,8 @@
 // nothing (no recipe holds one, 178 D7). The shape keeps `{model}`, `{provider}` and `{effort}`.
 //
 // `launchWorker` runs IC-012 steps 1 to 5: the environment, the optional 078 grant, the launch
-// emission in process, the emission text before the brief, then `spawn` with no shell. It returns a
+// emission in process, the emission text after `</role>` of a framed prompt (one `<context>` block) and before
+// the brief for an unframed one, then `spawn` with no shell. It returns a
 // promise that resolves once the process has spawned and rejects on any throw or a spawn `error`
 // (for example ENOENT); the supervisor ends such a run `not-started`. No variable's value is stored,
 // and the emission text is never returned for storage.
@@ -433,6 +434,25 @@ interface LaunchOptions {
   binding?: ModelBinding | null;
 }
 
+const FRAMED_ROLE = /^<role>\n[\s\S]*?\n<\/role>\n?/;
+
+/**
+ * FU-d8dmwp: where the delivered ContextPack goes. A framed prompt (it opens with `<role>`) keeps the role first and takes
+ * the pack as one `<context>` block right after `</role>`, ahead of any context lines the caller wrote; an unframed prompt
+ * gets the pack, a blank line, then the prompt.
+ */
+function withDelivered(delivered: string, prompt: string): string {
+  const role = FRAMED_ROLE.exec(prompt);
+  if (!role) return `${delivered}\n\n${prompt}`;
+  const { FRAME_TAG } = require('../prompt/frame.ts');
+  const pack = delivered.replace(FRAME_TAG, '&lt;$1$2');
+  const rest = prompt.slice(role[0].length).replace(/^\n+/, '');
+  const head = `${prompt.slice(0, role[0].length).trimEnd()}\n\n`;
+  return rest.startsWith('<context>\n')
+    ? `${head}<context>\n${pack}\n${rest.slice('<context>\n'.length)}`
+    : `${head}<context>\n${pack}\n</context>${rest ? `\n\n${rest}` : '\n'}`;
+}
+
 /** IC-012 steps 1 to 5. Resolves `{ child, env, launched: { reason, bytes } }` once the process has spawned. */
 function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId, binding }: LaunchOptions): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -442,7 +462,7 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const reason: string = emitted.decision.reason;
     // DEC-052: any returned text is delivered, a refused emission's included (it carries the pack and the pointer).
     const delivered = typeof emitted.text === 'string' ? emitted.text : null;
-    const text = delivered !== null ? `${delivered}\n\n${prompt}` : prompt;
+    const text = delivered !== null ? withDelivered(delivered, prompt) : prompt;
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
     const argv = assembleArgv(recipe, text, edit, lastMessageFile, binding);
     const { parserIdOf, parserOf, UNPARSED } = parsers();

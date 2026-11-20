@@ -38,9 +38,9 @@ test('every shipped worker declares both provider and effort, in a decided statu
   }
 });
 
-test('the supported entries are exactly the ones with recorded evidence: claude effort, opencode provider, pi provider and effort', () => {
+test('the supported entries are exactly the ones with recorded evidence: claude effort, opencode provider, pi provider and effort, copilot and antigravity effort', () => {
   const supported = IDS.flatMap((id) => ['provider', 'effort'].filter((key) => worker(id)[key].status === 'supported').map((key) => `${id}.${key}`));
-  assert.deepEqual(supported, ['claude.effort', 'opencode.provider', 'pi.provider', 'pi.effort']);
+  assert.deepEqual(supported, ['claude.effort', 'opencode.provider', 'pi.provider', 'pi.effort', 'copilot.effort', 'antigravity.effort']);
 });
 
 test('each supported entry cites an https URL or a recorded file whose matched lines hold its transport', () => {
@@ -155,6 +155,30 @@ test('(d) no shipped recipe argv holds an effort transport flag: the T1 rule run
   assert.ok(check(planted).some((line: string) => /harness 'pi'.*'--thinking' must not appear in oneShot/.test(line)), 'the control: a fixed effort in the one-shot is refused');
 });
 
+test('copilot and antigravity: effort is a flag whose levels are the ones the recorded help lists, with no offLevel or mayLower the help does not state', () => {
+  for (const [id, flag, levels, help] of [
+    ['copilot', '--reasoning-effort', ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'], 'Set the reasoning effort level [possible values: none, minimal, low, medium, high, xhigh, max]'],
+    ['antigravity', '--effort', ['low', 'medium', 'high', 'xhigh', 'max'], 'Reasoning effort for the current CLI session (low|medium|high|xhigh|max)'],
+  ] as Array<[string, string, string[], string]>) {
+    const effort = worker(id).effort;
+    assert.equal(effort.status, 'supported', id);
+    assert.equal(effort.via, 'flag', id);
+    assert.deepEqual(effort.argv, [flag, '{effort}'], id);
+    assert.deepEqual(effort.levels, levels, id);
+    assert.ok(!Object.hasOwn(effort, 'offLevel') && !Object.hasOwn(effort, 'mayLower'), `${id}: the help states neither`);
+    // the recorded help is what supports it: a passing help-effort check from a real run that holds the flag and the level list
+    const [file] = effort.evidence;
+    assert.match(file, new RegExp(`^core/worker-evidence/${id}/\\d{4}-\\d{2}-\\d{2}-cli-check-effort\\.json$`), id);
+    const data = record(file);
+    assert.equal(data.kind, 'cli-check');
+    assert.ok(data.run === null && !Object.hasOwn(data, 'handAdded'), `${id}: captured by the evidence verb, not added by hand`);
+    const check = data.checks.find((c: any) => c.id === 'help-effort');
+    assert.deepEqual([check.result, check.exit, check.establishes], ['pass', 0, ['effort']], id);
+    assert.ok(check.matched.some((line: string) => line.includes(flag)), `${id}: a matched line holds ${flag}`);
+    assert.ok(check.matched.some((line: string) => line.includes(help)), `${id}: a matched line holds the level list`);
+  }
+});
+
 test('(e) every shipped levels list passes levelOrderProblem, and a reversed copy of one does not', () => {
   assert.equal(levelOrderProblem(REGISTRY.harnesses), null);
   const reversed = structuredClone(REGISTRY.harnesses);
@@ -167,6 +191,8 @@ test('the checks file of each harness holds the checks that establish its suppor
     claude: { 'help-effort': ['effort'] },
     pi: { 'help-provider': ['provider'], 'help-thinking': ['effort'] },
     opencode: { 'help-provider': ['provider'] },
+    copilot: { 'help-effort': ['effort'] },
+    antigravity: { 'help-effort': ['effort'] },
   };
   for (const [id, byCheck] of Object.entries<any>(expected)) {
     const spec = record(`core/worker-evidence/${id}/checks.json`);

@@ -132,6 +132,8 @@ interface DecisionPointContext {
   staticPicks?: string[];
   taskId?: string | null;
   projectRoot?: string;
+  /** The checkout whose settings layer applies when it is not projectRoot's (`advise` in a linked worktree); projectRoot otherwise. */
+  settingsRoot?: string;
   env?: Env;
   /** The client question set (IC-001 of the advice client) and its registry; without them the advisor answers unavailable. */
   questionSet?: QuestionSet;
@@ -565,15 +567,16 @@ async function judgeTrust(context: DecisionPointContext, services: DispatcherSer
  * `LOCAL_RESULT_UNMET: <standing>: <reason>`. `show` without a show surface is shadow, with no trust call.
  */
 async function interceptDecisionPoint(context: DecisionPointContext, services: DispatcherServices = {}): Promise<DecisionPointResolution> {
+  const settingsRoot = context.settingsRoot || context.projectRoot;
   const config: KindShadowConfig = services.shadowConfig || resolveShadowConfig(context.kind, {
-    projectRoot: context.projectRoot,
+    projectRoot: settingsRoot,
     env: context.env,
     fsImpl: services.fsImpl,
     roots: services.roots,
   });
 
   // A chosen rollout profile caps the configured mode (mode.ts; `shadow` and `staged` cap show and act to shadow).
-  let mode: AdviceMode = capMode(profileAdvisorCap({ projectRoot: context.projectRoot, env: context.env, fsImpl: services.fsImpl }), config.mode);
+  let mode: AdviceMode = capMode(profileAdvisorCap({ projectRoot: settingsRoot, env: context.env, fsImpl: services.fsImpl }), config.mode);
   // A kind no settings layer sets runs in shadow whatever its local result holds (row 174 O-1).
   if (config.decidedBy && config.decidedBy.mode === null && MODE_RANK[mode] > MODE_RANK.shadow) mode = 'shadow';
   const staticPick = context.staticPick;

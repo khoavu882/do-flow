@@ -3199,7 +3199,7 @@
           "evidence": [],
           "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that sends a prompt and exits, and its source",
           "verifiedOn": "2026-11-15",
-          "reason": "copilot's non-interactive prompt mode needs `--allow-all-tools` (`copilot --help` on 1.0.105: 'required for non-interactive mode'), a flag that widens what the session may do; no widening flag is ever used for a started session (row 165 owner ruling P-2), so copilot is not started from the Console"
+          "reason": "its non-interactive prompt mode needs `--allow-all-tools` (`copilot --help` on 1.0.105), which widens what the session may do; no widening flag is ever used for a started session, so copilot is not started from the Console"
         },
         "provider": {
           "status": "unknown",
@@ -3209,11 +3209,26 @@
           "reason": "no recorded help line or doc read shows a provider in argv for copilot"
         },
         "effort": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read copilot's CLI documentation and `copilot --help` for a reasoning-effort flag and its levels; add a check to core/worker-evidence/copilot/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out <new cli-check path>`",
-          "verifiedOn": "2026-11-16",
-          "reason": "no recorded help line or doc read shows an effort flag for copilot"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/copilot/2026-11-20-cli-check-effort.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness copilot --checks core/worker-evidence/copilot/checks.json --out <new cli-check path>` against the installed copilot and read the matched `--reasoning-effort <level>` lines (check help-effort). Recorded 2026-11-20 on copilot 1.0.105: `copilot --help` lists `--reasoning-effort <level>` with the possible values none, minimal, low, medium, high, xhigh, max. The help does not say that `none` switches reasoning off, so no `offLevel` is declared, and it does not say whether a model may run a lower level than bound, so no `mayLower` is declared. That a given model accepts a given level is not checked; the level is passed through.",
+          "verifiedOn": "2026-11-20",
+          "via": "flag",
+          "argv": [
+            "--reasoning-effort",
+            "{effort}"
+          ],
+          "levels": [
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
         },
         "modelList": {
           "status": "none-recorded",
@@ -4216,11 +4231,24 @@
           "reason": "no recorded help line or doc read shows a provider in argv for antigravity"
         },
         "effort": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read antigravity's CLI documentation and `agy --help` for a reasoning-effort flag and its levels; add a check to core/worker-evidence/antigravity/checks.json that matches the line and establishes `effort`, then record it with `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>`",
-          "verifiedOn": "2026-11-16",
-          "reason": "no recorded help line or doc read shows an effort flag for antigravity"
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/antigravity/2026-11-20-cli-check-effort.json"
+          ],
+          "verification": "Run `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>` against the installed agy and read the matched `--effort` line lines (check help-effort). Recorded 2026-11-20 on agy 1.5.11: `agy --help` lists `--effort` as \"Reasoning effort for the current CLI session (low|medium|high|xhigh|max)\". The help does not say whether a model may run a lower level than bound, so no `mayLower` is declared. That a given model accepts a given level is not checked; the level is passed through.",
+          "verifiedOn": "2026-11-20",
+          "via": "flag",
+          "argv": [
+            "--effort",
+            "{effort}"
+          ],
+          "levels": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
         },
         "modelList": {
           "status": "supported",

@@ -166,12 +166,12 @@ function ceilingFor(measured: number, { doctor = false }: { doctor?: boolean } =
 
 /**
  * Runs `argv` on the fixture and measures the normalised stdout.
- * @returns {{argv: string[], status: number|null, bytes: number, stdout: string}}
+ * @returns {{argv: string[], status: number|null, bytes: number, stdout: string, stderr: string}}
  */
 function measureVerb(fixture: any, argv: readonly string[]) {
   const out = runVerb(fixture, argv);
   const stdout = normalize(out.stdout, fixture);
-  return { argv: [...argv], status: out.status, bytes: byteCount(stdout), stdout };
+  return { argv: [...argv], status: out.status, bytes: byteCount(stdout), stdout, stderr: out.stderr };
 }
 
 module.exports = {

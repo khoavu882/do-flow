@@ -292,7 +292,8 @@ describe('claim link: the shadow hook', () => {
     assert.equal(a.asks().length, 1, 'the detached call reached the stalled model');
     assert.equal(line.type, 'miss');
     assert.equal(line.reason, 'timeout');
-    assert.ok(line.durationMs >= 100 && line.durationMs < 1000, `the call ran ${line.durationMs}ms against a 120 ms budget`);
+    // A timer may fire a few ms early, so the lower bound is loose; the upper bound is the old ceiling, far below the 1500 ms a budget-ignoring cut would show.
+    assert.ok(line.durationMs >= 95 && line.durationMs < 1000, `the call ran ${line.durationMs}ms: expected a cut near the 120 ms budget (>= 95 ms and < 1000 ms)`);
   });
 
   test('an unreadable reply is recorded as a malformed-reply miss', async (t) => {

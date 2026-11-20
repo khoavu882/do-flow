@@ -17,7 +17,8 @@ const WORKERS = HARNESS_REGISTRY.harnesses.filter((item: any) => item.worker);
 const SUPPORTED = WORKERS.find((item: any) => item.worker.model?.status === 'supported')?.id;
 // Every shipped worker records a supported --model flag since antigravity's help was read from stderr (core/worker-evidence/antigravity/2026-11-07-cli-check.json),
 // so the unevidenced case is built by downgrading one worker's entry in the registry text the validator reads.
-const UNSUPPORTED = WORKERS[WORKERS.length - 1].id;
+// The downgrade must not leave a supported effort without a supported model (the registry rejects that), so pick a worker whose effort is not supported.
+const UNSUPPORTED = WORKERS.filter((item: any) => item.worker.effort?.status !== 'supported').pop().id;
 const BARE_PATH: any = { PATH: path.dirname(process.execPath) };
 
 /** A fixture plus a `validate(file-content | object, extraArgs)` runner that writes the prepared run outside project and HOME. */

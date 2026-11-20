@@ -1114,6 +1114,21 @@ const START_OPTIONS_BODY = {
   entries: ['do', 'none'], entryLine: 'Use the DoFlow do skill for the request in input.',
 };
 
+test('start-options: every shipped not-startable reason survives the Console words cap (copilot is not a bare "(withheld)")', () => {
+  const rows = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses;
+  const withReason = rows.filter((row: any) => typeof row.worker?.mainSession?.reason === 'string');
+  assert.ok(withReason.some((row: any) => row.id === 'copilot'), 'the real copilot row is read');
+  for (const row of withReason) {
+    // the words start-session.ts builds for a harness without a main-session shape
+    const words = `DoFlow has no recorded headless way to start ${row.id}: ${row.worker.mainSession.reason}`;
+    const raw = clone(START_OPTIONS_BODY) as any;
+    raw.harnesses[1] = { ...raw.harnesses[1], harness: row.id, words };
+    const out = project('start-options', raw, { projectKey: KEY_MAIN });
+    assert.equal(out.ok, true, JSON.stringify(out));
+    assert.equal(out.body.harnesses[1].words, words, `${row.id}: ${words.length} characters`);
+  }
+});
+
 test('165 F1 start-options: IC-002 projects through PROJECTORS with the key asked for; the key, a root, a bound or a field outside its set is core-contract-mismatch', () => {
   const ask = (raw: unknown, projectKey = KEY_MAIN) => project('start-options', raw, { projectKey });
   const ok = ask({ ...clone(START_OPTIONS_BODY), extra: MARKER });

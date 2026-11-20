@@ -96,18 +96,6 @@ function recordFeature({ storeRoot, cwd, slug, taskId = null }: { storeRoot: str
   });
 }
 
-/** Removes the calling checkout's entry when it names `slug`; an unreadable file is left alone. */
-function clearCheckout({ storeRoot, cwd, slug }: { storeRoot: string; cwd: string; slug: string | null }): void {
-  if (!slug) return;
-  bestEffort('cleared', () => {
-    const here = checkoutOf(cwd);
-    if (!here) return;
-    const file = pointerFile(storeRoot, here.key);
-    const read = readEntry(file);
-    if (read.status === 'ok' && read.data!.slug === slug) removeEntry(file);
-  });
-}
-
 /** Removes every entry naming `slug`, whichever checkout holds it (the feature is finished). */
 function clearSlug({ storeRoot, slug }: { storeRoot: string; slug: string | null }): void {
   if (!slug) return;
@@ -163,4 +151,4 @@ function activeEntry({ storeRoot, cwd, checkout }: { storeRoot: string; cwd: str
   return read.status === 'ok' && read.data!.branch === here.branch ? read.data! : null;
 }
 
-module.exports = { recordFeature, clearCheckout, clearSlug, describeActive, activeEntry, pointerFile, POINTER_DIR };
+module.exports = { recordFeature, clearSlug, describeActive, activeEntry, pointerFile, POINTER_DIR };
