@@ -5,9 +5,10 @@
 //   the stem of a top-level module src/runtime/<stem>.ts followed by `.test.` or `-`, or it is in SPANNING (a verb or
 //   script test that reaches across folders or modules, one reason each). A test of src/runtime/<dir>/<m>.ts lives
 //   in test/runtime/<dir>/. The message names the file. A SPANNING entry that is gone or names a module stem fails.
+//   Folders: every folder test/runtime/<dir>/ has a src/runtime/<dir>/; `fixtures` is the one exemption.
 //   Control: a planted tree in a temp folder, with src/runtime folders and one top-level module, shows the shapes
-//   that fail (a folder prefix, a folder name alone, a prefix with no module, another extension) and the ones that
-//   pass (a module stem, a SPANNING name).
+//   that fail (a folder prefix, a folder name alone, a prefix with no module, another extension, a test folder with
+//   no source folder) and the ones that pass (a module stem, a SPANNING name, `fixtures/`).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -51,6 +52,7 @@ function unmirroredTests(root: string, spanning: Map<string, string> = SPANNING)
   const srcRuntime = path.join(root, 'src', 'runtime');
   const src = fs.readdirSync(srcRuntime, { withFileTypes: true });
   const stems = src.filter((entry: any) => entry.isFile() && entry.name.endsWith('.ts')).map((entry: any) => entry.name.slice(0, -3));
+  const srcDirs = new Set(src.filter((entry: any) => entry.isDirectory()).map((entry: any) => entry.name));
   const ofModule = (name: string) => stems.some((stem: string) => name.startsWith(`${stem}.test.`) || name.startsWith(`${stem}-`));
   const entries = fs.readdirSync(testRuntime, { withFileTypes: true });
   const files = entries
@@ -59,19 +61,24 @@ function unmirroredTests(root: string, spanning: Map<string, string> = SPANNING)
   const stale = [...spanning.keys()]
     .filter((name) => ofModule(name) || !entries.some((entry: any) => entry.isFile() && entry.name === name))
     .map((name) => `SPANNING entry ${name} is gone or names a top-level module`);
-  return [...files, ...stale].sort();
+  const folders = entries
+    .filter((entry: any) => entry.isDirectory() && entry.name !== 'fixtures' && !srcDirs.has(entry.name))
+    .map((entry: any) => `test/runtime/${entry.name}/ has no src/runtime/${entry.name}/`);
+  return [...files, ...stale, ...folders].sort();
 }
 
-test('G90: every top-level test/runtime test names a top-level module or is SPANNING', () => {
+test('G90: every top-level test/runtime test names a top-level module or is SPANNING; every test folder has a source folder', () => {
   assert.deepEqual(unmirroredTests(REPO_ROOT), []);
 });
 
-test('G90 control: folder-shaped, unknown and other-extension names fail; module stems and SPANNING pass', (t) => {
+test('G90 control: folder-shaped, unknown and other-extension names fail, a ghost test folder fails; module stems, SPANNING and fixtures pass', (t) => {
   const root = tempDir(t, 'doflow-g90-');
   for (const dir of ['packages', 'transcripts', 'verification', 'worker', 'roadmap']) {
     fs.mkdirSync(path.join(root, 'src', 'runtime', dir), { recursive: true });
+    fs.mkdirSync(path.join(root, 'test', 'runtime', dir), { recursive: true });
   }
-  fs.mkdirSync(path.join(root, 'test', 'runtime'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'test', 'runtime', 'fixtures'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'test', 'runtime', 'ghost'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src', 'runtime', 'worker-y.ts'), '');
   const failing = ['package-x.test.ts', 'transcript-x.test.ts', 'verify-x.test.ts', 'runtime-worker-x.test.ts',
     'worker.test.ts', 'roadmap.test.ts', 'worker-x.test.mjs'];
@@ -80,6 +87,7 @@ test('G90 control: folder-shaped, unknown and other-extension names fail; module
   }
   assert.deepEqual(unmirroredTests(root, new Map([['spans.test.ts', 'planted']])), [
     ...failing.map((name) => `test/runtime/${name} starts with no top-level src/runtime module stem`),
+    'test/runtime/ghost/ has no src/runtime/ghost/',
   ].sort());
   assert.deepEqual(unmirroredTests(root, new Map([['gone.test.ts', 'planted'], ['worker-y.test.ts', 'planted']]))
     .filter((line) => line.startsWith('SPANNING')), [
