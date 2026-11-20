@@ -290,6 +290,34 @@ test('project configure in an inheriting worktree writes the main layer and keep
   assert.ok(text.stdout.includes(`wrote ${f.projectSettingsFile} (inherited from the main checkout)`), text.stdout);
 });
 
+test('project configure keys the project by the git root from a subdirectory and from a real linked worktree', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  writeJson(f.userSettingsFile, userSetting(server.origin));
+  const repo = path.join(f.scratch.dir, 'repo');
+  fs.mkdirSync(path.join(repo, 'sub', 'deep'), { recursive: true });
+  const git = (cwd: any, ...args: any) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd, env: f.env(), encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'commit', '-q', '--allow-empty', '-m', 'init');
+  const linked = path.join(f.scratch.dir, 'linked-tree');
+  git(repo, 'worktree', 'add', '-q', '-b', 'side', linked);
+  const rootSettings = path.join(fs.realpathSync(repo), '.doflow', 'settings.json');
+
+  const fromSub = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json'], { cwd: path.join(repo, 'sub', 'deep') });
+  assert.equal(fromSub.status, 0, `${fromSub.stderr}\n${fromSub.stdout}`);
+  assert.equal(fs.realpathSync(JSON.parse(fromSub.stdout).written), rootSettings);
+  assert.equal(fs.existsSync(path.join(repo, 'sub', 'deep', '.doflow')), false);
+
+  fs.rmSync(path.join(repo, '.doflow'), { recursive: true, force: true });
+  const fromLinked = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json'], { cwd: linked });
+  assert.equal(fromLinked.status, 0, `${fromLinked.stderr}\n${fromLinked.stdout}`);
+  assert.equal(fs.realpathSync(JSON.parse(fromLinked.stdout).written), rootSettings);
+  assert.equal(fs.existsSync(path.join(linked, '.doflow', 'settings.json')), false);
+});
+
 test('advise with a current settings file writes no note on stderr', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
