@@ -227,7 +227,8 @@ function validEffortPlan(plan: any): any | null {
   let ok = false;
   if (isObject(plan) && plan.source === 'binding') ok = keys(plan, ['pass', 'source']) && text(plan.pass);
   else if (isObject(plan) && plan.source === 'session') {
-    ok = keys(plan, ['check', 'harness', 'level', 'mapped', 'origin', 'pass', 'source']) && text(plan.pass) && text(plan.harness) && text(plan.level) && text(plan.origin)
+    const { observedAt, ...rest } = plan;
+    ok = (observedAt === undefined || text(observedAt)) && keys(rest, ['check', 'harness', 'level', 'mapped', 'origin', 'pass', 'source']) && text(plan.pass) && text(plan.harness) && text(plan.level) && text(plan.origin)
       && ['listed', 'unchecked'].includes(plan.check)
       && (plan.mapped === null || (keys(plan.mapped, ['from', 'to']) && text(plan.mapped.from) && text(plan.mapped.to)));
   } else if (isObject(plan) && plan.source === 'none') {

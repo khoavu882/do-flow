@@ -1749,9 +1749,11 @@ The plan is kept beside the binding: the dispatch record's `model.effortPlan`, w
 
 ```text
 {pass, source: "binding"}
-{pass, source: "session", harness, level, origin, mapped: null | {from, to}, check: "listed" | "unchecked"}
+{pass, source: "session", harness, level, origin, mapped: null | {from, to}, check: "listed" | "unchecked", observedAt?}
 {pass: null, source: "none", reason, session: {harness, reason, level, origin}}
 ```
+
+`observedAt` is on a `session` plan only when the session answer came from a `hook-state` source, and is that record's `observedAt` (an environment-variable answer has no such key); `validEffortPlan` accepts it as a non-empty string and no other extra key.
 
 A stored `argvShape` keeps the `{effort}` placeholder, never the level; the level passed is `effortPlan.pass`.
 

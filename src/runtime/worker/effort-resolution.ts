@@ -11,7 +11,7 @@ const { storedEffortReader } = require('../context/effort-store.ts');
 type NoneReason = 'session-unknown' | 'worker-takes-no-effort' | 'needs-model' | 'no-lower-level' | 'no-ordered-list';
 type EffortPlan =
   | { pass: string; source: 'binding' }
-  | { pass: string; source: 'session'; harness: string; level: string; origin: string; mapped: null | { from: string; to: string }; check: 'listed' | 'unchecked' }
+  | { pass: string; source: 'session'; harness: string; level: string; origin: string; mapped: null | { from: string; to: string }; check: 'listed' | 'unchecked'; observedAt?: string }
   | { pass: null; source: 'none'; reason: NoneReason; session: { harness: string | null; reason: string | null; level: string | null; origin: string | null } };
 
 const NONE_REASONS: readonly NoneReason[] = Object.freeze(['session-unknown', 'worker-takes-no-effort', 'needs-model', 'no-lower-level', 'no-ordered-list']);
@@ -37,7 +37,7 @@ function resolveEffort({ choice, session, sessionWorker, worker }: { choice: any
   if (entry?.status !== 'supported') return none('worker-takes-no-effort');
   if (entry.via === 'id-suffix' && !choice?.model) return none('needs-model');
   const found = (pass: string, mapped: null | { from: string; to: string }, check: 'listed' | 'unchecked'): EffortPlan =>
-    ({ pass, source: 'session', harness: session.harness, level: session.level, origin: session.origin, mapped, check });
+    ({ pass, source: 'session', harness: session.harness, level: session.level, origin: session.origin, mapped, check, ...(session.observedAt === undefined ? {} : { observedAt: session.observedAt }) });
   if (!Array.isArray(entry.levels)) return found(session.level, null, 'unchecked');
   if (entry.levels.includes(session.level)) return found(session.level, null, 'listed');
   const next = mapLevel(session.level, sessionWorker?.effort?.levels, entry.levels);
