@@ -1717,7 +1717,6 @@
 /* ---- forced colours: the rail keeps its shapes in system colours ---- */
 @media (forced-colors: active) {
   .gate-card, .run-rail { border: 1px solid CanvasText; }
-  .activity { border-inline-start-width: 4px; }
   .gate-card__head { border-bottom: 1px solid CanvasText; }
   .tile[aria-pressed="true"] { border: 2px solid Highlight; }
   .rail__glyph[data-type="stage"]::after,
@@ -1756,6 +1755,7 @@
 /* ---- forced colours: the run view keeps its shapes in system colours ---- */
 @media (forced-colors: active) {
   .activity, .timeline { border: 1px solid CanvasText; }
+  .activity { border-inline-start-width: 4px; }
   .activity__head { border-bottom: 1px solid CanvasText; }
   .tl__bar { background: CanvasText; border: 0; }
   .tl__bar[data-kind="wait"], .tl__bar[data-kind="live"][data-tone="awaiting"] { background: Canvas; border: 2px solid CanvasText; }
