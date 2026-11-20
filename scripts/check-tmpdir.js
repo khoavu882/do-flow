@@ -13,12 +13,23 @@ const path = require('node:path');
  * The `.doflow` path found at `tmp` or the nearest ancestor of it, or null when none exists. The global store,
  * `<home>/.doflow`, is exempt: a temp directory under the home folder would otherwise be refused forever.
  */
-function findDoflowFolder(tmp, home = os.homedir()) {
-  const globalStore = path.join(path.resolve(home), '.doflow');
+function findDoflowFolder(tmp, home = os.homedir(), options = {}) {
+  const platform = options.platform || process.platform;
+  const realpath = options.realpath || fs.realpathSync.native;
+  const canonical = (p) => {
+    let resolved;
+    try {
+      resolved = realpath(p);
+    } catch {
+      resolved = path.resolve(p);
+    }
+    return platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  const globalStore = canonical(path.join(path.resolve(home), '.doflow'));
   let dir = path.resolve(tmp);
   for (;;) {
     const candidate = path.join(dir, '.doflow');
-    if (candidate !== globalStore && fs.existsSync(candidate)) return candidate;
+    if (fs.existsSync(candidate) && canonical(candidate) !== globalStore) return candidate;
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -26,10 +37,11 @@ function findDoflowFolder(tmp, home = os.homedir()) {
 }
 
 /** `{ ok, line }`: `line` is the one refusal line when a `.doflow` folder is found. */
-function checkTmpdir(tmp = os.tmpdir(), home = os.homedir()) {
-  const found = findDoflowFolder(tmp, home);
+function checkTmpdir(tmp = os.tmpdir(), home = os.homedir(), options = {}) {
+  const found = findDoflowFolder(tmp, home, options);
   if (!found) return { ok: true, line: '' };
-  return { ok: false, line: `npm test refused: ${found} exists at or above the temp directory ${path.resolve(tmp)}; set TMPDIR outside ${path.dirname(found)} and run again` };
+  const variable = (options.platform || process.platform) === 'win32' ? 'TEMP or TMP' : 'TMPDIR';
+  return { ok: false, line: `npm test refused: ${found} exists at or above the temp directory ${path.resolve(tmp)}; set ${variable} outside ${path.dirname(found)} and run again` };
 }
 
 if (require.main === module) {
