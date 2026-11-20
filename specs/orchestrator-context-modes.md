@@ -124,7 +124,7 @@ Issue #9 tracked four stages of orchestrator refinement. None is open: one is su
 - Since this stage was proposed, each stage edge in `core/registry/workflows.json` gained an `agent` binding (feature 118), and the pack a stage receives is chosen by the caller's flags and the budget (sections 3 to 5), not by the edge. No code or registry field named `contextMode` exists, and no roadmap row owns one.
 - Revisit only if a concrete orchestrator loop needs a per-edge default that item-level flags cannot express. That need would start as a new feature with its own design, not as this stage.
 
-**Stage 2, budget downgrade: superseded by feature 075.** Delivery is per item (section 2): `full`, `delta` (dormant, section 6), `pointer`, `bare` and `expand`. When mandatory content exceeds the cap, the pack is still emitted whole and the verb exits 3 (section 5); nothing is traded away. The implementation is `handleContextPackCommand` in `src/runtime/context-pack.ts`, the classification and linear fit in `src/runtime/context/compose.ts`, budget resolution in `src/runtime/context/budget.ts`, and the delivery store in `src/runtime/context/delivery-store.ts` (its lock in `src/runtime/task-state.ts`). The verb is `doflow context-pack` (see the [reference](../docs/reference.md)).
+**Stage 2, budget downgrade: superseded by feature 075.** Delivery is per item (section 2): `full`, `delta` (dormant, section 6), `pointer`, `bare` and `expand`. When mandatory content exceeds the cap, the pack is still emitted whole and the verb exits 3 (section 5); nothing is traded away. The implementation is `handleContextPackCommand` in `src/runtime/context/context-pack.ts`, the classification and linear fit in `src/runtime/context/compose.ts`, budget resolution in `src/runtime/context/budget.ts`, and the delivery store in `src/runtime/context/delivery-store.ts` (its lock in `src/runtime/task-state.ts`). The verb is `doflow context-pack` (see the [reference](../docs/reference.md)).
 
 **Stage 3, handoff events (a proposed append-only `.doflow/state/events.jsonl` bus at the dispatcher seam, never created): replaced by existing records.**
 - The run ledger and the offline `trace spans` projection (feature 088):
@@ -161,27 +161,27 @@ Status of each section in this specification, cited with code locations and prov
 - **Section 1 (Purpose and authority)**: Governed by ADR 3.4/3.11 and feature 075 contracts
   (`agent-docs/doflow/075-context-delivery/design/specs.md`, IC-001 through IC-024).
 - **Section 2 (Delivery modes)**: Implemented by `handleContextPackCommand` in
-  `src/runtime/context-pack.ts`; verified by `test/runtime/context-pack-forms.test.ts`.
+  `src/runtime/context/context-pack.ts`; verified by `test/runtime/context/context-pack-forms.test.ts`.
 - **Section 3 (Mandatory and optional)**: Implemented by `FIELD_CLASSES` and `linearFit` in
-  `src/runtime/context/compose.ts`; verified by `test/runtime/context-pack-compose.test.ts` and
-  `test/runtime/context-pack-omissions.test.ts`.
+  `src/runtime/context/compose.ts`; verified by `test/runtime/context/context-pack-compose.test.ts` and
+  `test/runtime/context/context-pack-omissions.test.ts`.
 - **Section 4 (Budget resolution)**: Implemented by `TASK_CLASS_BUDGETS` and `resolveBudget` in
-  `src/runtime/context/budget.ts`; verified by `test/runtime/context-budget-resolve.test.ts` and
-  `test/runtime/context-pack-cap.test.ts`.
+  `src/runtime/context/budget.ts`; verified by `test/runtime/context/budget-resolve.test.ts` and
+  `test/runtime/context/context-pack-cap.test.ts`.
 - **Section 5 (Overflow handling)**: Implemented by `EXIT.OVERFLOW` in `src/runtime/cli-result.ts`,
   `linearFit` in `src/runtime/context/compose.ts`, and `handleContextPackCommand` in
-  `src/runtime/context-pack.ts`; verified by `test/runtime/context-pack-overflow.test.ts`.
+  `src/runtime/context/context-pack.ts`; verified by `test/runtime/context/context-pack-overflow.test.ts`.
 - **Section 6 (Delivery state, delta and retention)**: Bounded locking and atomic writes are
   implemented by `boundedAcquire` and `updateTaskState` in `src/runtime/task-state.ts`; verified by
   `test/runtime/task-state-concurrency.test.ts` and `test/runtime/task-state-acquire.test.ts`.
   Delta rules are specified by IC-015 (dormant in 075).
 - **Section 7 (Telemetry and silence)**: Implemented by `handleContextPackCommand` in
-  `src/runtime/context-pack.ts`; the always-loaded budget is guarded by
+  `src/runtime/context/context-pack.ts`; the always-loaded budget is guarded by
   `test/guards/context-budget.test.ts`.
 - **Section 8 (The four stages of issue #9)**:
   - Stage 1 (Modes as data): retired; item-level delivery and stage agent bindings (feature 118) cover the choice.
   - Stage 2 (Budget downgrade): superseded by 075 item-level overflow in `handleContextPackCommand`
-    (`src/runtime/context-pack.ts`).
+    (`src/runtime/context/context-pack.ts`).
   - Stage 3 (Handoff events): replaced by the run ledger (`src/runtime/trace/ledger.ts`) and the offline
     span projection (`src/runtime/trace/spans.ts`, feature 088). The pack-to-stage link is written at
     delivery onto the active stage node (`recordStagePack` in `src/runtime/workflow-orchestrator.ts`,

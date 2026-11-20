@@ -19,7 +19,7 @@ const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { firstPrompt } = require('../helper/launcher-stand-in.ts');
 const { writeSummary } = require('../helper/summary-fixture.ts');
-const { emitContext } = require('../../src/runtime/context-pack.ts');
+const { emitContext } = require('../../src/runtime/context/context-pack.ts');
 const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
 
 const scratch = createScratch('doflow-context-races-');

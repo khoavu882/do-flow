@@ -538,7 +538,7 @@ const EMIT_MAX_BYTES = /^[1-9][0-9]{0,9}$/;
  */
 function handleContextEmitCommand({ event, cwd, session, harness, nudge, maxBytes, taskId, slug, stateRoot, peek = false, json = false, env = process.env }: any = {}) {
   // Required on use: context-pack.ts loads the whole pack compiler, which no other verb here needs.
-  const { emitContext } = require('./context-pack.ts');
+  const { emitContext } = require('./context/context-pack.ts');
   const { resolveIdentity } = require('./context/identity.ts');
   if (typeof cwd !== 'string' || cwd === '') return usageError('context-emit', '--cwd <dir> is required', json);
   const dir = path.resolve(cwd);

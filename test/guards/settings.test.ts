@@ -189,7 +189,7 @@ function stripComments(text: any) {
 }
 
 // model-router maps a model backend to its CLI name; that string is not the advice.provider default.
-const OLLAMA_LITERAL_ALLOWLIST: any = new Set(['src/runtime/model-router.ts']);
+const OLLAMA_LITERAL_ALLOWLIST: any = new Set(['src/runtime/models/model-router.ts']);
 
 function checkNoCopiedDefaults(sources: any, retention: any) {
   const errors: any = [];

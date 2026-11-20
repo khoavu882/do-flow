@@ -715,7 +715,7 @@ test('unknown and stale: link targets, query strings and file names are exempt; 
 });
 
 // ── 115 (IC-003): the `task-graph` rule asks the plan-check verb about each plan.md ──────────────
-// Fixture text is the one test/runtime/plan-verdict.test.ts feeds planVerdict, so the two cannot
+// Fixture text is the one test/runtime/task-graph-verdict.test.ts feeds planVerdict, so the two cannot
 // disagree about what a malformed plan is. The rule is advisory like the others: one finding per
 // problem plan-check reports, none when plan-check cannot run.
 

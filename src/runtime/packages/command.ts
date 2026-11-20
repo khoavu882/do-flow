@@ -43,7 +43,7 @@ const { capabilityDigest } = require('./digest.ts');
 const { satisfiesHostRange } = require('../../helper/semver.ts');
 const { isPackageId } = require('../../helper/package-ids.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
-// The settings readers load only for `package remove`'s reference scan, so `install` and every other verb stay off them (settings-hot-path).
+// The settings readers load only for `package remove`'s reference scan, so `install` and every other verb stay off them (settings/hot-path).
 
 const TIER_ORDER = ['inert', 'instruction', 'executable'];
 const VERB_ACTIONS = ['enable', 'disable', 'trust', 'exempt', 'revoke', 'verify', 'remove'];

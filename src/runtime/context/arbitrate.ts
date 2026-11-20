@@ -594,7 +594,7 @@ function emitContext(options: EmitOptions): EmitResult {
     let pack: EmitResult['pack'] = null;
     let packText: string | null = null;
     if (decision.actions.pack === 'include') {
-      const { packForEmission } = require('../context-pack.ts');
+      const { packForEmission } = require('./context-pack.ts');
       const since = lastPackKey(ledger);
       const compiled = packForEmission({ root: cwd, stateRoot: options.stateRoot ?? cwd, taskId: options.taskId, slug: options.slug, harness: options.harness ?? null, maxBytes: max, since, noRecord: peek, env });
       const digest: string = compiled.pack.delivery.packDigest;

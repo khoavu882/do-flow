@@ -8,7 +8,7 @@ const crypto = require('node:crypto');
 
 const LADDER_LEVELS = 5;
 
-// IC-001's registry text, the same as the `rerank` kind of core/registry/advice.json (test/runtime/advice-criteria.test.ts
+// IC-001's registry text, the same as the `rerank` kind of core/registry/advice.json (test/runtime/advice/criteria.test.ts
 // keeps the two equal). A caller that has the kind passes it as `kind` (or the registry as `adviceRegistry`) and the
 // kind's own text applies; these values are the fallback when it has not.
 const DEFAULT_REGISTRY = Object.freeze({

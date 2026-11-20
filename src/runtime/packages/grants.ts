@@ -3,7 +3,7 @@
 /**
  * The person grant file reader (122 IC-008). `<configHome>/packages/grants.jsonl` is written only by a
  * person; this module reads it and never writes, renames or deletes it (a grep test in
- * test/runtime/package-grants.test.ts holds every `src/` file to that).
+ * test/runtime/packages/grants.test.ts holds every `src/` file to that).
  *
  * `readGrants` returns the file path and mtime, one `entries` row per well-formed line with its state, the
  * `grants` that count right now, and IC-004 findings. Void rules: an unreadable file, a line over 2 KiB, more
