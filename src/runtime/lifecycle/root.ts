@@ -74,4 +74,4 @@ function gitProjectRoot(cwd: string): string | undefined {
   return showToplevel(cwd) || undefined;
 }
 
-module.exports = { projectRoot, worktreeEntries };
+module.exports = { projectRoot, worktreeEntries, showToplevel };

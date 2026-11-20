@@ -318,10 +318,10 @@ const ACCEPTED_KEYS: any = {
   codex: ['isolatedEdit', 'mainSession', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   opencode: ['mainSession', 'model', 'oneShot', 'provider', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   claude: ['effort', 'loginProbe', 'mainSession', 'model'],
-  copilot: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
+  copilot: ['effort', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
   pi: ['controlChannel', 'effort', 'loginProbe', 'mainSession', 'model', 'oneShot', 'provider', 'runnableProbe', 'structuredOutput'],
   kiro: ['model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput'],
-  antigravity: ['model'],
+  antigravity: ['effort', 'model'],
 };
 
 // 165 IC-006: the parser each supported `mainSession` declares (claude reads its plain-text stdout, so none), pinned literally.

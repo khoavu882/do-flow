@@ -167,7 +167,7 @@ class VerificationEngine {
     this.policy = this.registry.policy || {};
     this.runner = new VerificationContractRunner({
       cwd: this.cwd,
-      exec: this.exec,
+      exec: options.exec, // unset: the runner's own default, which runs a check in a guarded process group
       logDir: options.logDir,
       platform: this.platform,
       fsImpl: this.fsImpl,

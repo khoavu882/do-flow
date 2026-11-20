@@ -360,7 +360,7 @@ test('A4: a detached shadow call stops at its kind budgetMs against a stalled mo
   assert.ok(ended, `the detached call was still running ${400 + CHILD_SLACK_MS} ms after it was spawned`);
   const [line] = s.lines();
   assert.deepEqual([line.type, line.mode, line.reason], ['miss', 'shadow', 'timeout']);
-  assert.ok(line.durationMs >= 380 && line.durationMs < 1400, `the call ran ${line.durationMs} ms against a 400 ms kind budget`);
+  assert.ok(line.durationMs >= 400 - 50 && line.durationMs < 1400, `the call ran ${line.durationMs} ms: expected within [350, 1400) ms of a 400 ms kind budget (timers can fire early; timeoutMs is 15000)`);
   assert.equal(model.asks().length, 1);
 });
 

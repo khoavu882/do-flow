@@ -78,7 +78,7 @@ function settingProblem(config: any, capped: string): string | null {
  * client whose `modelDigest` listing the trust lookup reads.
  */
 async function flagsAnswer({
-  registry, roots, sources = {}, projectRoot = null, env = process.env, global = false, limit: limitGiven, kind: kindGiven,
+  registry, roots, sources = {}, projectRoot = null, settingsRoot = projectRoot, env = process.env, global = false, limit: limitGiven, kind: kindGiven,
   client, now = () => new Date(), fsImpl = fs,
 }: any): Promise<any> {
   if (kindGiven !== undefined && kindGiven !== null && kindGiven !== KIND) {
@@ -92,14 +92,14 @@ async function flagsAnswer({
   }
 
   const deciding = projectRoot || process.cwd();
-  const config = resolveShadowConfig(KIND, { projectRoot: projectRoot || undefined, env, roots, global, fsImpl });
+  const config = resolveShadowConfig(KIND, { projectRoot: settingsRoot || undefined, env, roots, global, fsImpl });
   const model: string | null = config.model ?? null;
   const notShown = (standing: string | null, reason: string) => ({
     exit: 0, total: 0, json: { schema: 1, kind: KIND, model, shown: false, standing, reason, flags: [] },
   });
 
   // 1. The kind's setting under the rollout profile's cap.
-  const capped = capMode(profileAdvisorCap({ projectRoot: projectRoot || undefined, env, fsImpl }), config.mode);
+  const capped = capMode(profileAdvisorCap({ projectRoot: settingsRoot || undefined, env, fsImpl }), config.mode);
   const problem = settingProblem(config, capped);
   if (problem) return notShown(null, problem);
 

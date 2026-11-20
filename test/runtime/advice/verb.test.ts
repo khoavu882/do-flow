@@ -290,6 +290,58 @@ test('project configure in an inheriting worktree writes the main layer and keep
   assert.ok(text.stdout.includes(`wrote ${f.projectSettingsFile} (inherited from the main checkout)`), text.stdout);
 });
 
+test('advise reads the checkout\'s own settings layer from a subdirectory and a real linked worktree, and keys its stores to the main checkout', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  writeJson(f.userSettingsFile, userSetting(server.origin));
+  const repo = path.join(f.scratch.dir, 'repo');
+  fs.mkdirSync(path.join(repo, 'sub', 'deep'), { recursive: true });
+  const git = (cwd: any, ...args: any) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd, env: f.env(), encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git(repo, 'init', '-q', '-b', 'main');
+  git(repo, 'commit', '-q', '--allow-empty', '-m', 'init');
+  const linked = path.join(f.scratch.dir, 'linked-tree');
+  git(repo, 'worktree', 'add', '-q', '-b', 'side', linked);
+  const mainRoot = fs.realpathSync(repo);
+  const linkedRoot = fs.realpathSync(linked);
+  const ask = (cwd: string) => {
+    const res = f.run(['--action', 'ask', '--questions-file', questionFile(f), '--state', 'state', '--json'], { cwd });
+    assert.equal(res.status, 0, `${res.stderr}\n${res.stdout}`);
+    return JSON.parse(res.stdout);
+  };
+  const picks = (root: string) => path.join(root, '.doflow', 'state', 'advice', 'picks');
+
+  // A subdirectory finds its checkout's toplevel: configure writes there, nothing under the subdirectory.
+  const fromSub = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json'], { cwd: path.join(repo, 'sub', 'deep') });
+  assert.equal(fromSub.status, 0, `${fromSub.stderr}\n${fromSub.stdout}`);
+  assert.equal(fs.realpathSync(JSON.parse(fromSub.stdout).written), path.join(mainRoot, '.doflow', 'settings.json'));
+  assert.equal(fs.existsSync(path.join(repo, 'sub', 'deep', '.doflow')), false);
+
+  // A linked worktree with settings of its own reads them: here they turn advice off while the main checkout's stay on.
+  const ownSettings = path.join(linkedRoot, '.doflow', 'settings.json');
+  writeJson(ownSettings, { schema: 1, 'advice.enabled': false });
+  assert.equal(ask(linked).status, 'off');
+  assert.equal(ask(repo).status, 'answered');
+
+  // configure writes the layer projectLayerSource names for the worktree: its own, not the main checkout's.
+  const fromLinked = f.run(['--action', 'configure', '--project', '--model', 'clef-flash', '--json'], { cwd: linked });
+  assert.equal(fromLinked.status, 0, `${fromLinked.stderr}\n${fromLinked.stdout}`);
+  const written = JSON.parse(fromLinked.stdout);
+  assert.equal(fs.realpathSync(written.written), ownSettings);
+  assert.equal(written.inheritedFromMainCheckout, undefined);
+  assert.equal(written.setting.reason, 'project-disabled');
+  assert.deepEqual(JSON.parse(fs.readFileSync(ownSettings, 'utf8')), { schema: 1, 'advice.enabled': false, 'advice.model': 'clef-flash' });
+
+  // The stores stay keyed to the main checkout: a pick asked from the worktree lands in the main checkout's store.
+  writeJson(ownSettings, { schema: 1, 'advice.model': 'clef-flash' });
+  fs.rmSync(picks(mainRoot), { recursive: true, force: true });
+  assert.equal(ask(linked).status, 'answered');
+  assert.equal(fs.readdirSync(picks(mainRoot)).length, 1);
+  assert.equal(fs.existsSync(picks(linkedRoot)), false);
+});
+
 test('advise with a current settings file writes no note on stderr', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();

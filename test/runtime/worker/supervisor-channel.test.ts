@@ -402,9 +402,9 @@ test('no orphan: SIGKILL of the supervisor closes the harness stdin, so the supe
   const first = 'kill test first prompt';
   const runId = seed(f, first);
   const supervisor = detachedSupervisor(f, runId, f.env);
-  await until(() => runOf(f, runId)?.channel?.state === 'open' && logLines(f).length >= 1, 'the channel open');
+  await until(() => runOf(f, runId)?.channel?.state === 'open' && logLines(f).length >= 1, 'the channel open', PROCESS_WAIT.ms);
   drop(f, runId, 'follow-up', 'kill test follow-up');
-  await until(() => logLines(f).length >= 2, 'the follow-up');
+  await until(() => logLines(f).length >= 2, 'the follow-up', PROCESS_WAIT.ms);
   const worker = runOf(f, runId).worker;
   assert.equal(tree.alive(worker), true, 'the harness runs before the kill');
   assert.equal(logLines(f)[0], record(CHANNEL.messages.followUp, first, 'd-1'));

@@ -35,6 +35,12 @@
       "establishes": ["model"]
     },
     {
+      "id": "help-effort",
+      "argv": ["--help"],
+      "expect": ["^\\s+--effort\\s+Reasoning effort for the current CLI session \\(low\\|medium\\|high\\|xhigh\\|max\\)$"],
+      "establishes": ["effort"]
+    },
+    {
       "id": "widening-flags",
       "argv": ["--help"],
       "expect": [

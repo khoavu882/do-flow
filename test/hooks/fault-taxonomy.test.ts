@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { boundedSpawnSync } = require('../helper/bounded-spawn.ts');
 const { pathToFileURL } = require('node:url');
 const { tempDir } = require('../helper/tmp.ts');
 const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
@@ -33,7 +33,7 @@ function installPolicy(root: any, policy: any, body: any) {
 
 function runBridge(root: any, harness: any, event: any, policy: any, profile: any, { input = {}, env = {}, args = ['--emit', 'decision'] }: any = {}) {
   const xdg = path.join(root, `xdg-${harness}-${profile}`);
-  const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), harness, event, policy, ...args], {
+  const result = boundedSpawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), harness, event, policy, ...args], {
     cwd: root,
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
@@ -86,7 +86,7 @@ function runInstalledDoor(t: any, harness: any, hook: any, input: any, profile: 
     fs.chmodSync(policyPath, 0o755);
   }
   const xdg = path.join(root, `xdg-${profile}`);
-  const result = spawnSync(bashPath(), [path.join(root, hook)], {
+  const result = boundedSpawnSync(bashPath(), [path.join(root, hook)], {
     cwd: root, input: JSON.stringify(input), encoding: 'utf8',
     env: { ...process.env, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: xdg,
       DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_FAULT_PROFILE: profile, DOFLOW_PROJECT_DIR: root },
@@ -102,13 +102,13 @@ function failureKinds(result: any) {
 
 function runPolicyDirect(root: any, policy: any, input: any, { pathValue = process.env.PATH, env = {} }: any = {}) {
   const policyPath = path.join(root, 'policies', `${policy}.sh`);
-  const child = require('../helper/bash-locator.ts').spawnWithFd3([policyPath], {
+  const child = boundedSpawnSync('bash', [policyPath], {
     cwd: root,
     input: JSON.stringify(input),
     encoding: 'utf8',
     env: { ...process.env, PATH: pathValue, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: path.join(root, 'xdg'),
       DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_DECISION_FD: '3', DOFLOW_AGENT: 'claude', ...env },
-  });
+  }, require('../helper/bash-locator.ts').spawnWithFd3);
   assert.equal(child.error, undefined, child.error?.message);
   return { ...child, xdg: path.join(root, 'xdg'), records: (child.output[3] || Buffer.from('')).toString('utf8') };
 }
@@ -279,7 +279,7 @@ test('real Antigravity runner covers strict-1 spawn, timeout and unknown profile
     buildInstallMirror(root);
     const runner = path.join(root, '.doflow/shared/hooks/stream-hook-runner.js');
     const payload: any = { toolCall: { name: 'write_to_file', args: { TargetFile: 'src/a.ts' } } };
-    const run = (env: any) => spawnSync(process.execPath, ['-e', `const r=require(${JSON.stringify(runner)}); process.stdout.write(JSON.stringify(r.evaluateEvent('PreToolUse',${JSON.stringify(payload)},${JSON.stringify(JSON.stringify(payload))},process.cwd(),'antigravity')))`], {
+    const run = (env: any) => boundedSpawnSync(process.execPath, ['-e', `const r=require(${JSON.stringify(runner)}); process.stdout.write(JSON.stringify(r.evaluateEvent('PreToolUse',${JSON.stringify(payload)},${JSON.stringify(JSON.stringify(payload))},process.cwd(),'antigravity')))`], {
       cwd: root, encoding: 'utf8', env: { ...process.env, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: path.join(root, `xdg-${profile}`), DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_FAULT_PROFILE: profile, ...env },
     });
     fs.unlinkSync(path.join(root, '.doflow/shared/hooks/policies/pre-implementation-gate.sh'));
@@ -303,7 +303,7 @@ test('real Antigravity runner covers strict-1 spawn, timeout and unknown profile
   const root = tempDir(t, 'doflow-runner-unknown-');
   buildInstallMirror(root);
   const runner = path.join(root, '.doflow/shared/hooks/stream-hook-runner.js');
-  const result = spawnSync(process.execPath, ['-e', `const r=require(${JSON.stringify(runner)}); process.stdout.write(JSON.stringify(r.evaluateEvent('PreToolUse',{toolCall:{name:'write_to_file',args:{TargetFile:'src/a.ts'}}},'{}',process.cwd(),'antigravity')))`], {
+  const result = boundedSpawnSync(process.execPath, ['-e', `const r=require(${JSON.stringify(runner)}); process.stdout.write(JSON.stringify(r.evaluateEvent('PreToolUse',{toolCall:{name:'write_to_file',args:{TargetFile:'src/a.ts'}}},'{}',process.cwd(),'antigravity')))`], {
     cwd: root, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: path.join(root, 'xdg'), DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_FAULT_PROFILE: 'mystery' },
   });
   assert.equal(result.status, 0, result.stderr);
@@ -320,7 +320,7 @@ test('Antigravity Stop native fault row distinguishes numeric exit from signal',
     fs.writeFileSync(policy, `#!/bin/bash\n${body}\n`);
     fs.chmodSync(policy, 0o755);
     const script = `const r=require(${JSON.stringify(runner)}); process.stdout.write(JSON.stringify(r.evaluateEvent('Stop',{},'{}',process.cwd(),'antigravity')))`;
-    const result = spawnSync(process.execPath, ['-e', script], {
+    const result = boundedSpawnSync(process.execPath, ['-e', script], {
       cwd: root, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: path.join(root, `xdg-${profile}`), DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_FAULT_PROFILE: profile },
     });
     assert.equal(result.status, 0, result.stderr);
@@ -351,7 +351,7 @@ test('Antigravity runner drives each blocking policy through its installed runne
       const file = path.join(policies, `${policy}.sh`);
       fs.writeFileSync(file, '#!/bin/bash\nexit 1\n');
       const script = `const r=require(${JSON.stringify(runner)}); process.stdout.write(JSON.stringify(r.evaluateEvent(${JSON.stringify(event)},${JSON.stringify(payload)},${JSON.stringify(JSON.stringify(payload))},process.cwd(),'antigravity')))`;
-      const result = spawnSync(process.execPath, ['-e', script], {
+      const result = boundedSpawnSync(process.execPath, ['-e', script], {
         cwd: root, encoding: 'utf8', env: { ...process.env, XDG_CONFIG_HOME: path.join(root, `xdg-${profile}`), DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_FAULT_PROFILE: profile },
       });
       assert.equal(result.status, 0, result.stderr);
@@ -384,7 +384,7 @@ test('context faults stay invisible at each installed harness surface', (t) => {
   buildInstallMirror(root);
   const runner = path.join(root, '.doflow/shared/hooks/stream-hook-runner.js');
   fs.writeFileSync(path.join(root, '.doflow/shared/hooks/policies/session-context.sh'), '#!/bin/bash\nprintf model-context\nprintf hidden-diagnostic >&2\nexit 1\n');
-  const result = spawnSync(process.execPath, ['-e', `const r=require(${JSON.stringify(runner)}); const x=r.evaluateEvent('SessionStart',{},'{}',process.cwd(),'antigravity'); process.stdout.write(JSON.stringify(x))`], {
+  const result = boundedSpawnSync(process.execPath, ['-e', `const r=require(${JSON.stringify(runner)}); const x=r.evaluateEvent('SessionStart',{},'{}',process.cwd(),'antigravity'); process.stdout.write(JSON.stringify(x))`], {
     cwd: root, encoding: 'utf8', env: { ...process.env, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: path.join(root, 'xdg'), DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_FAULT_PROFILE: 'strict-1' },
   });
   assert.equal(result.status, 0, result.stderr);
@@ -562,7 +562,7 @@ test('Antigravity runner classifies bridge spawn and timeout faults under both p
   fs.mkdirSync(bin);
   const runnerPath = path.join(ROOT, 'core/harnesses/shared/hooks/stream-hook-runner.js');
   const script = `const runner = require(${JSON.stringify(runnerPath)});\nconst result = runner.evaluateEvent('PreToolUse', {toolCall:{name:'write_to_file',args:{TargetFile:'src/a.ts'}}}, '{"toolCall":{"name":"write_to_file","args":{"TargetFile":"src/a.ts"}}}', process.cwd(), 'antigravity');\nprocess.stdout.write(JSON.stringify(result));`;
-  const spawnFailure = spawnSync(process.execPath, ['-e', script], {
+  const spawnFailure = boundedSpawnSync(process.execPath, ['-e', script], {
     cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: dir, DOFLOW_FAULT_PROFILE: 'compat-1', XDG_CONFIG_HOME: path.join(dir, 'xdg'), DOFLOW_FAILURE_CAPTURE: 'on' },
   });
   assert.equal(spawnFailure.status, 0, spawnFailure.stderr);
@@ -581,7 +581,7 @@ test('Antigravity runner classifies bridge spawn and timeout faults under both p
     fs.chmodSync(path.join(bin, 'bash'), 0o755);
   }
   for (const profile of ['compat-1', 'strict-1']) {
-    const result = spawnSync(process.execPath, ['-e', script], {
+    const result = boundedSpawnSync(process.execPath, ['-e', script], {
       cwd: dir, encoding: 'utf8', timeout: 7000,
       env: { ...process.env, ...slowEnv, PATH: bin, DOFLOW_FAULT_PROFILE: profile, XDG_CONFIG_HOME: path.join(dir, `xdg-${profile}`), DOFLOW_FAILURE_CAPTURE: 'on' },
     });
