@@ -473,6 +473,21 @@ test('ids are defined by an id table row, an id-led heading, a bold id-led bulle
   assert.ok(out.includes('not <code>AB-1</code> or <a href="https://example.test/a">AB-1</a>.'), 'no link inside code or a link');
 });
 
+test('a leading run of ids in a bold bullet or an id-led heading defines every id of the run', () => {
+  const { root, paths } = feature({
+    'design/design.md': '# D\n\n- **IC-060, IC-061:** Before, the path said one thing\n\n### CD-2 and CD-3 — a heading\n\nSee IC-061 and CD-3.\n',
+  });
+  const page = fs.readFileSync(buildPage({ paths, root, mode: 'source', now: NOW }).file, 'utf8');
+  const data = JSON.parse(/id="page-ids">([\s\S]*?)<\/script>/.exec(page)![1]);
+  for (const [first, second, summary] of [['IC-060', 'IC-061', 'Before, the path said one thing'], ['CD-2', 'CD-3', 'a heading']]) {
+    assert.equal(data[first]?.[0].summary, summary, first);
+    assert.equal(data[second]?.[0].summary, summary, second);
+    assert.ok(page.includes(`id="d-${first}"`) && page.includes(`id="d-${second}"`), `${first} and ${second} anchors`);
+  }
+  assert.ok(page.includes('<li id="d-IC-060">'), 'the first id keeps its anchor');
+  assert.ok(page.includes('See <a class="ref" href="#d-IC-061">IC-061</a> and <a class="ref" href="#d-CD-3">CD-3</a>.'), 'a later id of the run is linked to');
+});
+
 test('a mention links to the definition in its own document, else to the first one on the page', () => {
   const { root, paths } = feature({
     'intention/requirement.md': '# R\n\n| ID | Text |\n|---|---|\n| AB-1 | first |\n',

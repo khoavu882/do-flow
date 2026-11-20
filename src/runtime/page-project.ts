@@ -213,7 +213,8 @@ function markMentions(html: string, held: string[], ctx: any): string {
     }
     if (inLink) return part;
     return part.replace(MENTION, (id: string) => {
-      if (ctx.skipRef === id) { ctx.skipRef = null; return id; }
+      const skip = ctx.skipRef ? ctx.skipRef.indexOf(id) : -1;
+      if (skip >= 0) { ctx.skipRef.splice(skip, 1); return id; }
       return `<@${id}@>`;
     });
   }).join('');
@@ -405,13 +406,17 @@ function listHtml(lines: string[], start: number, ctx: any, depth: number): { ht
     }
     // A bullet led by a bold id defines it; that leading id is the defining spot, not a mention.
     const lead = /^\*\*\s*([A-Z]{1,6}-\d{1,4}(?:\.\d+)?|[A-Z]{1,3}\d{1,4})(?![\w-]|\.\d)/.exec(first);
-    const def = lead ? defineId(ctx, lead[1], afterId(first, lead[1])) : null;
-    if (lead) ctx.skipRef = lead[1];
+    const run = lead ? leadRun(first, lead[1]) : null;
+    const defs = run ? run.ids.map((id) => defineId(ctx, id, run.summary)) : [];
+    const def = defs[0] || null;
+    // The later ids of the run are anchored at the start of the item; the item itself carries the first.
+    const later = defs.slice(1).map((d) => (d ? `<span id="${escapeHtml(d.anchor)}"></span>` : '')).join('');
+    if (run) ctx.skipRef = run.ids;
     const blocks = blocksHtml([first, ...rest.map((l) => l.slice(Math.min(cut, indentOf(l))))], ctx, depth + 1);
     ctx.skipRef = null;
     // A one-paragraph item reads as a line, not as a paragraph inside a bullet.
     if (blocks.length > 0 && blocks[0].startsWith('<p>')) blocks[0] = blocks[0].slice(3, -4);
-    items.push(`<li${def ? ` id="${escapeHtml(def.anchor)}"` : ''}${task ? ' class="task"' : ''}>${box}${blocks.join('\n')}</li>`);
+    items.push(`<li${def ? ` id="${escapeHtml(def.anchor)}"` : ''}${task ? ' class="task"' : ''}>${later}${box}${blocks.join('\n')}</li>`);
   }
   const tag = ordered ? 'ol' : 'ul';
   const first = ordered ? parseInt(lines[start].trim(), 10) : 1;
@@ -469,8 +474,23 @@ function headingId(text: string): string | null {
   return word ? word[1] : null;
 }
 
-/** What follows a leading id, as a summary: `**FR-001:** The page …` → `The page …`. */
-const afterId = (text: string, id: string) => plainText(text).slice(plainText(text).indexOf(id) + id.length).replace(/^[\s:.)\-–—]+/, '');
+/** One more id of a leading run: `, IC-061`, `, and IC-062`, ` / IC-063`, ` to IC-064`. */
+const RUN_NEXT = /^\s*(?:,\s*(?:and\s+)?|\/\s*|(?:and|to)\s+)([A-Z]{1,6}-\d{1,4}(?:\.\d+)?|[A-Z]{1,3}\d{1,4})(?![\w-]|\.\d)/;
+
+/**
+ * The ids a heading or bold bullet opens with, and what follows them as their summary:
+ * `**FR-001:** The page …` → [FR-001], `The page …`; `**IC-060, IC-061:** Before …` → [IC-060, IC-061], `Before …`.
+ * A run counts only when a colon or dash closes it; otherwise the first id alone leads.
+ */
+function leadRun(text: string, id: string): { ids: string[]; summary: string } {
+  const plain = plainText(text);
+  const after = plain.slice(plain.indexOf(id) + id.length);
+  const ids = [id];
+  let rest = after;
+  for (let m = RUN_NEXT.exec(rest); m; m = RUN_NEXT.exec(rest)) { ids.push(m[1]); rest = rest.slice(m[0].length); }
+  const strip = (t: string) => t.replace(/^[\s:.)\-–—]+/, '');
+  return ids.length > 1 && /^\s*[:\-–—]/.test(rest) ? { ids, summary: strip(rest) } : { ids: [id], summary: strip(after) };
+}
 
 /** A level-2 heading that names open questions, open points or open items; its rows and bullets are counted. */
 const OPEN_SECTION = /\bopen\s+(questions?|points?|items?|issues?)\b/i;
@@ -522,8 +542,9 @@ function blocksHtml(lines: string[], ctx: any, depth = 0): string[] {
       }
       if (level === 3 && ctx.subsections && ctx.sections.length) ctx.subsections.push({ id, text, parent: ctx.sections[ctx.sections.length - 1].id });
       const defined = headingId(heading[2]);
-      const def = defined ? defineId(ctx, defined, afterId(heading[2], defined)) : null;
-      const tag = `<h${level} id="${escapeHtml(id)}">${def ? `<span id="${escapeHtml(def.anchor)}"></span>` : ''}${mutedNumber(inline(heading[2], ctx, false))}</h${level}>`;
+      const run = defined ? leadRun(heading[2], defined) : null;
+      const anchors = run ? run.ids.map((one) => defineId(ctx, one, run.summary)).map((d) => (d ? `<span id="${escapeHtml(d.anchor)}"></span>` : '')).join('') : '';
+      const tag = `<h${level} id="${escapeHtml(id)}">${anchors}${mutedNumber(inline(heading[2], ctx, false))}</h${level}>`;
       i++;
       // A History section, up to the next heading of its level or higher, starts closed.
       if ((level === 2 || level === 3) && /^history$/i.test(heading[2].replace(/`/g, '').replace(/^\d+(\.\d+)*\.?\s+/, '').trim())) {
