@@ -4159,6 +4159,29 @@ test('149 live runs: the first paint is the GET, then frames update the view wit
   assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'an open stream is never stale');
 });
 
+test('180 C3 live Now: one stream carries now and machine; another project’s open run joins Needs you, links to its Layers page, and the title and the scope follow', async () => {
+  const page = await startLive('#/', liveRoute(standard));
+  await advance(100);
+  const es = liveES();
+  es.open();
+  es.emit('message', liveFrame('now', 'snapshot', nowState(RUNS)));
+  const waiting = { slug: 'feat-z', taskId: 'Z-1', state: 'AWAITING_GATE', workflowName: 'Feature Delivery', step: { done: 3, total: 9 }, updatedAt: AT(2), gateName: 'Approve plan' };
+  es.emit('message', liveFrame('machine', 'snapshot', member('machine', machineBody([], { activity: lok({ v: 1, limits: { projects: 2, notShown: 0, watched: 2, fingerprintOnly: 0 }, items: [
+    { projectKey: P1, runs: { open: 1, awaiting: 0 }, gates: [], openRuns: [], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] },
+    { projectKey: P2, runs: { open: 1, awaiting: 1 }, gates: [], openRuns: [waiting], workers: { open: 0 }, sessions: { observed: 0, harnesses: [] }, unreadable: [] },
+  ] }) }))));
+  await settle();
+  const rows = page.main.querySelectorAll(`li[data-project="${P2}"]`);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].querySelector('a').getAttribute('href'), `#/layers/${P2}`);
+  assert.equal(text(rows[0].querySelector('.tag')), 'other-project');
+  assert.equal(tileCounts(page)[0], '2', 'Needs you counts this project’s waiting run and the other one');
+  assert.equal(page.doc.title, '(2) Now · DoFlow Console');
+  page.main.querySelectorAll('button').find((b: El) => text(b) === 'This project')!.fire('click');
+  assert.equal(page.main.querySelectorAll(`li[data-project="${P2}"]`).length, 0);
+  assert.equal(page.doc.title, '(1) Now · DoFlow Console', 'the title counts the scope');
+});
+
 test('149 live runs: a first-paint GET answer that arrives after the snapshot is ignored', async () => {
   let release: (r: Reply) => void = () => {};
   const page = await startLive('#/', liveRoute((target, init) => (target === '/api/runs' ? new Promise<Reply>((resolve) => { release = resolve; }) : standard(target, init))));

@@ -4,7 +4,7 @@
 
 import { h, icon } from './dom.js';
 import { skel, reltime } from './states.js';
-import { loadHome, homeOf, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
+import { loadHome, connectHome, renderHome, skeletonHome, homeKey, tickHome, teardownHome, shownRuns, homeEmpty } from './views/home.js';
 import { connectLive } from './live-view.js';
 import { renderRun, tickRun, releaseRun, rerouteRun, runHeadActs } from './views/run.js';
 import { renderGraph, rerouteGraph } from './views/graph.js';
@@ -78,7 +78,8 @@ const runIsRunning = (run, nowMs) => {
 /** The tasks of the plan graph in a run body: the size that scales the refresh interval. @param {any} data */
 const graphSize = (data) => (data && data.graph && Array.isArray(data.graph.tasks) ? data.graph.tasks.length : 0);
 
-const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
+/** The waiting runs Now shows in its scope (180 FR-A3): this project's, and in Every project the other shown projects' too. */
+const awaitingCount = (/** @type {any} */ data) => shownRuns(data).filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
 
 /**
  * The run head (CD-B8): crumb to Now, the title with a muted task id, the meta line, and the step counter with, beside it in
@@ -168,10 +169,11 @@ const VIEWS = Object.freeze({
     shapes: ['list', 'workflow'],
     api: () => '/api/runs',
     load: loadHome,
-    // IC-018: the `runs` member of `now`, wrapped as loadHome wraps `/api/runs`; polled every 5 s without the stream.
-    connect: connectLive({ channel: () => 'now', member: 'runs', intervalMs: 5000, wrap: homeOf }),
+    // IC-018: the `runs` member of `now` (polled every 5 s without the stream), and 180 IC-180-A: the `machine` channel's open runs of the other projects.
+    connect: connectHome,
     dataKey: homeKey,
     tick: tickHome,
+    teardown: teardownHome,
     active: (/** @type {any} */ data, /** @type {number} */ nowMs) => data.runs.some((/** @type {any} */ run) => runIsRunning(run, nowMs)),
     pollMs: 5000,
     wide: false,
@@ -180,8 +182,11 @@ const VIEWS = Object.freeze({
     // The scope, in words: the attention strip above counts this machine; this line names the project the Console was started in once the page knows it.
     meta: (/** @type {any} */ _params, /** @type {any} */ _data, /** @type {number} */ _nowMs, /** @type {{ project: string | null }} */ shell) =>
       h('p', { class: 'view-head__meta' }, shell && shell.project ? `This project is ${shell.project}, where this Console was started.` : 'This project is the one this Console was started in.'),
-    render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => renderHome(data, { badge, local }),
-    isEmpty: (/** @type {any} */ data) => data.runs.length === 0,
+    // A scope chip redraws the body in place, so it sets the title the shell set from the data.
+    render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => renderHome(data, {
+      badge, local, retitle: () => { globalThis.document.title = titleFor({ view: VIEWS.runs, params }, data); },
+    }),
+    isEmpty: homeEmpty,
     empty: {
       title: 'No runs yet',
       sentence: 'A run of this project appears here as soon as its workflow starts. Start one from your coding tool:',

@@ -632,3 +632,28 @@ test('the page icon is a small SVG file of the bundle, linked from index.html an
   assert.doesNotMatch(svg, /<script|<style|style=|href=|url\(|\bon[a-z]+=/i);
   assert.deepEqual(fs.readdirSync(WEB_ROOT).filter((name: string) => /\.(ico|png|jpe?g|gif)$/i.test(name)), [], 'no binary icon');
 });
+
+// ---- 180 C3: one file names the browser's notification API ------------------------------------------------------------
+
+/** The files below `root` whose code (comments dropped) names `Notification`, as paths below the web root. */
+function notificationUsers(root: string): string[] {
+  return files(root).filter((file) => path.extname(file) === '.js')
+    .filter((file) => /\bNotification\b/.test(fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')))
+    .map((file) => path.relative(root, file).split(path.sep).join('/')).sort();
+}
+
+test('180 C3: only notify.js names Notification, so the permission prompt has one audited place; the Layers files still touch no storage', () => {
+  assert.deepEqual(notificationUsers(WEB_ROOT), ['notify.js']);
+  for (const name of LAYERS_FILES) assert.deepEqual(layersFindings(name, fs.readFileSync(path.join(WEB_ROOT, name), 'utf8')).filter((f) => f.endsWith('storage-api')), [], name);
+});
+
+test('control: a view that names Notification turns the notify guard red', () => {
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-websafety-notify-'));
+  tmp.push(copy);
+  fs.cpSync(WEB_ROOT, copy, { recursive: true });
+  assert.deepEqual(notificationUsers(copy), ['notify.js']);
+  fs.appendFileSync(path.join(copy, 'views', 'home.js'), "\nexport const nag = () => globalThis.Notification.requestPermission();\n");
+  assert.deepEqual(notificationUsers(copy), ['notify.js', 'views/home.js']);
+  fs.writeFileSync(path.join(copy, 'views', 'quiet.js'), '// a comment may say Notification\nexport const x = 1;\n');
+  assert.deepEqual(notificationUsers(copy), ['notify.js', 'views/home.js'], 'a comment is not code');
+});
