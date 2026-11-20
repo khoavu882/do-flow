@@ -1,6 +1,6 @@
 'use strict';
 
-// 143 D.2 (IC-002, IC-003; FR-002, FR-004, NFR-003): the review verbs through their real entry point,
+// 143 D.2 (IC-002, IC-003; FR-002, FR-004, NFR-003): `review start` through its real entry point,
 // `handleReviewCommand`, with the `team.verdict` observer wired in. Every scenario runs four ways against one
 // scratch project: telemetry off (the baseline), an in-memory `teamWriter`, no `teamWriter` (the recorder
 // builds a real writer at the project), and a `teamWriter` that throws. The answer lines, the exit code and the
@@ -13,13 +13,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createSettingsEnv } = require('../../helper/settings-fixtures.ts');
-const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 const { handleReviewCommand } = require('../../../src/runtime/review/command.ts');
 const { writeReadinessRecord } = require('../../../src/runtime/readiness-record.ts');
 const { teamGate } = require('../../../src/runtime/team/evaluate.ts');
 
-const FIXTURE = path.join(REPO_ROOT, 'test', 'fixtures', 'roadmap', 'findings', 'schema-1.json');
-const CHECK_SLUG = '113-goal-order'; // the slug of the schema-1 fixture
 const START_SLUG = '143-wiring';
 const LINE_KEYS = ['attempt', 'count', 'kind', 'lineage', 'mode', 'outcome', 'reason', 'rule', 'run', 'site', 'task', 'timestamp'];
 
@@ -76,183 +73,6 @@ function assertTeamLine(line: any, project: string, expected: any) {
   );
   assert.equal(JSON.stringify(line).includes(project), false, 'a line holds no path');
 }
-
-// ---- review check -----------------------------------------------------------------------------
-
-const AUTHOR = { agent: 'core-implementer', session: 'sess-author', family: 'claude' };
-const seatIdentity = (agent: string, session: string) => ({ agent, session, family: 'gpt' });
-
-/** The schema-1 fixture, with `author` and per-seat identities when given. */
-function findings({ author, seats }: any = {}) {
-  const record = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-  if (author) record.author = author;
-  if (seats) seats.forEach((identity: any, i: number) => Object.assign(record.seats[i], identity));
-  return record;
-}
-
-function writeFindings(f: any, record: any, name = 'review/findings.json') {
-  const file = path.join(f.project, name);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(record));
-  return file;
-}
-
-function runCheck(f: any, file: string, { env, writer, teamWriter }: any) {
-  const lines: string[] = [];
-  const options: any = {
-    action: 'check', path: file, json: true, cwd: f.project, env, git: () => ({ status: 0 }), writer, out: (line: string) => lines.push(line),
-  };
-  if (teamWriter !== undefined) options.teamWriter = teamWriter;
-  const saved = process.exitCode;
-  const exitCode = handleReviewCommand(options);
-  process.exitCode = saved;
-  return { exitCode, lines };
-}
-
-/** The four runs of one check; asserts nothing about the verdict. */
-function checkVariants(f: any, file: string, envExtra: any = {}) {
-  const off = f.env({ ...OFF, ...envExtra });
-  const on = f.env({ ...ON, ...envExtra });
-  const run = (env: any, teamWriter?: any) => {
-    const mem = memoryWriter();
-    return { ...runCheck(f, file, { env, writer: mem.writer, teamWriter }), writes: mem.records };
-  };
-  resetTelemetry(f);
-  const baseline = run(off);
-  assert.deepEqual(diskLines(f), [], 'telemetry off writes no line');
-  const team = memoryWriter();
-  const captured = run(on, team.writer);
-  assert.deepEqual(diskLines(f), [], 'an injected teamWriter keeps the line off the disk');
-  const throwing = run(on, throwingWriter());
-  assert.deepEqual(diskLines(f), [], 'a throwing teamWriter writes nothing');
-  const real = run(on);
-  const realLines = diskLines(f);
-  return { baseline, captured, throwing, real, teamRecords: team.records, realLines };
-}
-
-/** The wiring changes no answer, exit code, or record the existing `writer` receives. */
-function assertCheckUnchanged(v: any) {
-  assert.equal(v.baseline.writes.length, 1, 'the existing writer receives exactly one record');
-  assert.equal(v.baseline.writes[0].kind, 'review.run');
-  for (const name of ['captured', 'throwing', 'real']) {
-    const got = v[name];
-    assert.equal(got.exitCode, v.baseline.exitCode, `${name}: exit code`);
-    assert.deepEqual(got.lines, v.baseline.lines, `${name}: stdout`);
-    assert.deepEqual(got.writes, v.baseline.writes, `${name}: the record the existing writer receives`);
-    assert.equal(got.writes.length, 1, `${name}: exactly one record to the existing writer`);
-    assert.ok(got.writes.every((r: any) => r.kind !== 'team.verdict'), `${name}: no team.verdict on the existing writer`);
-  }
-  assert.equal(v.teamRecords.length, 1, 'the teamWriter receives exactly one record');
-  assert.equal(v.teamRecords[0].kind, 'team.verdict');
-  assert.equal(v.realLines.length, 1, 'the default recorder writes exactly one line');
-}
-
-describe('review check: the separation verdict', () => {
-  const cases: any[] = [
-    {
-      name: 'distinct author and seat agents: admitted, one count per seat',
-      record: () => findings({ author: AUTHOR, seats: [seatIdentity('quality-guardian', 'sess-q'), seatIdentity('reviewer', 'sess-r')] }),
-      exitCode: 0,
-      expected: { site: 'review-check', rule: 'separation', outcome: 'admitted', reason: null, mode: 'advisory', task: CHECK_SLUG, count: 2 },
-    },
-    {
-      name: 'a seat with the author agent: refused ERR_REVIEWER_SELF_REVIEW, and the check itself still answers as before',
-      record: () => findings({ author: AUTHOR, seats: [seatIdentity('core-implementer', 'sess-q'), seatIdentity('reviewer', 'sess-r')] }),
-      exitCode: 1,
-      expected: { site: 'review-check', rule: 'separation', outcome: 'refused', reason: 'ERR_REVIEWER_SELF_REVIEW', mode: 'advisory', task: null, count: 2 }, // the record is invalid, so its slug is untrusted and left out
-    },
-    {
-      name: 'a record without an author: not-evaluable / no-author',
-      record: () => findings(),
-      exitCode: 0,
-      expected: { site: 'review-check', rule: 'separation', outcome: 'not-evaluable', reason: 'no-author', mode: 'advisory', task: CHECK_SLUG, count: null },
-    },
-    {
-      name: 'an author but no seat agent: not-evaluable / no-seat-agent',
-      record: () => findings({ author: AUTHOR }),
-      exitCode: 0,
-      expected: { site: 'review-check', rule: 'separation', outcome: 'not-evaluable', reason: 'no-seat-agent', mode: 'advisory', task: CHECK_SLUG, count: null },
-    },
-  ];
-
-  for (const c of cases) {
-    test(`${c.name}`, (t: any) => {
-      const f = scratch(t, 'doflow-team-review-check-');
-      const file = writeFindings(f, c.record());
-      const v = checkVariants(f, file);
-      assert.equal(v.baseline.exitCode, c.exitCode);
-      assertCheckUnchanged(v);
-      const { kind, ...verdict } = v.teamRecords[0];
-      assert.deepEqual(verdict, c.expected);
-      assertTeamLine(v.realLines[0], f.project, c.expected);
-    });
-  }
-
-  test('a valid record carries its slug as task; an invalid one carries null', (t: any) => {
-    const f = scratch(t, 'doflow-team-review-check-');
-    const valid = checkVariants(f, writeFindings(f, findings({ author: AUTHOR, seats: [seatIdentity('quality-guardian', 'sess-q')] }), 'review/valid.json'));
-    assert.equal(JSON.parse(valid.baseline.lines[0]).valid, true);
-    assert.equal(valid.realLines[0].task, CHECK_SLUG);
-    const invalid = checkVariants(f, writeFindings(f, findings({ author: AUTHOR, seats: [seatIdentity('core-implementer', 'sess-q')] }), 'review/invalid.json'));
-    assert.equal(JSON.parse(invalid.baseline.lines[0]).valid, false);
-    assert.equal(invalid.realLines[0].task, null);
-  });
-
-  test('a missing record: not-evaluable / no-record, task null, exit 1 as before', (t: any) => {
-    const f = scratch(t, 'doflow-team-review-check-');
-    const file = path.join(f.project, 'review', 'absent.json');
-    const v = checkVariants(f, file);
-    assert.equal(v.baseline.exitCode, 1);
-    assert.equal(JSON.parse(v.baseline.lines[0]).errors[0], 'missing');
-    assertCheckUnchanged(v);
-    assertTeamLine(v.realLines[0], f.project, {
-      site: 'review-check', rule: 'separation', outcome: 'not-evaluable', reason: 'no-record', mode: 'advisory', task: null, count: null,
-    });
-  });
-
-  test('with no writer injected, the check writes its review.run line and then one team.verdict line to the same partition', (t: any) => {
-    const f = scratch(t, 'doflow-team-review-check-');
-    const file = writeFindings(f, findings({ author: AUTHOR, seats: [seatIdentity('quality-guardian', 'sess-q'), seatIdentity('reviewer', 'sess-r')] }));
-    const lines: string[] = [];
-    const saved = process.exitCode;
-    const exitCode = handleReviewCommand({
-      action: 'check', path: file, json: true, cwd: f.project, env: f.env(ON), git: () => ({ status: 0 }), out: (line: string) => lines.push(line),
-    });
-    process.exitCode = saved;
-    assert.equal(exitCode, 0);
-    assert.deepEqual(diskLines(f).map((line: any) => line.kind), ['review.run', 'team.verdict']);
-    assert.equal(fs.readdirSync(telemetryDir(f)).filter((name: string) => name.endsWith('.jsonl')).length, 1, 'one partition');
-  });
-
-  test('a check with a usage error records no team line', (t: any) => {
-    const f = scratch(t, 'doflow-team-review-check-');
-    const team = memoryWriter();
-    const saved = process.exitCode;
-    const exitCode = handleReviewCommand({
-      action: 'check', path: 'a.json', slug: 'b', json: true, cwd: f.project, env: f.env(ON), out: () => {}, teamWriter: team.writer,
-    });
-    process.exitCode = saved;
-    assert.equal(exitCode, 2);
-    assert.deepEqual(team.records, []);
-    assert.deepEqual(diskLines(f), []);
-  });
-
-  test('team.enforcement=block does not touch the check: a refused self-review exits and prints as it does in advisory', (t: any) => {
-    const f = scratch(t, 'doflow-team-review-check-');
-    const file = writeFindings(f, findings({ author: AUTHOR, seats: [seatIdentity('core-implementer', 'sess-q'), seatIdentity('reviewer', 'sess-r')] }));
-    const advisory = checkVariants(f, file);
-    assert.equal(advisory.baseline.exitCode, 1);
-    f.writeProjectSettings({ schema: 1, 'team.enforcement': 'block' });
-    assert.equal(teamGate({ projectRoot: f.project, env: f.env(ON) }).mode, 'block', 'the fixture really sets block');
-    const block = checkVariants(f, file);
-    assertCheckUnchanged(block);
-    assert.equal(block.baseline.exitCode, advisory.baseline.exitCode);
-    assert.deepEqual(block.baseline.lines, advisory.baseline.lines);
-    assert.deepEqual(block.baseline.writes, advisory.baseline.writes);
-    assert.equal(block.realLines[0].mode, 'advisory', 'a review site always records advisory');
-    assert.equal(block.realLines[0].outcome, 'refused');
-  });
-});
 
 // ---- review start -----------------------------------------------------------------------------
 

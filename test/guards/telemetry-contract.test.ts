@@ -815,6 +815,28 @@ test('G45.1 self-test: the real writer drops a key the registry lacks and writes
   assert.deepEqual(checkAllowlist(declared, writerObservations(declared)).filter((message: any) => /verify\.run/.test(message)), []);
 });
 
+test('G45.1: a retired vocabulary value stays registered, and a stored line that carries one still reads back whole', () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
+  assert.deepEqual(registry.retiredValues, { team_site: ['review-check'], team_rule: ['separation'] });
+  for (const [name, values] of Object.entries(registry.retiredValues)) {
+    for (const value of values as string[]) assert.ok(registry.vocabularies[name].includes(value), `${name} keeps the retired '${value}' so stored lines validate`);
+  }
+  // A historic line of the removed reviewer-separation check, written through the real writer as it was.
+  const root = suiteTempDir('doflow-g45-retired-');
+  try {
+    fs.mkdirSync(path.join(root, '.doflow', 'state', 'runs'), { recursive: true });
+    const historic = { kind: 'team.verdict', site: 'review-check', rule: 'separation', outcome: 'refused', reason: 'ERR_REVIEWER_SELF_REVIEW', mode: 'advisory', task: 'a-feature', count: 2 };
+    new TelemetryWriter({ registry, env: {}, start: root, now: () => new Date('2026-10-17T00:00:00.000Z') }).write([historic]);
+    const dir = path.join(root, '.doflow', 'state', 'runs', 'telemetry');
+    const lines = fs.readdirSync(dir).flatMap((name: any) => fs.readFileSync(path.join(dir, name), 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)));
+    assert.equal(lines.length, 1);
+    const { kind, site, rule, outcome, reason, mode, task, count } = lines[0];
+    assert.deepEqual({ kind, site, rule, outcome, reason, mode, task, count }, historic);
+  } finally {
+    removeTree(root);
+  }
+});
+
 test('G45.1 self-test: a malformed registry fails on class, name, type, collision, T4, gen_ai and kind list', () => {
   assert.deepEqual(checkRegistryShape(withField('duration_ms', GOOD_FIELD)), []);
   const cases: any = [

@@ -15,18 +15,17 @@
  */
 
 const { AdmissionController, resolveTeamSettings } = require('./admission.ts');
-const { assertReviewerSeparation, assertMechanicalPreChecks, NeverReviewOwnCodeError, MechanicalPreChecksIncompleteError } = require('./review-guard.ts');
+const { assertMechanicalPreChecks, MechanicalPreChecksIncompleteError } = require('./review-guard.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 
 type Env = Record<string, string | undefined>;
-export type TeamSite = 'dispatch-admit' | 'review-start' | 'review-check';
-export type TeamRule = 'admission' | 'pre-check' | 'separation';
+export type TeamSite = 'dispatch-admit' | 'review-start';
+export type TeamRule = 'admission' | 'pre-check';
 export type TeamOutcome = 'admitted' | 'refused' | 'not-evaluable' | 'error';
 export type TeamMode = 'advisory' | 'block';
 export type TeamReason =
   | 'WRITE_SET_CONFLICT' | 'WRITER_CAP_EXCEEDED' | 'MAX_ATTEMPTS_EXCEEDED' | 'TASK_ALREADY_ACTIVE'
-  | 'ERR_REVIEWER_SELF_REVIEW' | 'ERR_MECHANICAL_CHECKS_FAILED'
-  | 'no-feature' | 'no-author' | 'no-record' | 'no-seat-agent' | 'eval-fault';
+  | 'ERR_MECHANICAL_CHECKS_FAILED' | 'no-feature' | 'eval-fault';
 
 /** IC-003: the fields of one `team.verdict` line, less the common fields the writer adds. */
 export interface TeamVerdict {
@@ -65,7 +64,6 @@ export interface TeamGate {
 const WIRED_SITES: ReadonlyArray<{ id: TeamSite; file: string; token: string }> = Object.freeze([
   { id: 'dispatch-admit' as const, file: 'src/runtime/dispatch/admission.ts', token: 'team.evaluate' },
   { id: 'review-start' as const, file: 'src/runtime/review/start.ts', token: 'observeStart' },
-  { id: 'review-check' as const, file: 'src/runtime/review/command.ts', token: 'observeCheck' },
 ]);
 
 /** Last-resort limits when neither the settings engine nor the controller's own reader answers (the shipped defaults). */
@@ -219,49 +217,4 @@ function observeStart({ slug, cwd, env, writer, verifyReasons }: { slug: string 
   record([outcome], { writer, env, start: cwd });
 }
 
-/** IC-002: the separation verdict of a `review check`, one per call. Never throws. */
-function observeCheck({ record: reviewRecord, valid, cwd, env, writer }: { record: any; valid?: boolean; cwd: string; env?: Env; writer?: RecordOptions['writer'] }): void {
-  const notEvaluable = (reason: TeamReason, task: unknown = null) => verdict('review-check', 'separation', 'not-evaluable', reason, 'advisory', task);
-  let outcome: TeamVerdict;
-  try {
-    // An invalid record's slug is untrusted text; the existing review.run line keeps it out, and so does this one.
-    const task = valid === false ? null : reviewRecord?.slug;
-    if (!reviewRecord || typeof reviewRecord !== 'object' || Array.isArray(reviewRecord)) {
-      outcome = notEvaluable('no-record');
-    } else if (!reviewRecord.author || typeof reviewRecord.author !== 'object' || typeof reviewRecord.author.agent !== 'string') {
-      outcome = notEvaluable('no-author', task);
-    } else {
-      const seats = (Array.isArray(reviewRecord.seats) ? reviewRecord.seats : [])
-        .filter((seat: any) => seat && typeof seat === 'object' && typeof seat.agent === 'string');
-      if (seats.length === 0) {
-        outcome = notEvaluable('no-seat-agent', task);
-      } else {
-        const author = reviewRecord.author;
-        const session = (value: unknown) => (typeof value === 'string' ? value : undefined);
-        let refused = false;
-        for (const seat of seats) {
-          try {
-            assertReviewerSeparation({
-              taskId: typeof task === 'string' ? task : '',
-              authorRole: author.agent,
-              authorIdentity: session(author.session),
-              reviewerRole: seat.agent,
-              reviewerIdentity: session(seat.session),
-            });
-          } catch (error) {
-            if (!(error instanceof NeverReviewOwnCodeError)) throw error;
-            refused = true;
-          }
-        }
-        outcome = refused
-          ? verdict('review-check', 'separation', 'refused', 'ERR_REVIEWER_SELF_REVIEW', 'advisory', task, seats.length)
-          : verdict('review-check', 'separation', 'admitted', null, 'advisory', task, seats.length);
-      }
-    }
-  } catch {
-    outcome = verdict('review-check', 'separation', 'error', 'eval-fault', 'advisory', null);
-  }
-  record([outcome], { writer, env, start: cwd });
-}
-
-module.exports = { teamGate, evaluateAdmission, observeStart, observeCheck, record, WIRED_SITES };
+module.exports = { teamGate, evaluateAdmission, observeStart, record, WIRED_SITES };

@@ -14,7 +14,7 @@ const { createSettingsEnv } = require('../../helper/settings-fixtures.ts');
 const { tempDir } = require('../../helper/tmp.ts');
 const { writeReadinessRecord } = require('../../../src/runtime/readiness-record.ts');
 const {
-  teamGate, evaluateAdmission, observeStart, observeCheck, record,
+  teamGate, evaluateAdmission, observeStart, record,
 } = require('../../../src/runtime/team/evaluate.ts');
 
 const CAP1 = Object.freeze({ writerCap: 1, maxAttempts: 3 });
@@ -387,7 +387,6 @@ describe('FR-005: telemetry faults never change an outcome', () => {
     const off = f.env({ DOFLOW_TELEMETRY: 'off' });
     const gate = teamGate({ projectRoot: f.project, env: off });
     gate.record([gate.evaluate(candidate())]);
-    observeCheck({ record: { slug: 'Task.9', author: { agent: 'a' }, seats: [{ agent: 'b' }] }, cwd: f.project, env: off });
     observeStart({ slug: null, cwd: f.project, env: off });
     assert.equal(fs.existsSync(f.telemetryDir), false);
     assert.deepEqual(f.lines(), []);
@@ -411,7 +410,6 @@ describe('FR-005: telemetry faults never change an outcome', () => {
     const gate = teamGate({ projectRoot: f.project, env: f.env() });
     assert.doesNotThrow(() => gate.record([gate.evaluate(candidate())]));
     assert.doesNotThrow(() => observeStart({ slug: null, cwd: f.project, env: f.env() }));
-    assert.doesNotThrow(() => observeCheck({ record: null, cwd: f.project, env: f.env() }));
     assert.equal(fs.existsSync(f.runs), false);
   });
 
@@ -421,7 +419,6 @@ describe('FR-005: telemetry faults never change an outcome', () => {
     fs.writeFileSync(f.runs, 'not a directory\n');
     const gate = teamGate({ projectRoot: f.project, env: f.env() });
     assert.doesNotThrow(() => gate.record([gate.evaluate(candidate())]));
-    assert.doesNotThrow(() => observeCheck({ record: null, cwd: f.project, env: f.env() }));
     assert.equal(fs.readFileSync(f.runs, 'utf8'), 'not a directory\n');
   });
 
@@ -437,19 +434,16 @@ describe('FR-005: telemetry faults never change an outcome', () => {
     fs.chmodSync(f.runs, 0o500); // the tempDir cleanup restores owner write permission before it removes the tree
     const gate = teamGate({ projectRoot: f.project, env: f.env() });
     assert.doesNotThrow(() => gate.record([gate.evaluate(candidate())]));
-    assert.doesNotThrow(() => observeCheck({ record: { slug: 'Task.9', author: { agent: 'a' }, seats: [{ agent: 'b' }] }, cwd: f.project, env: f.env() }));
     assert.equal(fs.existsSync(f.telemetryDir), false);
   });
 
-  test('a writer that throws never makes record, observeStart or observeCheck throw', () => {
+  test('a writer that throws never makes record or observeStart throw', () => {
     const boom = { write() { throw new Error('disk on fire'); } };
     const seen: string[] = [];
     const throwing = { write(records: any[]) { seen.push(records[0].kind); throw new Error('disk on fire'); } };
     assert.doesNotThrow(() => record([evaluateAdmission(candidate(), CAP1)], { writer: boom }));
     assert.doesNotThrow(() => observeStart({ slug: null, cwd: process.cwd(), writer: throwing }));
-    assert.doesNotThrow(() => observeCheck({ record: null, cwd: process.cwd(), writer: throwing }));
-    assert.doesNotThrow(() => observeCheck({ record: { slug: 'Task.9', author: { agent: 'a' }, seats: [{ agent: 'b' }] }, cwd: process.cwd(), writer: throwing }));
-    assert.deepEqual(seen, ['team.verdict', 'team.verdict', 'team.verdict']);
+    assert.deepEqual(seen, ['team.verdict']);
   });
 
   test('a writer whose write is not a function does not make record throw', () => {
@@ -540,141 +534,5 @@ describe('IC-002: observeStart verdicts', () => {
     assert.equal(returned, undefined);
     assert.equal(cap.calls.length, 1);
     assert.equal(cap.calls[0].length, 1);
-  });
-});
-
-describe('IC-002: observeCheck verdicts', () => {
-  const author = (extra: any = {}) => ({ agent: 'core-implementer', session: 'sess-author', ...extra });
-  const seat = (agent: string, session?: string) => ({ agent, ...(session === undefined ? {} : { session }) });
-  const reviewRecord = (extra: any = {}) => ({ slug: 'feat-x', valid: true, author: author(), seats: [seat('quality-guardian', 'sess-q')], ...extra });
-
-  function check(rec: any) {
-    const cap = capture();
-    observeCheck({ record: rec, cwd: process.cwd(), writer: cap.writer });
-    assert.equal(cap.calls.length, 1, 'one verdict per call');
-    assert.equal(cap.calls[0].length, 1);
-    assert.equal(cap.last().kind, 'team.verdict');
-    const { kind, ...verdict } = cap.last();
-    assert.deepEqual(Object.keys(verdict).sort(), VERDICT_KEYS);
-    assert.equal(verdict.site, 'review-check');
-    assert.equal(verdict.rule, 'separation');
-    assert.equal(verdict.mode, 'advisory');
-    return verdict;
-  }
-
-  test('no record (null, undefined, array, non-object): not-evaluable / no-record, task null', () => {
-    for (const rec of [null, undefined, [], 'text', 7]) {
-      const got = check(rec);
-      assert.equal(got.outcome, 'not-evaluable');
-      assert.equal(got.reason, 'no-record');
-      assert.equal(got.task, null);
-      assert.equal(got.count, null);
-    }
-  });
-
-  test('no author object with a string agent: not-evaluable / no-author, task is the slug', () => {
-    for (const rec of [
-      reviewRecord({ author: undefined }), reviewRecord({ author: null }),
-      reviewRecord({ author: {} }), reviewRecord({ author: { agent: 5 } }), reviewRecord({ author: 'core-implementer' }),
-    ]) {
-      const got = check(rec);
-      assert.equal(got.outcome, 'not-evaluable');
-      assert.equal(got.reason, 'no-author');
-      assert.equal(got.task, 'feat-x');
-      assert.equal(got.count, null);
-    }
-  });
-
-  test('no seat with a string agent: not-evaluable / no-seat-agent', () => {
-    for (const rec of [
-      reviewRecord({ seats: undefined }), reviewRecord({ seats: [] }), reviewRecord({ seats: 'x' }),
-      reviewRecord({ seats: [{}, { agent: 3 }, null] }),
-    ]) {
-      const got = check(rec);
-      assert.equal(got.outcome, 'not-evaluable');
-      assert.equal(got.reason, 'no-seat-agent');
-      assert.equal(got.task, 'feat-x');
-    }
-  });
-
-  test('a seat with the author\'s own role: refused / ERR_REVIEWER_SELF_REVIEW, count is the seats evaluated', () => {
-    const got = check(reviewRecord({ seats: [seat('core-implementer', 'sess-other'), seat('quality-guardian', 'sess-q')] }));
-    assert.equal(got.outcome, 'refused');
-    assert.equal(got.reason, 'ERR_REVIEWER_SELF_REVIEW');
-    assert.equal(got.task, 'feat-x');
-    assert.equal(got.count, 2);
-  });
-
-  test('a seat sharing the author\'s session under a different role: refused', () => {
-    const got = check(reviewRecord({ seats: [seat('quality-guardian', 'sess-author')] }));
-    assert.equal(got.outcome, 'refused');
-    assert.equal(got.reason, 'ERR_REVIEWER_SELF_REVIEW');
-    assert.equal(got.count, 1);
-  });
-
-  test('a record the existing check marked invalid is still evaluated', () => {
-    const got = check(reviewRecord({ valid: false, seats: [seat('core-implementer')] }));
-    assert.equal(got.outcome, 'refused');
-    assert.equal(got.reason, 'ERR_REVIEWER_SELF_REVIEW');
-  });
-
-  test('valid:false passed to observeCheck gives a null task but is still evaluated; valid:true or omitted keeps the slug', () => {
-    const run = (valid?: boolean) => {
-      const cap = capture();
-      observeCheck({ record: reviewRecord({ seats: [seat('core-implementer')] }), valid, cwd: process.cwd(), writer: cap.writer });
-      return cap.last();
-    };
-    const invalid = run(false);
-    assert.equal(invalid.task, null);
-    assert.equal(invalid.outcome, 'refused');
-    assert.equal(invalid.reason, 'ERR_REVIEWER_SELF_REVIEW');
-    assert.equal(invalid.count, 1);
-    assert.equal(run(true).task, 'feat-x');
-    assert.equal(run(undefined).task, 'feat-x');
-  });
-
-  test('distinct roles and sessions: admitted, count is the seats evaluated, reason null', () => {
-    const got = check(reviewRecord({ seats: [seat('quality-guardian', 'sess-q'), seat('system-architect', 'sess-s')] }));
-    assert.equal(got.outcome, 'admitted');
-    assert.equal(got.reason, null);
-    assert.equal(got.task, 'feat-x');
-    assert.equal(got.count, 2);
-  });
-
-  test('distinct roles with no session recorded: admitted', () => {
-    const got = check({ slug: 'feat-x', author: { agent: 'core-implementer' }, seats: [{ agent: 'quality-guardian' }] });
-    assert.equal(got.outcome, 'admitted');
-  });
-
-  test('seats without a string agent are not counted among the seats evaluated', () => {
-    const got = check(reviewRecord({ seats: [seat('quality-guardian', 'sess-q'), { session: 'x' }, null] }));
-    assert.equal(got.outcome, 'admitted');
-    assert.equal(got.count, 1);
-  });
-
-  test('a record without a string slug is evaluated with a null task', () => {
-    const got = check({ author: author(), seats: [seat('quality-guardian', 'sess-q')] });
-    assert.equal(got.outcome, 'admitted');
-    assert.equal(got.task, null);
-  });
-
-  test('a hostile record (getter that throws) is error / eval-fault, never a throw', () => {
-    const hostile = { slug: 'feat-x', get author(): any { throw new Error('boom'); }, seats: [] };
-    const got = check(hostile);
-    assert.equal(got.outcome, 'error');
-    assert.equal(got.reason, 'eval-fault');
-    assert.equal(got.task, null);
-  });
-
-  test('observeCheck writes a real line through the default writer, with only the IC-003 fields', (t: any) => {
-    const f = fixture(t);
-    observeCheck({ record: reviewRecord({ seats: [seat('core-implementer')] }), cwd: f.project, env: f.env() });
-    const lines = f.lines();
-    assert.equal(lines.length, 1);
-    assert.deepEqual(Object.keys(lines[0]).sort(), LINE_KEYS);
-    assert.equal(lines[0].reason, 'ERR_REVIEWER_SELF_REVIEW');
-    assert.equal(lines[0].count, 1);
-    assert.ok(!f.rawText().includes('core-implementer'), 'a role name is not part of the line');
-    assert.ok(!f.rawText().includes('sess-author'), 'a session id is not part of the line');
   });
 });

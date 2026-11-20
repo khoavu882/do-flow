@@ -181,6 +181,10 @@
     "tool": ["Bash"],
     "emit_reason": ["emit", "refused:mandatory-over-budget", "silent:already-bootstrapped", "silent:unchanged", "silent:no-home", "fault:deps", "fault:unit", "fault:slot", "fault:summary", "fault:grant", "fault:warning", "fault:render"]
   },
+  "retiredValues": {
+    "team_site": ["review-check"],
+    "team_rule": ["separation"]
+  },
   "analysis": {
     "minSamples": 5,
     "tailRatio": 4,

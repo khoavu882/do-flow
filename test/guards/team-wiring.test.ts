@@ -11,7 +11,7 @@
 //         evaluation site. The exemption names its token and fails when loop.ts stops holding it.
 //
 // "Calls evaluate.ts" is any of: a require/import of a path ending `team/evaluate`, a call to one of
-// its evaluating exports (`teamGate`, `evaluateAdmission`, `observeStart`, `observeCheck`), or a call
+// its evaluating exports (`teamGate`, `evaluateAdmission`, `observeStart`), or a call
 // on a gate (`team.evaluate(`, `team.record(`). admission.ts is the last kind: it receives the gate
 // as an argument and never requires the module.
 
@@ -28,7 +28,7 @@ const GATE_BUILDERS: ReadonlyArray<{ file: string; token: string }> = Object.fre
 ]);
 
 const REQUIRES_EVALUATE = /(?:require\s*\(|from\s+|import\s*\()\s*['"][^'"]*team\/evaluate(?:\.ts)?['"]/;
-const CALLS_EVALUATE = /\b(?:teamGate|evaluateAdmission|observeStart|observeCheck)\s*\(|\bteam\.(?:evaluate|record)\s*\(/;
+const CALLS_EVALUATE = /\b(?:teamGate|evaluateAdmission|observeStart)\s*\(|\bteam\.(?:evaluate|record)\s*\(/;
 
 const read = (rel: string) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
@@ -81,9 +81,11 @@ function unlistedCallerFindings(
 
 // ── G82.0 the list itself ───────────────────────────────────────────────────────────────────────
 
-test('G82: WIRED_SITES lists the three registered sites, each once, with a file under a scanned directory', () => {
-  const registered = JSON.parse(read('core/registry/telemetry.json')).vocabularies.team_site;
-  assert.deepEqual(WIRED_SITES.map((s: Site) => s.id).sort(), [...registered].sort());
+test('G82: WIRED_SITES lists the registered sites less the retired ones, each once, with a file under a scanned directory', () => {
+  const contract = JSON.parse(read('core/registry/telemetry.json'));
+  const retired: string[] = contract.retiredValues.team_site;
+  const wired = contract.vocabularies.team_site.filter((id: string) => !retired.includes(id));
+  assert.deepEqual(WIRED_SITES.map((s: Site) => s.id).sort(), [...wired].sort());
   assert.equal(new Set(WIRED_SITES.map((s: Site) => s.file)).size, WIRED_SITES.length, 'one entry per file');
   for (const site of WIRED_SITES) {
     assert.ok(site.token, `${site.id} has a token`);
@@ -133,7 +135,7 @@ test('G82.2 control: an unlisted caller of each kind is reported; a listed file,
   const builders = [{ file: 'src/runtime/dispatch/loop.ts', token: 'teamGate' }];
   const findings = (files: Record<string, string>) => unlistedCallerFindings(files, sites, builders);
 
-  assert.equal(findings({ 'src/runtime/review/other.ts': "require('../team/evaluate.ts').observeCheck(x);" }).length, 1, 'require with extension');
+  assert.equal(findings({ 'src/runtime/review/other.ts': "require('../team/evaluate.ts').observeStart(x);" }).length, 1, 'require with extension');
   assert.equal(findings({ 'src/runtime/review/other.ts': "const e = require('../team/evaluate');" }).length, 1, 'require without extension');
   assert.equal(findings({ 'src/runtime/dispatch/other.ts': "import { teamGate } from '../team/evaluate.ts';" }).length, 1, 'import');
   assert.equal(findings({ 'src/runtime/dispatch/other.ts': 'const gate = teamGate({ projectRoot });' }).length, 1, 'call by name');
