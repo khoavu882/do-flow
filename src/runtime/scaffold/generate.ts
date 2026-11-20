@@ -370,7 +370,7 @@ function planSourceStubs({ byPath, scaffoldDir, repoRoot, fsImpl, slug, message,
         ].join('\n'));
       }
     } else {
-      header.push('shape:         not declared in the design.md or specs.md interface contracts — placeholder signature below');
+      header.push('shape:         no interface contract is attributed to this file\'s component in design.md or specs.md — placeholder signature below');
       // Not a skip — the file was emitted. Conflating the two would let 29 "we wrote it, but the
       // design never said what it should look like" rows hide inside a skip count, which is the
       // opposite of what the manifest is for.
@@ -805,8 +805,8 @@ function renderManifest(result: any, planned: Map<string, any>): string {
     '_Nothing generated._');
 
   lines.push('## Emitted without a declared shape', '');
-  lines.push('These files exist and are traceable, but neither `design.md` nor `specs.md` §1 ever declared an interface for',
-    'them, so their signature is a placeholder rather than a contract. Reviewing the placeholder as',
+  lines.push('These files exist and are traceable, but no interface contract in `design.md` or `specs.md` §1 is attributed to',
+    'their components, so their signature is a placeholder rather than a contract. Reviewing the placeholder as',
     'if it were the designed API is the mistake this section exists to prevent.', '');
   table(['Path', 'Why'], result.shapeUndeclared.map((s: any) => [s.path, s.why]),
     '_Every emitted file has a declared shape behind it._');
