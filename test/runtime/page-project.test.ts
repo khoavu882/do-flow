@@ -1000,3 +1000,16 @@ test('print shows every History section and closes again the ones the reader had
   // Without the script, a browser that knows ::details-content still prints the content.
   assert.ok(between(page, '@media print{', '\n}').includes('details.history::details-content{content-visibility:visible}'));
 });
+
+test('every label tone in light mode reads at 4.5:1 or more against its own background', () => {
+  const page = builtPage({ 'intention/requirement.md': REQUIREMENT });
+  const luminance = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((sum, v, k) => sum + v * [0.2126, 0.7152, 0.0722][k], 0);
+  const tones = [...page.matchAll(/\.tag--(\w+)\{--tb:(#[0-9a-f]{6});--tf:(#[0-9a-f]{6});/g)];
+  assert.ok(tones.length >= 11, `${tones.length} tones`);
+  for (const [, tone, bg, fg] of tones) {
+    const [hi, lo] = [luminance(bg), luminance(fg)].sort((a, b) => b - a);
+    const ratio = (hi + 0.05) / (lo + 0.05);
+    assert.ok(ratio >= 4.5, `${tone}: ${ratio.toFixed(2)}:1`);
+  }
+});

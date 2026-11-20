@@ -671,7 +671,7 @@ const TONE_COLORS: Record<string, [string, string, string, string]> = {
   good: ['#e3f3e6', '#1e6b34', 'rgba(74,190,110,.16)', '#86d9a0'],
   warn: ['#fbefd9', '#86560b', 'rgba(240,170,60,.16)', '#f2c378'],
   info: ['#e2ecfb', '#1f4f99', 'rgba(90,150,240,.18)', '#9cc0f5'],
-  quiet: ['#efeff0', '#6b6f78', 'rgba(232,234,239,.07)', '#9aa3b5'],
+  quiet: ['#efeff0', '#62666f', 'rgba(232,234,239,.07)', '#9aa3b5'],
   bad: ['#fbe3e1', '#a1281c', 'rgba(240,90,80,.18)', '#f3a097'],
   n0: ['#f3e8e1', '#7a4422', 'rgba(220,150,110,.16)', '#e7b796'],
   n1: ['#ece6f7', '#5a3d8f', 'rgba(160,130,230,.18)', '#c4b0f0'],
