@@ -43,13 +43,16 @@ test('doctor report: an absent tool carries its role and the install command for
 });
 
 test('doctor text: absent tools are listed required first with one command each', async (t) => {
-  const text = await doctorText(t, ['brew', 'npm', 'git', 'bash']);
+  // apt-get is jq's installer on Linux; without it the row reads "missing installer" instead of the command.
+  const text = await doctorText(t, ['brew', 'npm', 'apt-get', 'git', 'bash']);
   const lines = section(text).split('\n');
   const rows = lines.filter((line) => !line.includes('doflow tools'));
   assert.match(rows[0], /^ {2}jq {13}required {2}(brew install jq|sudo apt-get install jq \(needs administrator rights\))$/);
   assert.ok(rows.findIndex((line) => line.includes(' required ')) < rows.findIndex((line) => line.includes(' optional ')));
   assert.ok(!rows.some((line) => /^ {2}(git|bash) /.test(line)), 'present tools are not listed');
-  assert.match(text, /^ {2}agent-browser {2}optional {2}(npm install -g agent-browser, then agent-browser install|brew install agent-browser, then agent-browser install)$/m);
+  // On Linux the route also names the user's own sudo step (`agent-browser install --with-deps`); on darwin it does not.
+  const sudoStep = process.platform === 'linux' ? "; run it yourself: agent-browser install --with-deps \\(.*sudo.*\\)" : '';
+  assert.match(text, new RegExp(`^ {2}agent-browser {2}optional {2}(npm install -g agent-browser, then agent-browser install|brew install agent-browser, then agent-browser install)${sudoStep}$`, 'm'));
   assert.match(text, /^ {2}ripgrep {8}optional {2}brew install ripgrep$/m);
   assert.equal(lines.at(-1), '  Run `doflow tools` for what each one unlocks.');
 });
