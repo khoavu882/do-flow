@@ -196,15 +196,25 @@ function probeExec(file: string, args: string[], opts: any): Promise<string> {
     let timer: any;
     const out: Buffer[] = [];
     const err: Buffer[] = [];
-    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', ...(opts?.env ? { env: opts.env } : {}), ...(opts?.cwd ? { cwd: opts.cwd } : {}) });
+    // Watched before it starts: a SIGINT or SIGTERM between the spawn and the watch would end DoFlow by the default action
+    // and leave the probe's group running. A signal is handled only after this synchronous block, when the pid is known.
+    const watched: { pid?: number } = {};
+    watchProbe(watched);
+    let child: any;
+    try {
+      child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', ...(opts?.env ? { env: opts.env } : {}), ...(opts?.cwd ? { cwd: opts.cwd } : {}) });
+    } catch (error) {
+      unwatchProbe(watched);
+      throw error;
+    }
+    watched.pid = child.pid;
     const finish = (settle: (value: any) => void, value: any) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      unwatchProbe(child);
+      unwatchProbe(watched);
       settle(value);
     };
-    watchProbe(child);
     if (opts?.timeout) {
       timer = setTimeout(() => {
         killTree(child.pid);
