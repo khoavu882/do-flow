@@ -310,4 +310,8 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: 501 }), ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc ']);
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501, false), uid: 501 }), null, 'an unreadable entry of this user is unknown');
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: null }), null);
+  // A zombie answers EACCES for its environ and has nothing to name a run with: it is skipped; a live entry that denies is unknown.
+  const withStat = (state: string) => ({ ...proc(501, false), readFileSync: (p: string) => (p === '/proc/7/stat' ? Buffer.from(`7 (fake) ${state} 1 1 1`) : proc(501, false).readFileSync(p)) });
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z'), uid: 501 }), []);
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('S'), uid: 501 }), null);
 });

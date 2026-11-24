@@ -208,6 +208,14 @@ function treeFromRows(rows: any[], proc: any) {
 /** The bound on the one listing `processTexts` reads; a larger listing fails, which reads as unknown. */
 const TEXTS_MAX_BYTES = 16 * 1024 * 1024;
 
+/** Whether /proc/<pid>/stat shows the process as a zombie (state Z) or dead (X); an unreadable stat is not a zombie. */
+function procIsZombie(fsImpl: any, pid: string): boolean {
+  try {
+    const stat = fsImpl.readFileSync(`/proc/${pid}/stat`).toString('utf8');
+    return /^[ZX]$/.test(stat.slice(stat.lastIndexOf(')') + 1).trim().charAt(0));
+  } catch { return false; }
+}
+
 /**
  * 165 review A-1: one text per process of this user, its command line and, where the OS shows it, its environment; null when
  * the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read), which a
@@ -232,6 +240,9 @@ function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, u
     } catch (error: any) {
       // A process that ended between the listing and the read is gone; any other failure leaves the answer unknown.
       if (error?.code === 'ENOENT' || error?.code === 'ESRCH') continue;
+      // A zombie of this user (exited, not yet reaped) answers EACCES for its environ on Linux: it has no command line or
+      // environment left to name a run, so it is skipped rather than turning the whole listing into unknown.
+      if ((error?.code === 'EACCES' || error?.code === 'EPERM') && procIsZombie(fsImpl, name)) continue;
       return null;
     }
   }
