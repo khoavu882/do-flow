@@ -13,6 +13,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
+const { STEP_BAR_BASELINES, stepBarMs } = require('../helper/hook-step-bar.ts');
 
 const POSIX = process.platform !== 'win32';
 const MIRROR = buildInstallMirror(path.join(suiteTempDir('doflow-observe-attention-mirror-'), 'm'));
@@ -198,8 +199,9 @@ test('(h) a link in place of the log is never followed', { skip: !POSIX }, (t) =
   assert.equal(fs.readFileSync(target, 'utf8'), 'x\n');
 });
 
-test('(i) the ask step and the answered step each finish under 20 ms over a no-op baseline: median of 20 runs, step less an interleaved no-op run of the same function', { skip: !POSIX }, (t) => {
-  // The baseline is the step's fixed process starts (bash and jq); the 20 ms bar limits DoFlow's own work above them.
+test('(i) the ask step and the answered step each finish within four no-op baselines over one (about 20 ms on the reference Mac): median of 20 runs, step less an interleaved no-op run of the same function', { skip: !POSIX }, (t) => {
+  // The baseline is the step's fixed process starts (bash and jq); the bar limits DoFlow's own work above them and
+  // scales with the runner's own baseline (test/helper/hook-step-bar.ts; its control run is in observe-effort (g)).
   const s = scratch(t);
   const env = baseEnv(s);
   const stepFile = path.join(STEP_DIR, 'observe-attention.sh');
@@ -225,8 +227,8 @@ test('(i) the ask step and the answered step each finish under 20 ms over a no-o
   const stats = (runs: { base: number; step: number }[]) => ({ step: median(runs.map((r) => r.step)), base: median(runs.map((r) => r.base)) });
   const [a, b, q] = [stats(askRuns), stats(answeredRuns), stats(quietRuns)];
   const show = (x: { step: number; base: number }) => `${x.step.toFixed(2)} ms vs baseline ${x.base.toFixed(2)} ms`;
-  t.diagnostic(`observe-attention median of 20 (step vs no-op baseline): ask ${show(a)}, answered ${show(b)}, answered with no log ${show(q)}`);
-  assert.ok(a.step - a.base < 20, `ask median ${a.step} ms, baseline ${a.base} ms`);
-  assert.ok(b.step - b.base < 20, `answered median ${b.step} ms, baseline ${b.base} ms`);
-  assert.ok(q.step - q.base < 20, `answered (no log) median ${q.step} ms, baseline ${q.base} ms`);
+  t.diagnostic(`observe-attention median of 20 (step vs no-op baseline, bar ${STEP_BAR_BASELINES} baselines): ask ${show(a)}, answered ${show(b)}, answered with no log ${show(q)}`);
+  assert.ok(a.step - a.base < stepBarMs(a.base), `ask median ${a.step} ms, baseline ${a.base} ms, bar ${stepBarMs(a.base)} ms`);
+  assert.ok(b.step - b.base < stepBarMs(b.base), `answered median ${b.step} ms, baseline ${b.base} ms, bar ${stepBarMs(b.base)} ms`);
+  assert.ok(q.step - q.base < stepBarMs(q.base), `answered (no log) median ${q.step} ms, baseline ${q.base} ms, bar ${stepBarMs(q.base)} ms`);
 });
