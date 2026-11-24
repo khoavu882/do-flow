@@ -4,6 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { tempDir } = require('../helper/tmp.ts');
+const { processRunning } = require('../helper/process-running.ts');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const {
@@ -239,7 +240,7 @@ test('after a timeout nothing the probe started is left running', { skip: proces
   assert.equal(plan.tools[0].state, 'inspection-timeout');
   const pid = Number(fs.readFileSync(pidFile, 'utf8'));
   assert.ok(pid > 1, 'the wrapper started its child');
-  const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const alive = () => processRunning(pid);
   for (let i = 0; i < 40 && alive(); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(alive(), false, 'the sleep the wrapper started is gone');
 });
@@ -260,7 +261,7 @@ for (const [name, signal, toGroup] of [['SIGINT to the foreground group', 'SIGIN
     for (let i = 0; i < 100 && !fs.existsSync(pidFile); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     const pid = Number(fs.readFileSync(pidFile, 'utf8'));
     assert.ok(pid > 1, 'the wrapper started its child');
-    const alive = () => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    const alive = () => processRunning(pid);
     assert.equal(alive(), true, 'the child is running before the signal');
     try {
       process.kill(toGroup ? -node.pid : node.pid, signal);

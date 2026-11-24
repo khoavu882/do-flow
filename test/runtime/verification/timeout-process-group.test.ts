@@ -7,12 +7,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../../helper/tmp.ts');
+const { processRunning } = require('../../helper/process-running.ts');
 const { VerificationContractRunner } = require('../../../src/runtime/verification/contract-runner.ts');
 const { VerificationEngine } = require('../../../src/runtime/verification/engine.ts');
 
-function alive(pid: number): boolean {
-  try { process.kill(pid, 0); return true; } catch (error: any) { return error.code !== 'ESRCH'; }
-}
+// A zombie runs nothing: the grandchild counts as gone once it is killed, whenever its adopter reaps it.
+const alive = (pid: number): boolean => processRunning(pid);
 
 async function gone(pid: number, ms = 5000): Promise<boolean> {
   const until = Date.now() + ms;
