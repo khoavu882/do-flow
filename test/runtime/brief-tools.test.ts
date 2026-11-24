@@ -179,10 +179,13 @@ test('no target harness gives the neutral form: CLI plus where the MCP tool woul
 
 test('no angle slot in the tools block sits outside a code span, in the neutral, cli and mcp forms (G85 check 4)', (t) => {
   const withMcp: any = { [SEARCH.mcp.server]: 'configured' };
+  // The native.rg row names `rg` only where rg is on PATH and `grep` where it is not; the binary is
+  // fixed here so the assertion below does not depend on the machine running it.
+  const router: any = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: projectDir(t).proj, binaryChecker: (binary: string) => binary === 'rg' });
   const forms = [
-    render(t),
-    render(t, { reach: reachOf([[CLAUDE.id, 'project', withMcp], [OTHER_HARNESS.id, 'global', withMcp]]), harness: OTHER_HARNESS.id }),
-    render(t, { reach: reachOf([[CLAUDE.id, 'project', withMcp]]), harness: CLAUDE.id }),
+    render(t, { router }),
+    render(t, { router, reach: reachOf([[CLAUDE.id, 'project', withMcp], [OTHER_HARNESS.id, 'global', withMcp]]), harness: OTHER_HARNESS.id }),
+    render(t, { router, reach: reachOf([[CLAUDE.id, 'project', withMcp]]), harness: CLAUDE.id }),
   ];
   assert.deepEqual(forms.map((form: any) => form.record.tools.find((entry: any) => entry.intent === 'locate-concept').form), ['neutral', 'cli', 'mcp']);
   for (const { parts } of forms) {
