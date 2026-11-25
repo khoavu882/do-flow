@@ -2,7 +2,7 @@
 
 /**
  * The fold (IC-003, IC-004): every lifecycle event file, ordered by `at` then `id`, reduced to the
- * follow-ups, tracked features, goals and release records they describe. The function is pure: no
+ * follow-ups, tracked features, goals, release records and check proposals they describe. The function is pure: no
  * file or git access, so two clones holding the same files produce the same result, and a writer
  * can test one more event against the state it would join (`applyEvent`) before anything is
  * written. A transition that is illegal at its place in the order is not applied and is listed in
@@ -36,6 +36,7 @@ function newState({ now = new Date() }: { now?: Date } = {}): any {
     merged: new Map(),
     goals: new Map(),
     releases: new Map(),
+    checks: new Map(),
     conflicts: [],
     newestAt: null,
   };
@@ -261,6 +262,70 @@ function applyReleaseRecorded(state: any, event: any): any[] {
   return [];
 }
 
+// ── check proposals (181 IC-016, data-model §3) ────────────────────────────────────────────────
+
+function proposalFor(state: any, event: any, id: any): { check?: any; problem?: any } {
+  const check = isText(id) ? state.checks.get(id) : undefined;
+  return check ? { check } : { problem: conflict(event, 'unknown-id', `${id} is not a check proposal`) };
+}
+
+function applyCheckProposed(state: any, event: any): any[] {
+  const d = event.data;
+  if (!isText(d.proposal) || !isIdList(d.members) || !isText(d.correction) || !isText(d.offered) || !Array.isArray(d.ladder)) {
+    return [conflict(event, 'malformed', 'check.proposed needs proposal, members, correction, offered and ladder')];
+  }
+  if (state.checks.has(d.proposal)) return [conflict(event, 'illegal-transition', `${d.proposal} was already proposed`)];
+  const check: any = {
+    proposal: d.proposal, state: 'proposed', members: d.members, correction: d.correction, offered: d.offered, ladder: d.ladder,
+    kind: null, alternative: null, message: null, reason: null, checkPath: null, history: [],
+  };
+  touch(check, event);
+  state.checks.set(d.proposal, check);
+  return [];
+}
+
+function applyCheckAccepted(state: any, event: any): any[] {
+  const d = event.data;
+  const { check, problem } = proposalFor(state, event, d.proposal);
+  if (problem) return [problem];
+  if (!isText(d.kind) || !isText(d.alternative) || !isText(d.message)) return [conflict(event, 'malformed', 'check.accepted needs kind, alternative and message')];
+  // A decline is final, and a built check is terminal: only a proposed one can be accepted.
+  if (check.state !== 'proposed') return [conflict(event, 'illegal-transition', `${d.proposal} is ${check.state}; only a proposed check can be accepted`)];
+  check.state = 'accepted';
+  check.kind = d.kind;
+  check.alternative = d.alternative;
+  check.message = d.message;
+  check.reason = isText(d.reason) ? d.reason : null;
+  touch(check, event);
+  return [];
+}
+
+function applyCheckDeclined(state: any, event: any): any[] {
+  const d = event.data;
+  const { check, problem } = proposalFor(state, event, d.proposal);
+  if (problem) return [problem];
+  if (!isText(d.reason)) return [conflict(event, 'reason-required', `declining ${d.proposal} needs a reason`)];
+  // The person declines before accepting, not after (data-model §3).
+  if (check.state !== 'proposed') return [conflict(event, 'illegal-transition', `${d.proposal} is ${check.state}; only a proposed check can be declined`)];
+  check.state = 'declined';
+  check.reason = d.reason;
+  touch(check, event);
+  return [];
+}
+
+function applyCheckBuilt(state: any, event: any): any[] {
+  const d = event.data;
+  const { check, problem } = proposalFor(state, event, d.proposal);
+  if (problem) return [problem];
+  if (!isText(d.path)) return [conflict(event, 'malformed', 'check.built needs a path')];
+  // A check is built only after a person accepted it (NFR-005).
+  if (check.state !== 'accepted') return [conflict(event, 'illegal-transition', `${d.proposal} is ${check.state}; only an accepted check can be built`)];
+  check.state = 'built';
+  check.checkPath = d.path;
+  touch(check, event);
+  return [];
+}
+
 const APPLY: Record<string, (state: any, event: any) => any[]> = {
   'followup.added': applyAdded,
   'followup.taken': applyTaken,
@@ -274,6 +339,10 @@ const APPLY: Record<string, (state: any, event: any) => any[]> = {
   'goal.linked': applyGoalLinked,
   'goal.done': applyGoalDone,
   'release.recorded': applyReleaseRecorded,
+  'check.proposed': applyCheckProposed,
+  'check.accepted': applyCheckAccepted,
+  'check.declined': applyCheckDeclined,
+  'check.built': applyCheckBuilt,
 };
 
 /** The event types this fold understands; any other type is kept out of the state, not a conflict. */
@@ -329,6 +398,7 @@ function finalize(state: any, { hasBody = () => false }: any = {}): any {
     merged: [...state.merged.values()],
     goals: [...state.goals.values()],
     releases,
+    checks: Object.fromEntries(state.checks),
     conflicts: state.conflicts,
     newestAt: state.newestAt === null ? null : new Date(state.newestAt).toISOString(),
   };
