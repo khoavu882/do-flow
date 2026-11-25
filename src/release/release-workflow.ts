@@ -1,9 +1,9 @@
 'use strict';
 
-// Finding ids are a stable interface: IC-004 keeps R1-R12 and adds R13-R14.
+// Finding ids are a stable interface: IC-004 keeps R1-R12 and adds R13-R14; IC-002 of 181 adds R15.
 // R3/R4 cover write-all, flow-map, and alias forms; R9 checks every publish invocation.
 const RELEASE_WORKFLOW_RULE_IDS = Object.freeze([
-  'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14',
+  'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15',
 ]);
 
 type WorkflowJob = {
@@ -722,6 +722,32 @@ function releaseWorkflowFindings(text: string, { nodeFloor }: { nodeFloor?: stri
   if (stableGate.length) {
     report('R14', 'workflow', 'the stable path must open only behind the preflight reviewer gate: '
       + stableGate.join('; '));
+  }
+
+  // R15: the from-nothing rehearsal runs in this workflow, on the Node preflight pins, and the
+  // artifact is not verified until it has passed.
+  const rehearse = jobs.get('rehearse');
+  const r15Violations: string[] = [];
+  if (!rehearse) {
+    r15Violations.push('rehearse job is missing');
+  } else {
+    if (!jobHasCommand(rehearse, /npm\s+run\s+release:rehearse(?:\s|$)/)) {
+      r15Violations.push('rehearse must run release:rehearse');
+    }
+    const preflightPins = new Set(preflight ? workflowNodePins(preflight.text).map((pin) => pin.value) : []);
+    const rehearsePins = workflowNodePins(rehearse.text).map((pin) => pin.value);
+    if (!rehearsePins.length || rehearsePins.some((value) => !preflightPins.has(value))) {
+      r15Violations.push('rehearse must pin the same Node as preflight (' + ([...preflightPins].join(', ') || 'none')
+        + '); found ' + (rehearsePins.join(', ') || 'none'));
+    }
+  }
+  const verifyArtifact = jobs.get('verify-artifact');
+  if (!verifyArtifact || !verifyArtifact.needs.includes('rehearse')) {
+    r15Violations.push('verify-artifact must need rehearse');
+  }
+  if (r15Violations.length) {
+    report('R15', !rehearse ? 'workflow' : 'rehearse', 'the release rehearsal must gate verify-artifact: '
+      + r15Violations.join('; '));
   }
 
   return findings;
