@@ -74,6 +74,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    Every tier step 2 listed gets a status in the report — `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`,
    `NOT_APPLICABLE`, `SKIPPED` or `NOT_RUN`. Report all of them. A tier the contract named and the
    run did not reach is reported as unreached, never omitted.
+
+   With a feature map (the project's or the feature's), also read this skill's `references/feature-map.md` and run it. Before a property or fuzz campaign, run `"$DOFLOW" verify --action inner-loop --task-id "<task id>"`, relay a `REFUSED` verbatim and start no campaign.
 **Stop when** every required tier the contract names has an answer or a stated gap, **and** the last round produced no new required tier. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
 4. **Read the verdict as it stands**:
