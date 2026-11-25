@@ -24,7 +24,7 @@ for (const flag of ['--help', '-h']) {
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /^doflow followup\n/);
     assert.match(result.stdout, /Record, list, take, settle, promote or report what a feature left unfinished/);
-    assert.match(result.stdout, /^ {2}followup: add\|list\|take\|settle\|promote\|report$/m, 'its actions');
+    assert.match(result.stdout, /^ {2}followup: add\|list\|take\|settle\|promote\|report\|propose\|decide$/m, 'its actions');
     assert.match(result.stdout, /--release, --source, --channel\s+followup \(/, 'its flags');
     assert.doesNotMatch(result.stdout, /task-attempt: claim/, 'no other verb\'s actions');
     assert.match(result.stdout, /Every verb and flag: `doflow --help`\.\n$/);
@@ -56,7 +56,7 @@ test('an unknown word with --help is not claimed as a verb', () => {
 
 test('a verb sharing an --action line with another verb gets its own actions only', () => {
   const verify = run('verify', '--help');
-  assert.match(verify.stdout, /^ {2}verify: report\|contract$/m);
+  assert.match(verify.stdout, /^ {2}verify: report\|contract\|inner-loop\|feature-map$/m);
   assert.doesNotMatch(verify.stdout, /retrieval-plan: declare/);
   const claim = run('claim', '--help');
   assert.match(claim.stdout, /^ {2}claim: list\|add\|link\|retract\|supersede$/m);
