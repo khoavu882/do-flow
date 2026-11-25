@@ -188,8 +188,13 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
     ) },
     { name: 'R15 rehearse runs the wrong command', rules: ['R15'], text: replaceOnce(
       workflow,
-      '      - run: npm run release:rehearse',
+      '      - run: npm run release:rehearse -- --skip-preflight',
       '      - run: npm run build:package',
+    ) },
+    { name: 'R15 rehearse does not skip its preflight stage', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight',
+      '      - run: npm run release:rehearse',
     ) },
     { name: 'R15 rehearse job continues on error', rules: ['R15'], text: replaceOnce(
       workflow,
@@ -198,8 +203,8 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
     ) },
     { name: 'R15 rehearsal step continues on error', rules: ['R15'], text: replaceOnce(
       workflow,
-      '      - run: npm run release:rehearse',
-      '      - run: npm run release:rehearse\n        continue-on-error: true',
+      '      - run: npm run release:rehearse -- --skip-preflight',
+      '      - run: npm run release:rehearse -- --skip-preflight\n        continue-on-error: true',
     ) },
     { name: 'R15 rehearse job removed', rules: ['R15'], text: replaceOnce(
       replaceOnce(workflow, '  rehearse:\n', '  rehearse-renamed:\n'),

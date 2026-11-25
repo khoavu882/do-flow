@@ -24,7 +24,7 @@ function forbidden(command: any, args: any) {
     || (command === 'git' && ['push', 'tag'].includes(args[0]));
 }
 
-function fixture(t: any, { seed = null as any, node = NODE as any, override = ((...args: any[]): any => undefined), keep = false, registry = false, extraBase = {} }: any = {}) {
+function fixture(t: any, { seed = null as any, node = NODE as any, override = ((...args: any[]): any => undefined), keep = false, registry = false, skipPreflight = false, extraBase = {} }: any = {}) {
   const root = tempDir(t, 'doflow-rehearse-test-');
   const scratchRoot = path.join(root, 'scratch');
   fs.mkdirSync(scratchRoot);
@@ -53,7 +53,7 @@ function fixture(t: any, { seed = null as any, node = NODE as any, override = ((
   };
   const result = runRehearse({
     repoRoot: path.join(root, 'checkout'),
-    options: { node, seed, keep, registry },
+    options: { node, seed, keep, registry, skipPreflight },
     run,
     scratchRoot,
     baseEnv,
@@ -72,17 +72,17 @@ function scratchOf(result: any) {
 }
 
 test('parseArgs defaults and every flag', () => {
-  assert.deepEqual(parseArgs([]), { node: null, ref: 'HEAD', seed: null, registry: false, keep: false });
+  assert.deepEqual(parseArgs([]), { node: null, ref: 'HEAD', seed: null, registry: false, keep: false, skipPreflight: false });
   assert.deepEqual(
-    parseArgs(['--node', '/n/node', '--ref', 'v1', '--seed-fault', 'raw-ts', '--registry', '--keep']),
-    { node: '/n/node', ref: 'v1', seed: 'raw-ts', registry: true, keep: true },
+    parseArgs(['--node', '/n/node', '--ref', 'v1', '--seed-fault', 'raw-ts', '--registry', '--keep', '--skip-preflight']),
+    { node: '/n/node', ref: 'v1', seed: 'raw-ts', registry: true, keep: true, skipPreflight: true },
   );
   assert.equal(parseArgs(['--seed-fault', 'plantuml']).seed, 'plantuml');
 });
 
 test('parseArgs rejects unknown, repeated, valueless and bad-valued flags with the usage line', () => {
   for (const argv of [
-    ['--bogus'], ['stray'], ['--keep', '--keep'], ['--node', '/a', '--node', '/b'], ['--node'],
+    ['--bogus'], ['stray'], ['--keep', '--keep'], ['--skip-preflight', '--skip-preflight'], ['--skip-preflight', 'x'], ['--node', '/a', '--node', '/b'], ['--node'],
     ['--ref', '--keep'], ['--ref', '-x'], ['--seed-fault', 'nope'], ['--seed-fault'],
   ]) {
     assert.throws(() => parseArgs(argv), /^Error: usage: node src\/release\/rehearse\.ts /, JSON.stringify(argv));
@@ -124,6 +124,12 @@ test('stagePlan orders the stages and names what each seed skips', () => {
   assert.deepEqual(rawTs.filter((s: any) => s.run).map((s: any) => s.id), ['env', 'clone', 'pack', 'install', 'version']);
   assert.match(rawTs.find((s: any) => s.id === 'seed').reason, /no tree change/);
   assert.deepEqual(rawTs.map((s: any) => s.id).filter((id: any) => id !== 'seed'), plain.map((s: any) => s.id));
+});
+
+test('stagePlan with skipPreflight skips only the preflight stage and says why', () => {
+  const plan = stagePlan({ seed: null, skipPreflight: true });
+  assert.deepEqual(plan.filter((s: any) => !s.run), [{ id: 'preflight', run: false, reason: "the release workflow's preflight job runs it" }]);
+  assert.deepEqual(plan.map((s: any) => s.id), stagePlan({ seed: null }).map((s: any) => s.id));
 });
 
 test('the forbidden-argv check flags publish, dist-tag, push and tag (negative control)', () => {
@@ -180,6 +186,15 @@ test('a clean run passes every stage in order, spawns the documented argv and re
     assert.ok(!c.options.env.PATH.includes('homebrew'));
   }
   assert.ok(children.every((c: any) => c.options.timeout > 0), 'every non-env stage has a timeout');
+});
+
+test('--skip-preflight does not spawn the preflight, prints its SKIP line and a run of passing stages exits 0', { skip: WIN_SKIP }, (t) => {
+  const { result, calls } = fixture(t, { skipPreflight: true });
+  assert.equal(result.exitCode, 0, result.lines.join('\n'));
+  assert.ok(!calls.some((c: any) => c.args[0] === 'src/release/preflight.ts'));
+  assert.deepEqual(stageLines(result).map((l: any) => l.split(':')[0]),
+    ['env', ...ORDER].map((id) => (id === 'preflight' ? 'SKIP preflight' : `PASS ${id}`)));
+  assert.ok(result.lines.includes("SKIP preflight: the release workflow's preflight job runs it"));
 });
 
 test('--registry lets the preflight stage query npm', { skip: WIN_SKIP }, (t) => {

@@ -40,9 +40,9 @@ const SMOKE_TESTS = [
   'test/e2e/install-shapes.test.ts',
 ];
 const MINUTE = 60 * 1000;
-const USAGE = 'usage: node src/release/rehearse.ts [--node <path>] [--ref <rev>] [--seed-fault plantuml|raw-ts] [--registry] [--keep]';
+const USAGE = 'usage: node src/release/rehearse.ts [--node <path>] [--ref <rev>] [--seed-fault plantuml|raw-ts] [--registry] [--keep] [--skip-preflight]';
 
-type Options = { node: string | null, ref: string, seed: string | null, registry: boolean, keep: boolean };
+type Options = { node: string | null, ref: string, seed: string | null, registry: boolean, keep: boolean, skipPreflight: boolean };
 type RunOptions = { cwd?: string, env?: Record<string, string | undefined>, input?: string, timeout?: number };
 type RunResult = { status: number | null, stdout: string, stderr: string, error?: any };
 type Run = (command: string, args: string[], options: RunOptions) => RunResult;
@@ -50,11 +50,11 @@ type Outcome = { id: string, status: 'PASS' | 'FAIL' | 'SKIP', output: string, k
 type StageResult = { ok: boolean, message: string, output?: string, kind?: 'exit' | 'timeout' | 'spawn', fatal?: boolean };
 
 function parseArgs(argv: string[]): Options {
-  const options: Options = { node: null, ref: 'HEAD', seed: null, registry: false, keep: false };
+  const options: Options = { node: null, ref: 'HEAD', seed: null, registry: false, keep: false, skipPreflight: false };
   const seen = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
-    if (!['--node', '--ref', '--seed-fault', '--registry', '--keep'].includes(flag) || seen.has(flag)) {
+    if (!['--node', '--ref', '--seed-fault', '--registry', '--keep', '--skip-preflight'].includes(flag) || seen.has(flag)) {
       throw new Error(USAGE);
     }
     seen.add(flag);
@@ -62,6 +62,8 @@ function parseArgs(argv: string[]): Options {
       options.registry = true;
     } else if (flag === '--keep') {
       options.keep = true;
+    } else if (flag === '--skip-preflight') {
+      options.skipPreflight = true;
     } else {
       const value = argv[++i];
       if (!value || value.startsWith('-')) throw new Error(USAGE);
@@ -101,7 +103,7 @@ function ciEnv({ scratch, nodeDir, shimDir, npmCli, base = {} }: {
 }
 
 /** The ordered stages with their skip reasons for a seed. `seed` is a stage only in seed mode. */
-function stagePlan({ seed = null }: { seed?: string | null } = {}): { id: string, run: boolean, reason?: string }[] {
+function stagePlan({ seed = null, skipPreflight = false }: { seed?: string | null, skipPreflight?: boolean } = {}): { id: string, run: boolean, reason?: string }[] {
   const only: Record<string, string[]> = {
     plantuml: ['env', 'clone', 'seed', 'suite'],
     'raw-ts': ['env', 'clone', 'pack', 'install', 'version'],
@@ -109,6 +111,9 @@ function stagePlan({ seed = null }: { seed?: string | null } = {}): { id: string
   const all = ['env', 'clone', 'preflight', 'seed', 'suite', 'smoke', 'build', 'pack', 'install', 'version', 'install-g', 'verb'];
   const ids = seed ? all : all.filter((id) => id !== 'seed');
   return ids.map((id) => {
+    if (id === 'preflight' && skipPreflight && (!seed || only[seed].includes(id))) {
+      return { id, run: false, reason: "the release workflow's preflight job runs it" };
+    }
     if (!seed || only[seed].includes(id)) return { id, run: true };
     return { id, run: false, reason: id === 'seed' ? 'raw-ts needs no tree change' : `not part of the ${seed} seed` };
   });
@@ -174,7 +179,7 @@ function runRehearse({
   baseEnv?: Record<string, string | undefined>,
   invokingNode?: string,
 } = {}): { exitCode: number, lines: string[] } {
-  const opts: Options = { node: null, ref: 'HEAD', seed: null, registry: false, keep: false, ...options };
+  const opts: Options = { node: null, ref: 'HEAD', seed: null, registry: false, keep: false, skipPreflight: false, ...options };
   const lines: string[] = [];
   const envFail = (message: string) => ({ exitCode: 3, lines: [...lines, `FAIL env: ${message}`] });
 
@@ -331,7 +336,7 @@ function runRehearse({
   let chainFailed: string | null = null;
   let anyFail = false;
   let fatal = false;
-  for (const stage of stagePlan({ seed: opts.seed })) {
+  for (const stage of stagePlan({ seed: opts.seed, skipPreflight: opts.skipPreflight })) {
     if (stage.id === 'env') continue;
     if (!stage.run) {
       lines.push(`SKIP ${stage.id}: ${stage.reason}`);
