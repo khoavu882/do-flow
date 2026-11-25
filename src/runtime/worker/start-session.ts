@@ -598,10 +598,12 @@ const unknownWords = (runId: string, unreadable?: any) => `a started session in 
   + (unreadable ? `${blockerWords(unreadable)}; ` : '')
   + `if it has ended, clear it with: doflow worker --action cancel --slug ${STARTED_SLUG} --worker-run ${runId} --operator --via console --reason ended`;
 
-/** The process-table blocker in words: the file and errno, and the stat state and Threads count when they were read. */
+/** The process-table blocker in words: the file and errno, and the command, stat state and Threads count when they were read. */
 function blockerWords(u: any): string {
   if (u.reason !== 'proc-entry') return `the process table could not be read (${u.reason}${u.errno ? ` ${u.errno}` : ''})`;
-  const seen = [u.state ? `state ${u.state}` : null, typeof u.threads === 'number' ? `Threads ${u.threads}` : null].filter(Boolean);
+  const seen = [
+    u.command ? `command ${u.command}` : null, u.state ? `state ${u.state}` : null, typeof u.threads === 'number' ? `Threads ${u.threads}` : null,
+  ].filter(Boolean);
   return `the process table could not be read: ${u.file} answered ${u.errno ?? 'an error'}${seen.length ? ` (${seen.join(', ')})` : ''}`;
 }
 

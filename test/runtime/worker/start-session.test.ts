@@ -722,13 +722,13 @@ test('A-1: when the process table is why a run reads unknown, checkout-busy-unkn
   const f = fixture(t);
   const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
   const real = tree.readProcessTexts;
-  const unreadable = { reason: 'proc-entry', pid: 4321, file: '/proc/4321/environ', errno: 'EACCES', state: 'S', threads: 3 };
+  const unreadable = { reason: 'proc-entry', pid: 4321, file: '/proc/4321/environ', errno: 'EACCES', state: 'S', threads: 3, command: 'some-agent' };
   tree.readProcessTexts = () => ({ texts: null, unreadable });
   t.after(() => { tree.readProcessTexts = real; });
   const runId = unsupervisedRun(f);
   const refused = await start(f, { harness: 'codex' });
   assert.deepEqual([refused.exit, refused.body.code, refused.body.current], [1, 'checkout-busy-unknown', { runId, unreadable }], JSON.stringify(refused.body));
-  assert.match(refused.body.message, /its processes cannot be checked; the process table could not be read: \/proc\/4321\/environ answered EACCES \(state S, Threads 3\); if it has ended, clear it with: doflow worker --action cancel/);
+  assert.match(refused.body.message, /its processes cannot be checked; the process table could not be read: \/proc\/4321\/environ answered EACCES \(command some-agent, state S, Threads 3\); if it has ended, clear it with: doflow worker --action cancel/);
   // A run whose unknown reading comes from a recorded pid, not from the table, keeps the old shape and words.
   const other = fixture(t);
   const pinned = unsupervisedRun(other, { proc: { ...liveChild(), start: null } });
