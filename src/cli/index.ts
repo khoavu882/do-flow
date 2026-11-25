@@ -77,7 +77,7 @@ function parseArgs(argv: string[]): any {
     if (a.startsWith('-')) o.flagsGiven.push(a);
     // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
     // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
-    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a === '--lan' && o.cmd !== 'ui' ? '' : a.startsWith('--action=') ? '--action' : a) {
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a === '--lan' && o.cmd !== 'ui' ? '' : a === '--check' && o.cmd === 'followup' ? '' : a.startsWith('--action=') ? '--action' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -139,6 +139,8 @@ function parseArgs(argv: string[]): any {
       case '--stdin': o.stdin = true; break;
       // followup --action list: each item names its possible duplicates (row 176 IC-008); any other action refuses it.
       case '--similar': o.similar = true; break;
+      // followup --action propose: write the proposal as a check.proposed event instead of only printing it (181 IC-014).
+      case '--record': o.record = true; break;
       // advise --action configure: these are deliberately presence-only switches.
       case '--off': o.off = true; break;
       // advise --action replay: store the replay's figures in the user-level result store (175 IC-005).
@@ -319,6 +321,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--evidence', 'evidence'],          // followup --action settle --as done: what shows it was done
   ['--duplicate-of', 'duplicateOf'],   // followup --action settle --as dismissed: the FU id the dismissed items duplicate (180)
   ['--title', 'title'],                // followup --action promote: the new intent's title
+  ['--proposal', 'proposal'],          // followup --action decide: the CP-xxxxxx check proposal id (181 IC-015)
+  ['--alternative', 'alternative'],    // followup --action decide --decision accept: the preferred alternative the check's message names (181 IC-015)
+  ['--check', 'checkPath'],            // followup --action decide --decision built: the repository-relative file of the built check; every other verb's --check is a switch (181 IC-015)
   ['--release', 'release'],            // followup --action add --source release: the release tag
   ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
   ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
@@ -631,7 +636,7 @@ Commands:
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   review-pack          Write the feature's review pack from its records: review-pack --task-id <slug> [--json]
   intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
-  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
+  followup             Record, list, take, settle, promote or report what a feature left unfinished, or propose a check for a repeat (--action add|list|take|settle|promote|report|propose|decide; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
   lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged; overview: [--view brief|full])
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
@@ -740,7 +745,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede|retire
                        verify: report|contract|inner-loop|feature-map · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure|report|replay|flags · tools: see below
-                       followup: add|list|take|settle|promote|report
+                       followup: add|list|take|settle|promote|report|propose|decide
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
                        worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|conform|login-state|send|steer|stop
                        dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
@@ -868,6 +873,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote; --similar: list)
       --duplicate-of <FU-id>                followup --action settle --as dismissed (label the dismissed items as duplicates of that item)
+      --record                              followup --action propose (append check.proposed for each new proposal; without it nothing is written)
+      --proposal <CP-id>, --decision accept|decline|built,
+      --kind <type-or-api|static-check|test|advisory-hook|prose>, --alternative <text>, --reason <text>,
+      --check <path>                        followup --action decide (accept needs --kind and --alternative; decline needs --reason; built needs --check, a repository-relative file holding the accepted message)
       --file <path|->, --stdin, --text,
       --feature                             followup --action report (the body comes from exactly one; - is stdin)
       --take, --goal, --intent, --since,

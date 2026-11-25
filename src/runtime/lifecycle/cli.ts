@@ -8,18 +8,19 @@
  */
 
 const { finishRuntime, usageError } = require('../cli-result.ts');
-const { projectRoot } = require('./root.ts');
+const { projectRoot, showToplevel } = require('./root.ts');
 const followup = require('./followup.ts');
 const { StoreUnsafeError, StoreLockedError } = require('./event-store.ts');
 const { prepareStore } = require('./store-upkeep.ts');
 const { printSafe } = require('../mask.ts');
 const { buildOverview, capOverviewBrief, initFeature, featureStatus, activeFeature } = require('./overview.ts');
-const { recordFeature, clearSlug } = require('../feature-pointer.ts');
+const { recordFeature, clearSlug, describeActive } = require('../feature-pointer.ts');
 const { releaseFeatures, recordMerged } = require('./release.ts');
 const goal = require('./goal.ts');
+const checkProposal = require('./check-proposal.ts');
 const { ViewUsageError, resolveView, projectBrief, viewLines, withEnvelope, serializeJson } = require('../verb-view.ts');
 
-const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote', 'report'];
+const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote', 'report', 'propose', 'decide'];
 const LIFECYCLE_ACTIONS = ['overview', 'init', 'release', 'status', 'merged'];
 const GOAL_ACTIONS = ['add', 'item', 'check', 'link', 'list', 'done'];
 /** The brief `followup --action list` answer (feature 137, IC-004): the fields that let a caller choose an item. */
@@ -87,8 +88,33 @@ function followupLines(result: any) {
       for (const c of result.created) lines.push(`reported ${c.id} (${sourceText(c.source)}): ${c.statement}`, `  body ${c.body} (${c.bodyBytes} bytes), excerpt ${c.excerptBytes} bytes, ${c.masked} value${c.masked === 1 ? '' : 's'} masked`);
       for (const line of result.next) lines.push(`next: ${line}`);
       break;
+    case 'propose': lines.push(...proposeLines(result)); break;
+    case 'decide': lines.push(...decideLines(result)); break;
     default: break;
   }
+  return lines;
+}
+
+/** The `propose` answer: one block per proposal (id, members, correction, the ladder, the offered kind or the earlier decline). */
+function proposeLines(result: any) {
+  if (result.proposals.length === 0) return ['no-recurrence: no open follow-ups repeat each other, so there is no check to propose.'];
+  const lines: string[] = [];
+  for (const p of result.proposals) {
+    lines.push(`${p.id}  ${p.status}  members ${p.members.join(', ')}`, `  correction: ${p.correction}`);
+    for (const rung of p.ladder) lines.push(`  ${rung.available ? '+' : '-'} ${rung.kind}${rung.available ? '' : `  (${rung.reason})`}`);
+    if (p.declinedBefore) lines.push(`  declined before: ${p.declinedBefore.id} on ${p.declinedBefore.at}: ${p.declinedBefore.reason}`);
+    else lines.push(`  offered: ${p.offered}  (${p.offeredReason})`);
+    if (p.recorded) lines.push(`  recorded: ${p.recorded.state}${p.recorded.kind ? ` ${p.recorded.kind}` : ''}${p.recorded.checkPath ? ` at ${p.recorded.checkPath}` : ''}`);
+  }
+  if (result.events.length) lines.push(`recorded ${result.events.length} check.proposed event${result.events.length === 1 ? '' : 's'}`);
+  return lines;
+}
+
+/** The `decide` answer: the new state, and for an accept the composed message the check must carry. */
+function decideLines(result: any) {
+  const lines = [`${result.proposal} ${result.state}`];
+  if (result.state === 'accepted') lines.push(`  kind: ${result.kind}`, `  message: ${result.message}`);
+  if (result.state === 'built') lines.push(`  check: ${result.path}`, ...(result.settled.length ? [`  settled fix: ${result.settled.join(', ')}`] : []));
   return lines;
 }
 
@@ -229,12 +255,12 @@ function emitList(result: any, view: any, flags: any, json: any) {
 }
 
 /**
- * `followup` verb. Actions: add, list, take, settle, promote, report.
+ * `followup` verb. Actions: add, list, take, settle, promote, report, propose, decide.
  * @param {Object} options
  * @param {string} [options.action] absent when --action was not given
  * @param {string} options.cwd directory the verb runs from (the project, or a subfolder of it)
  * @param {Object} options.flags parsed flag values: statement, stage, source, taskClass, taskId, release,
- *   batch, channel, state, ids, as, reason, evidence, duplicateOf, title; for report also file, stdin, text, feature; for list also
+ *   batch, channel, state, ids, as, reason, evidence, duplicateOf, title; for propose also record; for decide also proposal, decision, kind, alternative, check; for report also file, stdin, text, feature; for list also
  *   view, cursor, limit, similar (then the answer is a promise)
  */
 function handleFollowupCommand({ action, cwd, global = false, slug = null, json = false, flags = {} }: any = {}) {
@@ -250,6 +276,12 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
     if (action !== 'list') {
       for (const name of ['view', 'cursor', 'limit', 'similar']) {
         if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action list only`);
+      }
+    }
+    if (action !== 'propose' && flags.record !== undefined && flags.record !== false) throw new followup.FollowupUsageError('--record applies to --action propose only');
+    if (action !== 'decide') {
+      for (const name of ['proposal', 'decision', 'kind', 'alternative', 'check']) {
+        if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action decide only`);
       }
     }
     if (action !== 'settle' && flags.duplicateOf !== undefined) throw new followup.FollowupUsageError('--duplicate-of applies to --action settle only');
@@ -284,6 +316,17 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
       // Required here only, so no other follow-up action loads the advice modules (row 176, AC-5).
       return require('./followup-similar.ts').withModelCheck({ answer: listed, root, cwd: cwd || process.cwd() })
         .then((answer: any) => emitList(answer, view, flags, json));
+    } else if (action === 'propose') {
+      result = checkProposal.proposeChecks({ root, projectDir: showToplevel(cwd || process.cwd()) || root, ids: flags.ids, record: Boolean(flags.record), channel: flags.channel });
+    } else if (action === 'decide') {
+      // The active feature slug is the task id attendance resolves an unattended accept from (IC-015).
+      const active = flags.taskId === undefined && !slug ? describeActive({ storeRoot: root, cwd: cwd || process.cwd() }) : null;
+      const taskId = flags.taskId ?? slug ?? active?.slug ?? active?.current?.slug ?? undefined;
+      result = checkProposal.decideCheck({
+        root, projectDir: showToplevel(cwd || process.cwd()) || root, proposal: flags.proposal, decision: flags.decision,
+        kind: flags.kind, alternative: flags.alternative, reason: flags.reason, check: flags.check, channel: flags.channel,
+        taskId, cwd: cwd || process.cwd(),
+      });
     } else if (action === 'take') {
       result = followup.takeFollowups({ root, ids: flags.ids, slug, channel: flags.channel });
     } else if (action === 'settle') {

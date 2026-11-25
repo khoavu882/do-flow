@@ -307,12 +307,14 @@ function addFollowups({ root, cwd = process.cwd(), items, defaults = {}, channel
   // about 180 ms more per add on 385 follow-ups, measured 2026-11-20).
   const params = sameIssueParams();
   const similar = params ? ruleMatchesOnAdd({ created, followups, params }) : new Map();
+  const flagged = created.some((item: any) => (similar.get(item.id) ?? []).length > 0);
   return {
     ok: true,
     action: 'add',
     created: created.map((item: any) => ({ ...item, similar: similar.get(item.id) ?? [] })),
     events: out.written.map((w: any) => w.file),
-    next: [],
+    // The rule flagged a repeat: the hint names the verb that offers a check before a prose line. `add` itself stays rule-only (G89).
+    next: flagged ? ['A similar follow-up is open: doflow-run followup --action propose offers a check for the recurring correction before any prose line'] : [],
   };
 }
 
