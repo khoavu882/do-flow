@@ -4,7 +4,7 @@
 //
 // `core/registry/rules.json` is the authoritative ledger of all always-loaded guidance rules.
 // This guard verifies:
-// 1. Schema conformance to IC-001 (version, types, categories, enforcements).
+// 1. Schema conformance to IC-001 and IC-018 (version 2, types, categories, enforcement values and their reasons).
 // 2. Completeness and bidirectional synchronization with markdown rule statements in
 //    `core/shared/guidance/rules/` and `core/shared/guidance/PRINCIPLES.md`.
 // 3. Mandatory safety rules carry `neverAblate: true` and `ablationCandidate: false`.
@@ -31,7 +31,7 @@ const MANDATORY_SAFETY_RULES = Object.freeze([
 ]);
 
 const ALLOWED_CATEGORIES = new Set(['safety', 'workflow', 'quality', 'questions', 'principles']);
-const ALLOWED_ENFORCEMENTS = new Set(['mechanical', 'advisory']);
+const ALLOWED_ENFORCEMENTS = new Set(['check', 'judgement-only', 'not-a-rule']);
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 interface ValidationResult {
@@ -49,8 +49,8 @@ function validateRulesRegistry(ledger: any, repoRoot: string = REPO): Validation
     return { ok: false, errors };
   }
 
-  if (ledger.version !== 1) {
-    at('rules.json.version', `must be 1, got ${JSON.stringify(ledger.version)}`);
+  if (ledger.version !== 2) {
+    at('rules.json.version', `must be 2, got ${JSON.stringify(ledger.version)}`);
   }
 
   if (typeof ledger.description !== 'string' || !ledger.description.trim()) {
@@ -95,21 +95,24 @@ function validateRulesRegistry(ledger: any, repoRoot: string = REPO): Validation
 
     // Enforcement validation
     if (!ALLOWED_ENFORCEMENTS.has(rule.enforcement)) {
-      at(`${loc}.enforcement`, `must be one of [${[...ALLOWED_ENFORCEMENTS].join(', ')}], got ${JSON.stringify(rule.enforcement)}`);
+      at(`${loc}.enforcement`, `rule '${rule.id}': must be one of [${[...ALLOWED_ENFORCEMENTS].join(', ')}], got ${JSON.stringify(rule.enforcement)}`);
     }
 
-    if (rule.enforcement === 'mechanical') {
+    if (rule.enforcement === 'check') {
       if (typeof rule.enforcementRef !== 'string' || !rule.enforcementRef.trim()) {
-        at(`${loc}.enforcementRef`, 'must be a non-empty string reference for mechanical rules');
-      } else {
-        const fullRef = path.join(repoRoot, rule.enforcementRef);
-        if (!fs.existsSync(fullRef)) {
-          at(`${loc}.enforcementRef`, `referenced enforcement file does not exist: '${rule.enforcementRef}'`);
-        }
+        at(`${loc}.enforcementRef`, `rule '${rule.id}': a check row must name an enforcement file`);
+      } else if (!fs.existsSync(path.join(repoRoot, rule.enforcementRef))) {
+        at(`${loc}.enforcementRef`, `rule '${rule.id}': referenced enforcement file does not exist: '${rule.enforcementRef}'`);
       }
-    } else if (rule.enforcementRef !== null && rule.enforcementRef !== undefined) {
-      if (typeof rule.enforcementRef !== 'string') {
-        at(`${loc}.enforcementRef`, 'must be null or string');
+      if (rule.reason !== null) {
+        at(`${loc}.reason`, `rule '${rule.id}': a check row must have reason: null`);
+      }
+    } else if (ALLOWED_ENFORCEMENTS.has(rule.enforcement)) {
+      if (rule.enforcementRef !== null) {
+        at(`${loc}.enforcementRef`, `rule '${rule.id}': a ${rule.enforcement} row must have enforcementRef: null`);
+      }
+      if (typeof rule.reason !== 'string' || !rule.reason.trim() || /[\r\n]/.test(rule.reason)) {
+        at(`${loc}.reason`, `rule '${rule.id}': a ${rule.enforcement} row needs a one-line reason`);
       }
     }
 
@@ -228,12 +231,33 @@ describe('Guard G71: Guidance Rules Registry Validation', () => {
 describe('Guard G71 Negative Controls (Planted Invariant Failures)', () => {
   const validLedger = () => JSON.parse(fs.readFileSync(RULES_REGISTRY_FILE, 'utf8'));
 
-  test('rejects ledger with version !== 1', () => {
+  test('rejects ledger with version !== 2', () => {
     const ledger = validLedger();
-    ledger.version = 2;
+    ledger.version = 1;
     const res = validateRulesRegistry(ledger);
     assert.equal(res.ok, false);
-    assert.match(res.errors.join('\n'), /must be 1/);
+    assert.match(res.errors.join('\n'), /must be 2/);
+  });
+
+  test('rejects a rule left at the version 1 value advisory, naming the rule id', () => {
+    const ledger = validLedger();
+    ledger.rules[0].enforcement = 'advisory';
+    const res = validateRulesRegistry(ledger);
+    assert.equal(res.ok, false);
+    assert.match(res.errors.join('\n'), /must be one of \[check, judgement-only, not-a-rule\]/);
+    assert.match(res.errors.join('\n'), new RegExp(`rule '${ledger.rules[0].id}': must be one of`));
+  });
+
+  test('rejects a judgement-only row with no reason and a check row naming a missing file', () => {
+    const ledger = validLedger();
+    const judgement = ledger.rules.find((r: any) => r.enforcement === 'judgement-only');
+    const check = ledger.rules.find((r: any) => r.enforcement === 'check');
+    judgement.reason = null;
+    check.enforcementRef = 'src/runtime/no-such-enforcer.ts';
+    const res = validateRulesRegistry(ledger);
+    assert.equal(res.ok, false);
+    assert.match(res.errors.join('\n'), new RegExp(`rule '${judgement.id}': a judgement-only row needs a one-line reason`));
+    assert.match(res.errors.join('\n'), new RegExp(`rule '${check.id}': referenced enforcement file does not exist`));
   });
 
   test('rejects ledger with invalid rule ID format', () => {
