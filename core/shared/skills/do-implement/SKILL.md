@@ -53,7 +53,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 **Stop when** every work-list finding the contract names has an answer or a stated gap, **and** the last round produced no new work-list finding. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
-Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
+Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage; on findings, first run `"$DOFLOW" verify --action inner-loop --task-id "<feature_slug>"`, relay a `REFUSED` verbatim and start no loop.
 
 2. **Resolve the task id, then evaluate readiness — skip only when standalone**:
    - `<task id>` is the same unit every recording stage keys on: the plan task id when one exists,
