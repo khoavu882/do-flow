@@ -298,12 +298,12 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.equal(tree.processTexts({ platform: 'win32', run }), null);
   assert.equal(tree.processTexts({ platform: 'freebsd', run }), null);
   const files: any = { '/proc/1/cmdline': 'init\0', '/proc/1/environ': '', '/proc/7/cmdline': 'fake\0-p\0', '/proc/7/environ': 'DOFLOW_STARTED_RUN=w-aaaabbbbcccc\0' };
-  const proc = (owner: any, readable = true) => ({
+  const proc = (owner: any, readable = true, code = 'EACCES') => ({
     readdirSync: () => ['1', '7', 'self', '9'],
     statSync: (p: string) => ({ uid: p === '/proc/1' ? 0 : owner }),
     readFileSync: (p: string) => {
       if (p.startsWith('/proc/9/')) { const e: any = new Error('gone'); e.code = 'ENOENT'; throw e; }
-      if (!readable) { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; }
+      if (!readable) { const e: any = new Error('denied'); e.code = code; throw e; }
       return Buffer.from(files[p]);
     },
   });
@@ -311,15 +311,15 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501, false), uid: 501 }), null, 'an unreadable entry of this user is unknown');
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: null }), null);
   // A zombie answers EACCES for its environ and has nothing to name a run with: it is skipped; a live entry that denies is unknown.
-  const withStat = (state: string, threads = 1, tasks: any = {}) => ({
-    ...proc(501, false),
-    readdirSync: (p: string) => (p === '/proc/7/task' ? ['7', ...Object.keys(tasks)] : proc(501, false).readdirSync()),
+  const withStat = (state: string, threads = 1, tasks: any = {}, code = 'EACCES') => ({
+    ...proc(501, false, code),
+    readdirSync: (p: string) => (p === '/proc/7/task' ? ['7', ...Object.keys(tasks)] : proc(501, false, code).readdirSync()),
     readFileSync: (p: string) => {
       if (p === '/proc/7/stat') return Buffer.from(`7 (fake) ${state} 1 1 1`);
       if (p === '/proc/7/status') return Buffer.from(`Name:\tfake\nState:\t${state}\nThreads:\t${threads}\n`);
       const task = /^\/proc\/7\/task\/(\d+)\/(cmdline|environ)$/.exec(p);
       if (task && tasks[task[1]]) return Buffer.from(tasks[task[1]][task[2]]);
-      return proc(501, false).readFileSync(p);
+      return proc(501, false, code).readFileSync(p);
     },
   });
   assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z'), uid: 501 }), []);
@@ -331,4 +331,10 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2), uid: 501 }), null, 'no live thread reads: unknown');
   const noStatus = { ...withStat('Z'), readFileSync: (p: string) => { if (p === '/proc/7/status') { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; } return withStat('Z').readFileSync(p); } };
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: noStatus, uid: 501 }), null, 'a thread count that cannot be read is unknown');
+  // Seat B: a kernel may answer ESRCH, not EACCES, for that process; it takes the same path, so a live one is never read as gone.
+  // ESRCH from an entry that is not a zombie is a process that ended between the listing and the read: gone.
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2, { 8: live }, 'ESRCH'), uid: 501 }), ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc ']);
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2, {}, 'ESRCH'), uid: 501 }), null, 'ESRCH and no live thread reads: unknown');
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 1, {}, 'ESRCH'), uid: 501 }), [], 'an ESRCH zombie with one thread is skipped');
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('S', 1, {}, 'ESRCH'), uid: 501 }), [], 'ESRCH from an entry that is not a zombie is gone');
 });

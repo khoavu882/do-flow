@@ -261,11 +261,11 @@ function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, u
       texts.push(`${read('cmdline')} ${read('environ')}`);
     } catch (error: any) {
       // A process that ended between the listing and the read is gone; any other failure leaves the answer unknown.
-      if (error?.code === 'ENOENT' || error?.code === 'ESRCH') continue;
+      if (error?.code === 'ENOENT') continue;
       // An entry whose stat shows Z or X answers EACCES for its environ, or ESRCH, depending on the kernel. With one thread it
       // is a zombie (exited, not yet reaped) with nothing left to name a run, so it is skipped. With more, only its main
       // thread has exited and the process still runs: it is read through a live thread, and stays unknown if none reads.
-      if ((error?.code === 'EACCES' || error?.code === 'EPERM') && procIsZombie(fsImpl, name)) {
+      if ((error?.code === 'EACCES' || error?.code === 'EPERM' || error?.code === 'ESRCH') && procIsZombie(fsImpl, name)) {
         const threads = procThreads(fsImpl, name);
         if (threads === 1) continue;
         const text = threads === null ? null : liveTaskText(fsImpl, name);
@@ -273,6 +273,7 @@ function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, u
         texts.push(text);
         continue;
       }
+      if (error?.code === 'ESRCH') continue;
       return null;
     }
   }
