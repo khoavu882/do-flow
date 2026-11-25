@@ -1042,7 +1042,12 @@ test('A-2: a harness with a supported channel starts through it: the record says
   assert.equal(fs.readFileSync(f.channelLog, 'utf8'), `${JSON.stringify({ type: 'prompt', message: sent, streamingBehavior: 'followUp', id: 'd-1' })}\n`);
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: WITH_CHANNEL });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
-  const done = await ended(f, runId);
+  await ended(f, runId);
+  // The cancel writes `ended` once the tree is gone; the live supervisor, which sees the harness exit on its own clock, writes
+  // the channel closed after that (its update accepts an ended run). Wait for that write, bounded, instead of reading once.
+  const closedBy = Date.now() + 10000;
+  while (readRuns(f.store)[runId]?.channel?.state !== 'closed' && Date.now() < closedBy) await new Promise((r) => setTimeout(r, 20));
+  const done = readRuns(f.store)[runId];
   assert.deepEqual([done.channel.state, done.channel.closedReason], ['closed', 'cancelled']);
   // The live supervisor removes the spool once the harness streams are drained, after the cancel's end is written.
   const spoolDir = path.join(f.main, '.doflow', 'state', 'channel-spool', runId);
