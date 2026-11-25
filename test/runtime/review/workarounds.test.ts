@@ -126,7 +126,20 @@ test('a pattern the pre-filter cannot see is stopped by the clock, named, and th
   const out = scanWorkarounds({ root: r.root, base: r.base, head: r.head, budget: { markMs: 500, scanMs: 4000 } });
   assert.ok(Date.now() - started < 3000, `the scan returned within the budget (${Date.now() - started} ms)`);
   assert.deepEqual(out.matches.map((m: any) => [m.mark, m.line]), [['plain', 1], ['after', 1]]);
-  assert.deepEqual(out.findings, ["mark 'slow': pattern did not finish on the added lines within 500 ms and was stopped; its matches are not shown"]);
+  // Stopped in its own window, or retried after a slow child start until the scan budget ran out: either way it is named.
+  assert.equal(out.findings.length, 1, out.findings.join('\n'));
+  assert.match(out.findings[0], /^mark 'slow': (pattern did not finish on the added lines within 500 ms|not checked: the scan's 4000 ms budget ran out)/);
+});
+
+test('a glob that would run super-linearly on a file name is stopped by the same clock and the other marks still apply', (t) => {
+  const marks = [{ ...MARK, id: 'glob', pattern: 'y', paths: ['**a**a**a**a**a**a**a**a**b'] }, { ...MARK, id: 'plain', pattern: 'raw' }];
+  const r = repo(t, { change: { ['a'.repeat(200)]: 'y\n', 'src/a.ts': 'db.raw(1);\n' }, marks: { version: 1, marks } });
+  const started = Date.now();
+  const out = scanWorkarounds({ root: r.root, base: r.base, head: r.head, budget: { markMs: 500, scanMs: 4000 } });
+  assert.ok(Date.now() - started < 3000, `the scan returned within the budget (${Date.now() - started} ms)`);
+  assert.deepEqual(out.matches.map((m: any) => [m.mark, m.path]), [['plain', 'src/a.ts']]);
+  assert.equal(out.findings.length, 1, out.findings.join('\n'));
+  assert.match(out.findings[0], /^mark 'glob': (paths did not finish on the diff's file names within 500 ms|not checked: the scan's 4000 ms budget ran out)/);
 });
 
 test('a mark the scan budget never reaches is a finding that names it, never a hang', (t) => {

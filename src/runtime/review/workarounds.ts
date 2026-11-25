@@ -10,9 +10,11 @@
  * 2,000 characters is skipped and counted, and the scan stops after 5,000 tested added lines with `truncated`.
  * A pattern that does not compile is a finding, never a throw.
  *
- * What bounds run time is a clock. `RegExp.test` cannot be interrupted in this process, so the matching runs in a
- * child `node` (`spawnSync`, no shell) that is killed with SIGKILL when its window closes: each child gets at most
- * MARK_BUDGET_MS and the scan at most SCAN_BUDGET_MS. The child reports each mark as it starts and as it finishes,
+ * What bounds run time is a clock. `RegExp.test` cannot be interrupted in this process, so all matching of the
+ * file's input, the `paths` globs against the diff's file names and then each pattern against the added lines its
+ * globs selected, runs in a child `node` (`spawnSync`, no shell) that is killed with SIGKILL when its window
+ * closes: each child gets at most MARK_BUDGET_MS and the scan, both passes together, at most SCAN_BUDGET_MS. Nothing
+ * from the file is matched in this process. The child reports each mark as it starts and as it finishes,
  * so a finished mark keeps its matches; a mark still running when its child is stopped, after at least half the
  * window of its own, is a finding and dropped, a mark stopped sooner is retried first in a new child, and a mark
  * the scan budget never reached is a finding. `spawnSync` returns only once the child has exited, so none
@@ -41,19 +43,20 @@ const GIT_BUFFER = 256 * 1024 * 1024;
 const MARK_BUDGET_MS = 2000;
 const SCAN_BUDGET_MS = 10000;
 const MATCHER_BUFFER = 64 * 1024 * 1024;
-// The child: reads { lines, jobs } on stdin and writes one JSON line as each job starts and as it finishes.
+// The child: reads { subjects, jobs } on stdin and writes one JSON line as each job starts and as it finishes; a
+// job keeps the indexes of the subjects that one of its patterns matches.
 const MATCHER = `const fs = require('node:fs');
-const { lines, jobs } = JSON.parse(fs.readFileSync(0, 'utf8'));
-for (const { k, pattern, idx } of jobs) {
+const { subjects, jobs } = JSON.parse(fs.readFileSync(0, 'utf8'));
+for (const { k, patterns, idx } of jobs) {
   fs.writeSync(1, JSON.stringify(['start', k, Date.now()]) + '\\n');
-  const regex = new RegExp(pattern);
-  fs.writeSync(1, JSON.stringify(['done', k, idx.filter((i) => regex.test(lines[i]))]) + '\\n');
+  const regexes = patterns.map((pattern) => new RegExp(pattern));
+  fs.writeSync(1, JSON.stringify(['done', k, idx.filter((i) => regexes.some((regex) => regex.test(subjects[i])))]) + '\\n');
 }`;
 
 type Mark = { id: string; pattern: string; paths: string[]; reason: string; alternative: string; since: string };
 type Match = { mark: string; path: string; line: number; text: string; reason: string; alternative: string };
 type Scan = { file: 'present' | 'absent' | 'invalid'; matches: Match[]; truncated: boolean; findings: string[] };
-type Ready = { mark: Mark; globs: RegExp[] };
+type Ready = { mark: Mark; globs: string[] };
 
 const isObject = (value: any): boolean => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -198,7 +201,7 @@ function readMarks(root: string, fsImpl: any): { file: Scan['file']; ready: Read
     else if (seen.has(mark.id)) problems.unshift('id duplicates an earlier mark');
     if (isObject(mark) && typeof mark.id === 'string') seen.add(mark.id);
     if (problems.length) { for (const problem of problems) findings.push(`${name}: ${problem}`); return; }
-    ready.push({ mark, globs: mark.paths.map(globToRegExp) });
+    ready.push({ mark, globs: mark.paths.map((glob: string) => globToRegExp(glob).source) });
   });
   return { file: 'present', ready, findings };
 }
@@ -228,24 +231,25 @@ function* addedLines(diff: string): Generator<{ path: string; line: number; text
   }
 }
 
-type Job = { k: number; pattern: string; idx: number[] };
+type Job = { k: number; patterns: string[]; idx: number[] };
+type Clock = { markMs: number; scanMs: number; deadline: number };
 
 /**
- * Each mark's matching line indexes, run in child processes under the clock (design R6): `hits` maps a mark's index
- * in `ready` to the indexes in `lines` it matched; a mark that did not finish is a finding and absent from `hits`.
+ * Each job's matching subject indexes, run in child processes under the clock (design R6): `hits` maps a mark's
+ * index in `ready` to the indexes in `subjects` it matched; a mark that did not finish is a finding (`what` names
+ * what it was matching) and absent from `hits`.
  */
-function matchUnderClock(ready: Ready[], lines: string[], jobs: Job[], { markMs, scanMs }: { markMs: number; scanMs: number }):
+function matchUnderClock(ready: Ready[], subjects: string[], jobs: Job[], { markMs, scanMs, deadline }: Clock, what: string):
   { hits: Map<number, number[]>; findings: string[] } {
   const hits = new Map<number, number[]>();
   const findings: string[] = [];
   const env = { ...process.env };
   delete env.NODE_OPTIONS;
-  const deadline = Date.now() + scanMs;
   let pending = jobs;
   let why = `not checked: the scan's ${scanMs} ms budget ran out`;
   while (pending.length > 0 && Date.now() < deadline) {
     const res = spawnSync(process.execPath, ['-e', MATCHER], {
-      input: JSON.stringify({ lines, jobs: pending }), env, encoding: 'utf8', maxBuffer: MATCHER_BUFFER,
+      input: JSON.stringify({ subjects, jobs: pending }), env, encoding: 'utf8', maxBuffer: MATCHER_BUFFER,
       timeout: Math.max(1, Math.min(markMs, deadline - Date.now())), killSignal: 'SIGKILL', stdio: ['pipe', 'pipe', 'pipe'],
     });
     const stopped = Date.now();
@@ -263,7 +267,7 @@ function matchUnderClock(ready: Ready[], lines: string[], jobs: Job[], { markMs,
     }
     if (running && stopped - running.at >= markMs / 2) {
       const k = running.k;
-      findings.push(`mark '${ready[k].mark.id}': pattern did not finish on the added lines within ${markMs} ms and was stopped; its matches are not shown`);
+      findings.push(`mark '${ready[k].mark.id}': ${what} within ${markMs} ms and was stopped; its matches are not shown`);
       pending = pending.filter((job) => job.k !== k);
     }
   }
@@ -288,20 +292,32 @@ function scanWorkarounds({ root, base, head, fsImpl = nodeFs, budget = { markMs:
   }
   if (overflow) { result.truncated = true; findings.push('the diff is larger than the scan buffer; only its first part was scanned'); }
 
+  // The globs are untrusted too, so the files each mark selects are matched under the same clock as the patterns.
+  const clock: Clock = { ...budget, deadline: Date.now() + budget.scanMs };
+  const diff = String(res.stdout ?? '');
+  const paths = [...new Set(Array.from(addedLines(diff), (added) => added.path))];
+  if (paths.length === 0) return result;
+  const all = paths.map((_, i) => i);
+  const selection = matchUnderClock(ready, paths, ready.map((r, k) => ({ k, patterns: r.globs, idx: all })), clock, 'paths did not finish on the diff\'s file names');
+  findings.push(...selection.findings);
+  const selects = new Map<string, number[]>(paths.map((p) => [p, []]));
+  for (const [k, idx] of selection.hits) for (const i of idx) (selects.get(paths[i]) as number[]).push(k);
+  for (const list of selects.values()) list.sort((a, b) => a - b);
+
   const tested: { path: string; line: number; text: string; marks: number[] }[] = [];
   let tooLong = 0;
-  for (const added of addedLines(String(res.stdout ?? ''))) {
-    const marks = ready.flatMap((r, k) => (r.globs.some((glob) => glob.test(added.path)) ? [k] : []));
+  for (const added of addedLines(diff)) {
+    const marks = selects.get(added.path) as number[];
     if (marks.length === 0) continue;
     if (added.text.length > ADDED_LINE_MAX) { tooLong += 1; continue; }
     if (tested.length === ADDED_LINES_MAX) { result.truncated = true; break; }
     tested.push({ ...added, marks });
   }
-  const jobs: Job[] = ready.map((r, k) => ({ k, pattern: r.mark.pattern, idx: tested.flatMap((t, i) => (t.marks.includes(k) ? [i] : [])) }))
+  const jobs: Job[] = ready.map((r, k) => ({ k, patterns: [r.mark.pattern], idx: tested.flatMap((t, i) => (t.marks.includes(k) ? [i] : [])) }))
     .filter((job) => job.idx.length > 0);
   if (jobs.length > 0) {
-    const { hits, findings: clock } = matchUnderClock(ready, tested.map((t) => t.text), jobs, budget);
-    findings.push(...clock);
+    const { hits, findings: late } = matchUnderClock(ready, tested.map((t) => t.text), jobs, clock, 'pattern did not finish on the added lines');
+    findings.push(...late);
     const matched = new Set<string>();
     for (const [k, idx] of hits) for (const i of idx) matched.add(`${i}:${k}`);
     tested.forEach((added, i) => {
