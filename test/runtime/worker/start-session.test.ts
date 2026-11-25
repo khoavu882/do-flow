@@ -686,8 +686,37 @@ test('A-1: the CLI dies after spawning the supervisor and before recording its p
   assert.equal(Object.keys(readRuns(f.store)).length, 1, 'nothing was inserted');
 });
 
+/**
+ * A process table that holds only the processes this test started, plus one synthetic entry of this user that answers EACCES
+ * for its environ (a capability superset, such as `systemd --user` on a CI runner) and names no harness. The Linux scan of
+ * `readProcessTexts` reads it through its `fsImpl`, so the answer does not depend on what else runs on the host: the real
+ * listing differs per runner image, and an entry the kernel hides from us made the reading unknown (CI run 45589845673).
+ * darwin lists with `ps`, which has no such entry, so it is left as it is.
+ */
+function scopedProcessTable(t: any, pids: () => number[]) {
+  const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
+  const real = tree.readProcessTexts;
+  const synthetic = '2147483000';
+  const mine = (file: string) => file.startsWith(`/proc/${synthetic}`);
+  const denied = () => { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; };
+  const fsImpl = {
+    readdirSync: (dir: string) => (dir === '/proc' ? [...pids().map(String), synthetic] : fs.readdirSync(dir)),
+    statSync: (file: string) => (mine(file) ? { uid: process.getuid!() } : fs.statSync(file)),
+    readFileSync: (file: string, ...rest: any[]) => {
+      if (!mine(file)) return fs.readFileSync(file, ...rest);
+      if (file.endsWith('/cmdline')) return Buffer.from('/usr/lib/systemd/systemd\0--user\0');
+      if (file.endsWith('/stat')) return Buffer.from(`${synthetic} (systemd) S 1 1 1`);
+      if (file.endsWith('/status')) return Buffer.from(`Name:\tsystemd\nUid:\t${process.getuid!()}\nThreads:\t1\n`);
+      return denied();
+    },
+  };
+  tree.readProcessTexts = (options: any = {}) => (options.platform === 'linux' ? real({ ...options, fsImpl }) : real(options));
+  t.after(() => { tree.readProcessTexts = real; });
+}
+
 test('A-1: a run with neither pid recorded, past the launch window, is open while a process names it and dead once none does', POSIX, async (t: any) => {
   const f = fixture(t);
+  scopedProcessTable(t, () => children.map((child: any) => child.pid).filter(Boolean));
   const runId = unsupervisedRun(f);
   // A process whose environment names the run, as a started harness's does.
   const named = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', env: { ...f.env, DOFLOW_STARTED_RUN: runId } });
