@@ -126,18 +126,7 @@ jobs:
       - name: Run test-hooks.sh
         run: bash test/hooks/test-hooks.sh
 
-      # Informational, not required: this suite already fails on today's ubuntu runners and on
-      # macOS checkouts alike, independent of this branch (its step was continue-on-error inside
-      # the old matrix too). Known-failing cases, from the latest main run's log and locally:
-      #   - post-edit-lint: "expected 4 paths in edited-files.txt, found 0"
-      #   - subagent-audit: TODO detection exits before writing ("stat /tmp/baz.go: no such file")
-      #   - post-compact: summaries/<hash>/local/main/summary.md not created / missing frontmatter
-      #   - session-end: session directory not removed, END marker missing from sessions.log
-      #   - meta.json: fails where the harness's canonicalized CWD differs from the hook's
-      #     canonicalize_path (macOS /tmp symlink) — a fixture/runtime hash divergence.
-      # Stabilize the suite first (same tracking issue as the Windows gate), then drop this flag.
       - name: Run verify-hooks.sh
-        continue-on-error: true
         run: bash test/verify-hooks.sh
 
       - name: Run code-review-fixtures.sh
