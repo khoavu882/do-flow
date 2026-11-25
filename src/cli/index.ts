@@ -499,6 +499,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   ['--item', 'item'],                  // goal --action add: a checklist item, one per occurrence · goal --action check: the one item id (C3)
   ['--blocker', 'blocker'],            // dispatch submit: one blocker line per occurrence, at most 20
   ['--part', 'parts'],                 // prompt-frame render: <key>=<file>, one frame part per occurrence
+  ['--flow', 'flow'],                  // verify --action feature-map: one flow id to run, one per occurrence (181 IC-008)
 ]);
 
 /** Non-negative integer arguments. */
@@ -609,6 +610,7 @@ Commands:
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
                        verify --action inner-loop --task-id <id> [--json]   READY or REFUSED from the latest verify run on this head: build, static-analysis and targeted-tests green (exit 0 READY, 1 REFUSED, 2 usage; runs nothing)
+                       verify --action feature-map --task-id <id> [--flow <id>]... [--json]   run the feature map's command flows, list its browser flows for the agent, record each flow as evidence and file one follow-up per critical flow (exit 0 map read, 1 map invalid or absent, 2 usage)
   recover              Classify a verification failure and plan the bounded retry (--error)
   trace                Trajectory of the current or most recent workflow (run ledger).
                        trace spans [<project>] the span view; trace analyze [<project>] its detectors (exit 1 on a finding);
@@ -736,7 +738,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve,
                        trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede|retire
-                       verify: report|contract|inner-loop · retrieval-plan: declare|report|attempt
+                       verify: report|contract|inner-loop|feature-map · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure|report|replay|flags · tools: see below
                        followup: add|list|take|settle|promote|report
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
@@ -824,6 +826,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --verification-input,
       --verification-phase,
       --baseline-ref                     verify
+      --flow <id>                        verify --action feature-map (repeatable; default every flow of the map)
       --owner, --tier, --harness, --tasks <id,...>,
       --heading-level 2|3                   brief-tools (--slug names the feature whose run gives the stage)
       --spec-file <json> | --part <key>=<file> (repeatable; --budget-lines <n>)

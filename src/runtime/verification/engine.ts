@@ -1711,9 +1711,10 @@ function readVerifyReuse(env: any = process.env): boolean {
   }
 }
 
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null, env = process.env, fsImpl = nodeFs }: {
+function handleVerifyCommand({ taskId, action = 'report', flow = null, risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null, env = process.env, fsImpl = nodeFs }: {
   taskId?: any;
   action?: string;
+  flow?: string[] | null;
   risk?: any;
   planPath?: any;
   json?: boolean;
@@ -1725,7 +1726,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   baselineRef?: string | null;
   env?: any;
   fsImpl?: any;
-} = {}): number {
+} = {}): number | Promise<number> {
   // The task id names state files here, so it obeys the rule every other task verb applies.
   try {
     assertSafeTaskId(taskId);
@@ -1733,11 +1734,20 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     return usageError('verify', error.message, json);
   }
 
+  if (flow?.length && action !== 'feature-map') return usageError('verify', '--flow applies to --action feature-map only', json);
+
   // 181 IC-024: the inner-loop verdict reads the latest run record and runs nothing, so it answers
   // before any contract is compiled. Required here, not at load: inner-loop.ts requires this module.
   if (action === 'inner-loop') {
     const { handleInnerLoopCommand } = require('./inner-loop.ts');
     return handleInnerLoopCommand({ taskId, json, projectRoot: projectRoot || process.cwd(), env });
+  }
+
+  // 181 IC-008: the feature map run drives the project's flows, not the contract's tiers, so it also
+  // answers before any contract is compiled. It is asynchronous (the tool status read), so it returns a promise.
+  if (action === 'feature-map') {
+    const { handleFeatureMapCommand } = require('./feature-map.ts');
+    return handleFeatureMapCommand({ taskId, flows: flow ?? [], json, projectRoot: projectRoot || process.cwd(), slug, env, fsImpl });
   }
 
   if (verificationPhase !== null && verificationPhase !== undefined) {
@@ -1849,7 +1859,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     return finishRuntime(0);
   }
   if (action !== 'report' && action !== 'status') {
-    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract, inner-loop`, json);
+    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract, inner-loop, feature-map`, json);
   }
 
   const runGitState = action === 'report' ? verificationGitState(cwd, env) : null;
