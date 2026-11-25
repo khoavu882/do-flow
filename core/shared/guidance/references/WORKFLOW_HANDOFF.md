@@ -38,6 +38,7 @@ can predate the register) and, when it reports `has_decisions: true`:
 With or without a register, record in this step each finding left unfixed, item named out of scope
 and gate answer that defers work:
 `"$DOFLOW" followup --action add --stage <stage> --statement "<one line>"`.
+When `add` flags a similar item, run `"$DOFLOW" followup --action propose` and offer the check before any prose line.
 
 ## Unattended stage
 
