@@ -216,6 +216,28 @@ function procIsZombie(fsImpl: any, pid: string): boolean {
   } catch { return false; }
 }
 
+/** The `Threads:` count in /proc/<pid>/status; null when it cannot be read. */
+function procThreads(fsImpl: any, pid: string): number | null {
+  try {
+    const match = /^Threads:\s*(\d+)\s*$/m.exec(fsImpl.readFileSync(`/proc/${pid}/status`).toString('utf8'));
+    return match ? Number(match[1]) : null;
+  } catch { return null; }
+}
+
+/** The command line and environment of a process whose main thread has exited, read through its first thread other than
+ * the main one that answers; null when none does. */
+function liveTaskText(fsImpl: any, pid: string): string | null {
+  let tids: string[];
+  try { tids = fsImpl.readdirSync(`/proc/${pid}/task`).filter((tid: string) => /^[0-9]+$/.test(tid) && tid !== pid); } catch { return null; }
+  for (const tid of tids) {
+    try {
+      const read = (file: string) => fsImpl.readFileSync(`/proc/${pid}/task/${tid}/${file}`).toString('utf8').split('\0').join(' ');
+      return `${read('cmdline')} ${read('environ')}`;
+    } catch { /* this thread ended or denies: try the next */ }
+  }
+  return null;
+}
+
 /**
  * 165 review A-1: one text per process of this user, its command line and, where the OS shows it, its environment; null when
  * the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read), which a
@@ -240,9 +262,17 @@ function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, u
     } catch (error: any) {
       // A process that ended between the listing and the read is gone; any other failure leaves the answer unknown.
       if (error?.code === 'ENOENT' || error?.code === 'ESRCH') continue;
-      // A zombie of this user (exited, not yet reaped) answers EACCES for its environ on Linux: it has no command line or
-      // environment left to name a run, so it is skipped rather than turning the whole listing into unknown.
-      if ((error?.code === 'EACCES' || error?.code === 'EPERM') && procIsZombie(fsImpl, name)) continue;
+      // An entry whose stat shows Z or X answers EACCES for its environ, or ESRCH, depending on the kernel. With one thread it
+      // is a zombie (exited, not yet reaped) with nothing left to name a run, so it is skipped. With more, only its main
+      // thread has exited and the process still runs: it is read through a live thread, and stays unknown if none reads.
+      if ((error?.code === 'EACCES' || error?.code === 'EPERM') && procIsZombie(fsImpl, name)) {
+        const threads = procThreads(fsImpl, name);
+        if (threads === 1) continue;
+        const text = threads === null ? null : liveTaskText(fsImpl, name);
+        if (text === null) return null;
+        texts.push(text);
+        continue;
+      }
       return null;
     }
   }

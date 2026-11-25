@@ -311,7 +311,24 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501, false), uid: 501 }), null, 'an unreadable entry of this user is unknown');
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: null }), null);
   // A zombie answers EACCES for its environ and has nothing to name a run with: it is skipped; a live entry that denies is unknown.
-  const withStat = (state: string) => ({ ...proc(501, false), readFileSync: (p: string) => (p === '/proc/7/stat' ? Buffer.from(`7 (fake) ${state} 1 1 1`) : proc(501, false).readFileSync(p)) });
+  const withStat = (state: string, threads = 1, tasks: any = {}) => ({
+    ...proc(501, false),
+    readdirSync: (p: string) => (p === '/proc/7/task' ? ['7', ...Object.keys(tasks)] : proc(501, false).readdirSync()),
+    readFileSync: (p: string) => {
+      if (p === '/proc/7/stat') return Buffer.from(`7 (fake) ${state} 1 1 1`);
+      if (p === '/proc/7/status') return Buffer.from(`Name:\tfake\nState:\t${state}\nThreads:\t${threads}\n`);
+      const task = /^\/proc\/7\/task\/(\d+)\/(cmdline|environ)$/.exec(p);
+      if (task && tasks[task[1]]) return Buffer.from(tasks[task[1]][task[2]]);
+      return proc(501, false).readFileSync(p);
+    },
+  });
   assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z'), uid: 501 }), []);
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('S'), uid: 501 }), null);
+  // Seat A: a process whose main thread exited shows Z while its other threads run. It is read through a live thread, so a
+  // run it names stays open; with no thread that reads, the listing is unknown, never a dead reading.
+  const live = { cmdline: 'fake\0-p\0', environ: 'DOFLOW_STARTED_RUN=w-aaaabbbbcccc\0' };
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2, { 8: live }), uid: 501 }), ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc ']);
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2), uid: 501 }), null, 'no live thread reads: unknown');
+  const noStatus = { ...withStat('Z'), readFileSync: (p: string) => { if (p === '/proc/7/status') { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; } return withStat('Z').readFileSync(p); } };
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: noStatus, uid: 501 }), null, 'a thread count that cannot be read is unknown');
 });
