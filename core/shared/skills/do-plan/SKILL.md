@@ -102,6 +102,7 @@ The template is `templates/doflow/plan-template.md` in the install step 1 resolv
    detail entry cites contracts by id, not by pointer. When step 4 read a `specs.md`, name the
    `IC-###` ids that change implements or consumes, and carry them into its tasks' `acceptance:`,
    so a task can be traced to the contract it satisfies.
+   A `constraint` contract gets a task that builds its `Check:` path, cites its id in `acceptance:` and lists that path in `files:`.
    When the feature has a `data-model.md` (check the resolver's `has_data_model` flag, the same way
    `has_specs` is already checked), also name in that entry any entities/tables from its schema
    catalog the change touches, citing them by the name the schema catalog already gives them — never
