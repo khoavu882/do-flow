@@ -15,7 +15,7 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
  * machine. An entry needs a source showing the GitHub ubuntu and macOS runner images carry it.
  *   git     - actions/checkout runs on every runner image, and every workflow here starts with it.
  *   jq      - .github/workflows/drift.yml:54 calls jq on ubuntu-latest.
- *   python3 - .github/workflows/cross-os-tests.yml:81 states python3 is preinstalled on ubuntu-latest.
+ *   python3 - .github/workflows/cross-os-tests.yml (shell-suites job) states python3 is preinstalled on ubuntu-latest.
  * The macOS side of each row is not confirmed by a repo file; check the macOS image readme in
  * github.com/actions/runner-images before relying on it (design.md R6).
  */
