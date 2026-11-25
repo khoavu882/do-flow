@@ -622,6 +622,25 @@ test('G46.3 control: removing the shared-policy row anchor is caught', () => {
   assert.ok(findings.some((finding: any) => finding.includes('found no Layout row anchor')), findings.join('\n'));
 });
 
+// 181 G.6 (NFR-001): the Stop policy advises only. It is read the way the implement gate is: no literal `doflow_decide deny`.
+const STOP_REL = 'core/harnesses/shared/hooks/policies/stop-check.sh';
+
+test('G46.3: the Stop policy emits no deny decision', () => {
+  assert.equal(decidesDeny(read(STOP_REL)), false, `${STOP_REL} emits a deny decision; hooks advise only`);
+});
+
+test('G46.3 control: a deny planted in a scratch copy of stop-check.sh is caught', (t) => {
+  const dir = tempDir(t, 'doflow-g46-stop-');
+  const copy = path.join(dir, 'stop-check.sh');
+  fs.copyFileSync(path.join(REPO, STOP_REL), copy);
+  assert.equal(decidesDeny(fs.readFileSync(copy, 'utf8')), false, 'the unedited copy must pass');
+  for (const planted of ['doflow_decide deny lint-left', 'doflow_decide deny blocked']) {
+    fs.appendFileSync(copy, `\n${planted}\n`);
+    assert.equal(decidesDeny(fs.readFileSync(copy, 'utf8')), true, `${planted} was not caught`);
+    fs.copyFileSync(path.join(REPO, STOP_REL), copy);
+  }
+});
+
 test('G46.4: templates row matches templates.doflow files', () => {
   assert.deepEqual(checkLayoutRow({ chain: CHAIN_TEXT, pathCell: TEMPLATE_PATH, expected: TEMPLATE_NAMES, suffixRe: /-template\.md$/, label: 'G46.4', glob: '*-template.md' }), []);
 });
