@@ -196,13 +196,13 @@ function fakeEslint(file: any, body: string) {
   fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 }
 /** One Stop in `dir` after editing `files`; `path` is the PATH the hook sees. */
-function stopIn(dir: any, files: string[], pathValue = process.env.PATH) {
+function stopIn(dir: any, files: string[], pathValue = process.env.PATH, extra: any = {}) {
   const session = sid();
   const queueDir = path.join(scratch.xdg, 'doflow', 'session-env', 'sessions', session);
   fs.mkdirSync(queueDir, { recursive: true });
   if (files.length) fs.writeFileSync(path.join(queueDir, 'edited-files.txt'), `${files.join('\n')}\n`);
   const r = spawnSync(bashPath(), [path.join(mirror, '.claude', 'hooks', 'stop-check.sh')], {
-    input: JSON.stringify({ session_id: session }), cwd: dir, env: scratch.env({ PATH: pathValue }), encoding: 'utf8',
+    input: JSON.stringify({ session_id: session, ...extra }), cwd: dir, env: scratch.env({ PATH: pathValue }), encoding: 'utf8',
   });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
@@ -283,6 +283,17 @@ test('the Stop that prints lint problems still advises only: exit 0 and no deny 
   const r = stopIn(dir, []);
   assert.equal(r.code, 0);
   assert.doesNotMatch(r.stdout, /"decision"\s*:\s*"(block|deny)"|permissionDecision/);
+});
+
+test('a directory at lint-last.log is left alone: exit 0, no advisory deny, and the stub check still runs', () => {
+  const { dir, log } = lintProject();
+  fs.mkdirSync(log, { recursive: true });
+  const r = stopIn(dir, [], process.env.PATH, { last_assistant_message: '// TODO: finish' });
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /"decision"\s*:\s*"(block|deny)"|permissionDecision/);
+  assert.equal(flagged(r), true, r.stdout);
+  assert.doesNotMatch(r.stderr, new RegExp(LINT_HEADER));
+  assert.ok(fs.statSync(log).isDirectory());
 });
 
 // Text that only resembles a marker is not an unfinished-work comment.

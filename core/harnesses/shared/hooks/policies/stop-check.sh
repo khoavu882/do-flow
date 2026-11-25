@@ -118,10 +118,12 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
   # project; elsewhere the fixers' output is still discarded, as before. Builtins only: this runs on every Stop.
   LINT_LOG=.doflow/state/hooks/lint-last.log
   LINT_LOG_CAP=65536
-  if [ -e "$LINT_LOG" ]; then
+  # A regular file only: a directory (or anything else) there is left alone, so the read cannot fail the hook.
+  if [ -f "$LINT_LOG" ]; then
     if [ -s "$LINT_LOG" ]; then
       printf 'doflow: lint problems left by the last fix (advisory):\n' >&2
       lint_lines=0
+      lint_line=
       while { IFS= read -r lint_line || [ -n "$lint_line" ]; } && [ "$lint_lines" -lt 20 ]; do
         printf '%s\n' "${lint_line:0:500}" >&2
         lint_lines=$((lint_lines + 1))
