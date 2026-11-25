@@ -366,6 +366,8 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
     { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 1, command: 'codex' }, 'argv[0] names a harness: unknown');
   assert.deepEqual(blocker({ fsImpl: nonDumpable({ cmdline: '/usr/bin/node\0/opt/lib/claude\0-p\0' }), binaries }).unreadable?.command, 'node',
     'argv[1] names a harness (node .../claude): unknown');
+  assert.equal(blocker({ fsImpl: nonDumpable({ cmdline: '/usr/bin/timeout\x0030\x00claude\x00-p\x00' }), binaries }).texts, null,
+    'a later argv element names a harness (timeout 30 claude): unknown');
   assert.deepEqual(blocker({ fsImpl: nonDumpable({ environOwner: 501 }), binaries }).unreadable,
     { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 1, command: 'ssh-agent' }, 'a dumpable process that denies: unknown');
   assert.equal(blocker({ fsImpl: nonDumpable({ realUid: 502 }), binaries }).texts, null, 'a real uid other than ours: unknown');

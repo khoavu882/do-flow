@@ -282,13 +282,14 @@ function procFileOwner(fsImpl: any, file: string): number | null {
  * Whether an entry whose environ answered EACCES is a non-dumpable process of this user that names no harness, which is
  * skipped. A process that set PR_SET_DUMPABLE 0 (ssh-agent, gpg-agent) or runs a setuid binary has its /proc files other than
  * the directory owned by root, so its environ cannot be read, while its status still shows our real uid and its cmdline still
- * reads. It is skipped only when neither argv[0] nor argv[1] has a harness binary as its basename (`node .../claude` counts);
- * an unreadable registry, cmdline, status or owner leaves it unknown.
+ * reads. It is skipped only when no argv element has a harness binary as its basename (`node .../claude` and `timeout 30 claude`
+ * count); an unreadable registry, cmdline, status or owner leaves it unknown. The registry lists no binary for a harness's child
+ * processes, so only `worker.cli.binary` is compared.
  */
 function nonDumpableNonHarness(fsImpl: any, pid: string, uid: number, argv: string[] | null, binaries: string[] | null): boolean {
   if (argv === null || argv.length === 0 || binaries === null) return false;
   if (procFileOwner(fsImpl, `/proc/${pid}/environ`) !== 0 || procRealUid(fsImpl, pid) !== uid) return false;
-  return !argv.slice(0, 2).some((arg) => binaries.includes(path.basename(arg)));
+  return !argv.some((arg) => binaries.includes(path.basename(arg)));
 }
 
 /**

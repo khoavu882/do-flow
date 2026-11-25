@@ -351,9 +351,35 @@ const MODELS_MAX = 50;
 const count = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const runIdOrNull = (value: unknown) => (typeof value === 'string' && PATTERNS.runId.test(value) ? value : null);
 
+const UNREADABLE_REASONS = ['proc-entry', 'proc-list', 'ps-failed', 'no-uid', 'platform'];
+const PROC_FILE = /^\/proc(\/[0-9]+(\/[a-z]+)?)?$/;
+const ERRNO = /^E[A-Z0-9]{1,15}$/;
+const PROC_STATE = /^[A-Za-z]$/;
+const COMMAND_NAME = /^[A-Za-z0-9._+@-]{1,64}$/;
+/** The core's process-table blocker, closed; undefined when it does not project. A command name outside a plain file-name shape is null. */
+function unreadableBlocker(u: any): Record<string, unknown> | undefined {
+  const orNull = (value: unknown, ok: (v: any) => boolean) => value === null || ok(value);
+  if (!object(u) || !UNREADABLE_REASONS.includes(u.reason as string) || !orNull(u.pid, (v) => Number.isSafeInteger(v) && v > 0)
+    || !orNull(u.file, (v) => typeof v === 'string' && PROC_FILE.test(v)) || !orNull(u.errno, (v) => typeof v === 'string' && ERRNO.test(v))
+    || !(u.state === undefined || orNull(u.state, (v) => typeof v === 'string' && PROC_STATE.test(v)))
+    || !(u.threads === undefined || orNull(u.threads, count))) return undefined;
+  return {
+    reason: u.reason, pid: u.pid, file: u.file, errno: u.errno,
+    ...(u.state === undefined ? {} : { state: u.state }), ...(u.threads === undefined ? {} : { threads: u.threads }),
+    ...(u.command === undefined ? {} : { command: typeof u.command === 'string' && COMMAND_NAME.test(u.command) ? u.command : null }),
+  };
+}
+
 /** `current` projectors of the core's start refusals; undefined when the core's value does not project. */
 const START_CURRENT: Readonly<Record<string, (c: any) => Current | undefined>> = Object.freeze({
   run: (c: any) => (object(c) && typeof c.runId === 'string' && PATTERNS.runId.test(c.runId) ? { runId: c.runId } : undefined),
+  // A-1: checkout-busy-unknown adds `unreadable`, the process-table blocker, when the core read one; a core without it gives `{runId}`.
+  runUnknown: (c: any) => {
+    const run = START_CURRENT.run(c);
+    if (run === undefined || c.unreadable === undefined) return run;
+    const blocker = unreadableBlocker(c.unreadable);
+    return blocker === undefined ? undefined : { ...run, unreadable: blocker };
+  },
   // nested-start: the id is the environment's DOFLOW_STARTED_RUN, which the core does not check.
   nested: (c: any) => (object(c) ? { runId: runIdOrNull(c.runId) } : undefined),
   open: (c: any) => (object(c) && count(c.open) && count(c.max) ? { open: c.open, max: c.max } : undefined),
@@ -390,7 +416,7 @@ const START_REFUSALS: Readonly<Record<string, readonly [number, string, string |
   'prompt-leading-at': [400, 'prompt-leading-at', null],
   'model-not-offered': [400, 'model-not-offered', 'models'],
   'checkout-busy': [409, 'checkout-busy', 'run'],
-  'checkout-busy-unknown': [409, 'checkout-busy-unknown', 'run'],
+  'checkout-busy-unknown': [409, 'checkout-busy-unknown', 'runUnknown'],
   'dispatch-running': [409, 'dispatch-running', 'dispatch'],
   'harness-not-startable': [409, 'harness-not-startable', 'harness'],
   'nested-start': [409, 'nested-start', 'nested'],
