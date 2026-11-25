@@ -9,12 +9,15 @@
 //    `core/shared/guidance/rules/` and `core/shared/guidance/PRINCIPLES.md`.
 // 3. Mandatory safety rules carry `neverAblate: true` and `ablationCandidate: false`.
 // 4. Disjoint invariant: `neverAblate` and `ablationCandidate` are mutually exclusive on every rule.
+// 5. Coverage (row 181, FR-007, FR-008, IC-019): every rule line of the 13 skill directories and
+//    `core/shared/guidance/**` lies in exactly one row's statement, found by `coverRuleLines`.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared.ts');
+const { coverRuleLines, ruleSourceFiles } = require('../../src/runtime/guidance/rule-ledger.ts');
 
 const RULES_REGISTRY_FILE = path.join(REPO, 'core', 'registry', 'rules.json');
 const RULES_DIR = path.join(GUIDANCE, 'rules');
@@ -30,7 +33,7 @@ const MANDATORY_SAFETY_RULES = Object.freeze([
   'rule-questions-noninteractive-halt-on-blocker',
 ]);
 
-const ALLOWED_CATEGORIES = new Set(['safety', 'workflow', 'quality', 'questions', 'principles']);
+const ALLOWED_CATEGORIES = new Set(['safety', 'workflow', 'quality', 'questions', 'principles', 'skill', 'mcp', 'mode', 'reference']);
 const ALLOWED_ENFORCEMENTS = new Set(['check', 'judgement-only', 'not-a-rule']);
 const ID_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
@@ -225,6 +228,51 @@ describe('Guard G71: Guidance Rules Registry Validation', () => {
         `Rule '${rule.id}' violates disjoint invariant: cannot have both neverAblate: true and ablationCandidate: true`
       );
     }
+  });
+});
+
+/** The cover findings of a ledger over a tree, as `path:line` locators with the covering row ids. */
+function coverFindings(ledger: any, repoRoot: string = REPO): string[] {
+  const files = ruleSourceFiles(repoRoot).map((p: string) => ({ path: p, text: fs.readFileSync(path.join(repoRoot, p), 'utf8') }));
+  return coverRuleLines(files, ledger).map((f: any) => `${f.path}:${f.line} ${f.kind}${f.rows.length ? ` (${f.rows.join(', ')})` : ''}`);
+}
+
+describe('Guard G71 coverage: every rule line lies in exactly one ledger row', () => {
+  test('the 13 skill directories and core/shared/guidance have no uncovered or double-covered rule line', () => {
+    const ledger = JSON.parse(fs.readFileSync(RULES_REGISTRY_FILE, 'utf8'));
+    const sources = ruleSourceFiles(REPO);
+    assert.ok(sources.some((p: string) => p.startsWith('core/shared/skills/')) && sources.some((p: string) => p.startsWith('core/shared/guidance/')), 'both trees are scanned');
+    assert.deepEqual(coverFindings(ledger), []);
+  });
+
+  test('control: a rule line planted in a temp copy of a skill is reported at its path:line, and removing its row elsewhere is too', () => {
+    const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'g71-cover-'));
+    try {
+      for (const rel of ruleSourceFiles(REPO)) {
+        fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
+        fs.copyFileSync(path.join(REPO, rel), path.join(tmp, rel));
+      }
+      const ledger = JSON.parse(fs.readFileSync(RULES_REGISTRY_FILE, 'utf8'));
+      assert.deepEqual(coverFindings(ledger, tmp), [], 'the unplanted copy is clean');
+      const target = 'core/shared/skills/do-test/SKILL.md';
+      const before = fs.readFileSync(path.join(tmp, target), 'utf8');
+      fs.writeFileSync(path.join(tmp, target), `${before.trimEnd()}\n\nNever plant an unmarked rule in a skill.\n`);
+      const line = fs.readFileSync(path.join(tmp, target), 'utf8').split('\n').findIndex((l: string) => l.startsWith('Never plant')) + 1;
+      assert.deepEqual(coverFindings(ledger, tmp), [`${target}:${line} uncovered`]);
+
+      // A row dropped from the ledger leaves its own line uncovered, named by path:line.
+      const dropped = ledger.rules.find((r: any) => r.id === 'rule-safety-temporal-awareness');
+      const fewer = { ...ledger, rules: ledger.rules.filter((r: any) => r.id !== dropped.id) };
+      assert.ok(coverFindings(fewer, REPO).some((f: string) => f.startsWith('core/shared/guidance/rules/RULES.md:')), 'a dropped row is reported');
+    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+  });
+
+  test('control: a planted row with neither a valid check nor a reason is reported naming its rule id', () => {
+    const ledger = JSON.parse(fs.readFileSync(RULES_REGISTRY_FILE, 'utf8'));
+    const planted = { ...ledger.rules.find((r: any) => r.enforcement === 'judgement-only'), id: 'rule-planted-unmarked', enforcementRef: null, reason: null };
+    const res = validateRulesRegistry({ ...ledger, rules: [...ledger.rules, planted] });
+    assert.equal(res.ok, false);
+    assert.match(res.errors.join('\n'), /rule 'rule-planted-unmarked': a judgement-only row needs a one-line reason/);
   });
 });
 
