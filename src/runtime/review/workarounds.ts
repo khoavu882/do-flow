@@ -9,6 +9,13 @@
  * Patterns are user input, so the scan is bounded (design R6): a pattern is at most 200 characters, a line over
  * 2,000 characters is skipped and counted, and the scan stops after 5,000 tested added lines with `truncated`.
  * A pattern that does not compile is a finding, never a throw.
+ *
+ * What bounds run time is the pattern, not a clock: `RegExp.test` cannot be interrupted, so a time budget would
+ * not help. `riskyPattern` rejects, as a finding, any quantified group that contains a quantifier or an
+ * alternation (`(a+)+`, `(a|aa)*`, `(\w+\s?)*`) and any backreference (`\1`, `\k<name>`); the check is
+ * syntactic and conservative, so a safe pattern may be refused but a nested quantifier is not missed. Ceiling
+ * accepted: adjacent quantifiers (`.*.*x`) stay polynomial in the line length, which the 2,000-character line
+ * limit bounds.
  */
 
 const nodeFs = require('node:fs');
@@ -59,6 +66,37 @@ function validDate(value: any): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
+const RANGE_QUANTIFIER = /^\{\d+(,\d*)?\}/;
+
+/** Why a pattern could run super-linearly (design R6), or null: a quantified group holding a quantifier or an alternation, or a backreference. */
+function riskyPattern(pattern: string): string | null {
+  const groups: { quant: boolean; alt: boolean }[] = [{ quant: false, alt: false }];
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern[i];
+    const top = groups[groups.length - 1];
+    if (ch === '\\') {
+      const next = pattern[i + 1];
+      if ((next >= '1' && next <= '9') || (next === 'k' && pattern[i + 2] === '<')) return 'pattern must not use a backreference';
+      i += 1;
+    } else if (ch === '[') {
+      for (i += 1; i < pattern.length && pattern[i] !== ']'; i += 1) if (pattern[i] === '\\') i += 1;
+    } else if (ch === '(') {
+      groups.push({ quant: false, alt: false });
+      if (pattern[i + 1] === '?') i += 1;
+    } else if (ch === '|') top.alt = true;
+    else if (ch === '*' || ch === '+' || ch === '?' || (ch === '{' && RANGE_QUANTIFIER.test(pattern.slice(i)))) top.quant = true;
+    else if (ch === ')' && groups.length > 1) {
+      const group = groups.pop() as { quant: boolean; alt: boolean };
+      const next = pattern[i + 1];
+      if ((next === '*' || next === '+' || (next === '{' && RANGE_QUANTIFIER.test(pattern.slice(i + 1)))) && (group.quant || group.alt)) {
+        return 'pattern must not repeat a group that holds a quantifier or an alternation (nested quantifiers can run for ever)';
+      }
+      if (group.quant) groups[groups.length - 1].quant = true;
+    }
+  }
+  return null;
+}
+
 /** The reasons one mark is invalid; empty when it is usable. */
 function markProblems(mark: any): string[] {
   if (!isObject(mark)) return ['must be an object'];
@@ -66,7 +104,11 @@ function markProblems(mark: any): string[] {
   if (typeof mark.pattern !== 'string' || mark.pattern === '') problems.push('pattern must be a non-empty string');
   else if (mark.pattern.length > PATTERN_MAX) problems.push(`pattern must be at most ${PATTERN_MAX} characters`);
   else {
-    try { new RegExp(mark.pattern); } catch (error: any) { problems.push(`pattern does not compile (${error?.message ?? error})`); }
+    try {
+      new RegExp(mark.pattern);
+      const risk = riskyPattern(mark.pattern);
+      if (risk) problems.push(risk);
+    } catch (error: any) { problems.push(`pattern does not compile (${error?.message ?? error})`); }
   }
   if (!Array.isArray(mark.paths) || mark.paths.length === 0 || mark.paths.some((glob: any) => typeof glob !== 'string'
     || glob === '' || glob.startsWith('/') || glob.split('/').includes('..'))) {

@@ -105,6 +105,19 @@ test('a bad mark is a finding and skipped while the others still apply', (t) => 
   }
 });
 
+test('a pattern that can run super-linearly is a finding and the scan returns promptly with the other marks applied', (t) => {
+  const risky = ['^(a+)+$', '(a*)*', '(a|aa)+', '(\\w+\\s?)*', '((a+)b)+', '(a+){2,}', '(a)\\1', '(?<x>a)\\k<x>'];
+  const marks = [...risky.map((pattern, i) => ({ ...MARK, id: `risky-${i}`, pattern })),
+    { ...MARK, id: 'plain', pattern: 'foo\\d+bar' }, { ...MARK, id: 'safe-group', pattern: '(foo|bar)\\d' }, { ...MARK, id: 'escaped', pattern: '\\(a+\\)+' }, { ...MARK, id: 'class', pattern: '[(+]+x' }];
+  const r = repo(t, { change: { 'src/a.ts': `${'a'.repeat(30)}b\nfoo123bar\nbar7\n(aaa)+\n(+x\n` }, marks: { version: 1, marks } });
+  const started = Date.now();
+  const out = scan(r);
+  assert.ok(Date.now() - started < 2000, 'the scan returned promptly');
+  assert.deepEqual(out.matches.map((m: any) => [m.mark, m.line]), [['plain', 2], ['safe-group', 2], ['safe-group', 3], ['escaped', 4], ['class', 5]]);
+  assert.equal(out.findings.length, risky.length, out.findings.join('\n'));
+  for (let i = 0; i < risky.length; i += 1) assert.ok(out.findings.some((f: string) => f.startsWith(`mark 'risky-${i}': pattern must not`)), risky[i]);
+});
+
 test('patterns compile with no flags: matching is case sensitive', (t) => {
   const marks = { version: 1, marks: [{ ...MARK, pattern: 'DB\\.RAW' }] };
   assert.deepEqual(scan(repo(t, { change: { 'src/a.ts': 'db.raw(1);\n' }, marks })).matches, []);
