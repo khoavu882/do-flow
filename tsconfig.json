@@ -18,6 +18,6 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": false
   },
-  "include": ["src/**/*.ts", "test/**/*.ts", "bench/**/*.ts", "types/**/*.d.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "bench/**/*.ts", "types/**/*.d.ts"],
   "exclude": ["node_modules", "bench/runs", "bench/reports", "core"]
 }
