@@ -12,7 +12,7 @@ can predate the register) and, when it reports `has_decisions: true`:
    user typed as prompts, "Decide for me" defaults, agent resolutions) in one
    `"$DOFLOW" decision --action add --batch <file>.json --json` call. Drop an item that only
    rewords a live decision (such as a gate answer do-flow registered); it neither registers nor
-   supersedes. Each item needs `topic`, `statement`, `channel`, `stage` (the ownership-table
+   supersedes. Each item needs `topic`, `statement`, `channel` (`question|gate|prompt|default|resolution`), `stage` (the ownership-table
    stage name) and `rationale`; the verb names a bad value. Skip the call when there are none.
    On exit 1 `topic-conflict`, drop a reword of the named live decision, else add `supersedes` for it,
    and retry; on `register-locked`, retry once; on exit 2, fix the named item and retry. Hand off with the stage's decisions registered, or say which are not.
@@ -66,7 +66,7 @@ After a skill finishes its work, call the resolved runtime seam:
 ```
 
 Pass `--mcp-outcome <server>=used|nothing-usable|skipped:<reason>|unavailable` once per MCP server
-your step names;.
+your step names.
 
 Pass `--task-class` only when a classifying skill has accepted that class and may start a run.
 

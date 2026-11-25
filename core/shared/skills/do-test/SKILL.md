@@ -72,6 +72,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    is reported as unreached, never omitted.
 
    With a feature map (the project's or the feature's), also read this skill's `references/feature-map.md` and run it. Before a property or fuzz campaign, run `"$DOFLOW" verify --action inner-loop --task-id "<task id>"`, relay a `REFUSED` verbatim and start no campaign.
+   **Stop when** every required tier has an answer or a stated gap; report the gaps rather than continuing.
 
 4. **Read the verdict as it stands**:
    - Report `status` and its `reason` as the verb returns them. Never call a check passed that was
@@ -93,13 +94,12 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    ```bash
    "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-test --note "<work completed and verification result>" --result <passed|failed> --json
    ```
-   Report the returned `disposition` (a `deferred` one with its `reason`); resolve no gate in this
-   skill. Render the trail after a recorded handoff:
+   Report the returned `disposition`; resolve no gate in this skill. Render the trail after a recorded handoff:
    ```bash
    "$DOFLOW" render-audit --slug="<task id>" --json
    ```
    `passed` means the contract was met, including an expected failure in a reproduction stage.
-   Missing verification is `unverified`, never an implied pass.
+   Use `failed` when it was not met; missing verification is `unverified`, never an implied pass.
 
 ## Embedded feature research
 

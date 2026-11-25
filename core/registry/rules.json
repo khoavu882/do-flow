@@ -4217,7 +4217,7 @@
     {
       "id": "rule-skill-do-test-passed-means-contract-was-met",
       "tag": "do-test",
-      "statement": "`passed` means the contract was met, including an expected failure in a reproduction stage.\n   Missing verification is `unverified`, never an implied pass.",
+      "statement": "`passed` means the contract was met, including an expected failure in a reproduction stage.\n   Use `failed` when it was not met; missing verification is `unverified`, never an implied pass.",
       "sourceFile": "core/shared/skills/do-test/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4229,12 +4229,12 @@
     {
       "id": "rule-skill-do-test-feature-map-doflow-feature-map-json-project",
       "tag": "do-test",
-      "statement": "Two files are read, and a flow id in both is a finding that uses neither copy: `.doflow/feature-map.json`\n(the project's map, committed by the person; DoFlow never writes it) and\n`<feature dir>/test/feature-map.json` (this feature's map, written by this skill).",
+      "statement": "Two files are read, and a flow id in both is a finding that uses neither copy: `<project>/.doflow/feature-map.json`\n(the project's map, committed by the person; never write it) and\n`<feature dir>/test/feature-map.json` (this feature's map, written by this skill).",
       "sourceFile": "core/shared/skills/do-test/references/feature-map.md",
       "category": "skill",
-      "enforcement": "not-a-rule",
+      "enforcement": "judgement-only",
       "enforcementRef": null,
-      "reason": "States what DoFlow does with feature-map.json, not an instruction to the agent",
+      "reason": "Tells the agent never to write the project map; no verb or hook detects a write to .doflow/feature-map.json",
       "neverAblate": false,
       "ablationCandidate": false
     },
@@ -4265,7 +4265,7 @@
     {
       "id": "rule-skill-do-test-feature-map-browsertool-absent-harness-browser-tool",
       "tag": "do-test",
-      "statement": "With `browserTool: absent` the verb has already recorded the flow as unreached: say so and ask for no\ninstall. Relay each critical-flow follow-up in `proposals` to the person or a worker; write no property\ntest and no proof here.",
+      "statement": "With `browserTool: absent` the verb has already recorded the flow as unreached: say so; neither ask for nor run\nan install. Relay each critical-flow follow-up in `proposals` to the person or a worker; write no property\ntest and no proof here.",
       "sourceFile": "core/shared/skills/do-test/references/feature-map.md",
       "category": "skill",
       "enforcement": "judgement-only",

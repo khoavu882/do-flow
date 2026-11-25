@@ -3,8 +3,8 @@
 A feature map lists the user-facing flows of a feature and the outcome each is expected to show, so
 "it works" rests on a run. `$DOFLOW` is the runtime resolved in step 1 of the skill.
 
-Two files are read, and a flow id in both is a finding that uses neither copy: `.doflow/feature-map.json`
-(the project's map, committed by the person; DoFlow never writes it) and
+Two files are read, and a flow id in both is a finding that uses neither copy: `<project>/.doflow/feature-map.json`
+(the project's map, committed by the person; never write it) and
 `<feature dir>/test/feature-map.json` (this feature's map, written by this skill).
 
 ```json
@@ -14,8 +14,7 @@ Two files are read, and a flow id in both is a finding that uses neither copy: `
 ```
 
 `drive` is that command form (run from the project root) or `{ "kind": "browser", "start": "<url or path>",
-"steps": "<one paragraph>" }`; leave it out when no means to drive the flow exists. The verb refuses an
-invalid map whole and lists its `findings`.
+"steps": "<one paragraph>" }`; leave it out when no means to drive the flow exists.
 
 ## Write the feature's map
 
@@ -46,6 +45,6 @@ For each `agent` entry with `browserTool: present`, drive it with `agent-browser
   --observed-command "<the browser command you ran>" --observed-exit <0 if the outcome matched expect, else non-zero>
 ```
 
-With `browserTool: absent` the verb has already recorded the flow as unreached: say so and ask for no
-install. Relay each critical-flow follow-up in `proposals` to the person or a worker; write no property
+With `browserTool: absent` the verb has already recorded the flow as unreached: say so; neither ask for nor run
+an install. Relay each critical-flow follow-up in `proposals` to the person or a worker; write no property
 test and no proof here.
