@@ -1058,6 +1058,14 @@ test('every start-session refusal id maps to IC-004\'s status with the core\'s c
     [refusal('checkout-busy', { runId: 'w-aaaabbbbcccc' }), 409, 'checkout-busy', { runId: 'w-aaaabbbbcccc' }, 1],
     // 165 review A-1: a run whose liveness cannot be read holds the checkout under its own id.
     [refusal('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc' }), 409, 'checkout-busy-unknown', { runId: 'w-aaaabbbbcccc' }, 1],
+    // A-1: the process-table blocker is carried through, closed; a command name outside a file-name shape is null; a malformed blocker is a mismatch.
+    [refusal('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc', unreadable: { reason: 'proc-entry', pid: 1151, file: '/proc/1151/environ', errno: 'EACCES', state: 'S', threads: 1, command: 'ssh-agent', extra: 'x' } }), 409, 'checkout-busy-unknown',
+      { runId: 'w-aaaabbbbcccc', unreadable: { reason: 'proc-entry', pid: 1151, file: '/proc/1151/environ', errno: 'EACCES', state: 'S', threads: 1, command: 'ssh-agent' } }, 1],
+    [refusal('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc', unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EIO', state: null, threads: null, command: 'a name with spaces' } }), 409, 'checkout-busy-unknown',
+      { runId: 'w-aaaabbbbcccc', unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EIO', state: null, threads: null, command: null } }, 1],
+    [refusal('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc', unreadable: { reason: 'ps-failed', pid: null, file: null, errno: null } }), 409, 'checkout-busy-unknown',
+      { runId: 'w-aaaabbbbcccc', unreadable: { reason: 'ps-failed', pid: null, file: null, errno: null } }, 1],
+    [refusal('checkout-busy-unknown', { runId: 'w-aaaabbbbcccc', unreadable: { reason: 'proc-entry', pid: 7, file: '/etc/passwd', errno: 'EACCES' } }), 502, 'core-contract-mismatch', undefined, 1],
     [refusal('dispatch-running', { slug: 'feat-a', driverPid: 4242 }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: null, driverPid: 4242, reason: null }, 1],
     [refusal('dispatch-running', { slug: 'feat-a', dispatchId: 'd-1' }), 409, 'dispatch-running', { slug: 'feat-a', dispatchId: 'd-1', driverPid: null, reason: null }, 1],
     [refusal('dispatch-running', { slug: 'feat-b', reason: 'store-unreadable' }), 409, 'dispatch-running', { slug: 'feat-b', dispatchId: null, driverPid: null, reason: 'store-unreadable' }, 1],

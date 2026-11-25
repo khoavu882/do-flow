@@ -60,20 +60,24 @@ const GROUPED = process.platform !== 'win32';
  * Adding a listener and removing the last one puts the signal back to its default action (libuv resets
  * it to SIG_DFL), so the guard dies by the check's own signal; the 128+n exit code keeps the result
  * non-zero should a self-signal ever be swallowed anyway.
+ * The signal handlers are in place before the check starts: a signal that reached the guard after the
+ * spawn and before the handlers would end it by the default action and leave the check's group running.
+ * A signal before the spawn is handled once the script has run, so the group it kills always exists.
  * Ceiling: one extra node start per check, and a grandchild that leaves the group escapes the kill.
  */
 const GROUP_GUARD = `
 const { spawn } = require('node:child_process');
 const parent = process.ppid;
 let forced = 0;
-const env = process.argv.length > 2 ? { ...process.env, NODE_OPTIONS: process.argv[2] } : process.env;
-const child = spawn(process.argv[1], { shell: true, detached: true, env, stdio: ['inherit', 'pipe', 'pipe'] });
+let child;
 const stop = (n) => {
   if (!forced) forced = n;
   try { process.kill(-child.pid, 'SIGKILL'); } catch {}
   setTimeout(() => process.exit(128 + forced), 1000).unref();
 };
 for (const [signal, n] of [['SIGINT', 2], ['SIGTERM', 15], ['SIGHUP', 1]]) process.on(signal, () => stop(n));
+const env = process.argv.length > 2 ? { ...process.env, NODE_OPTIONS: process.argv[2] } : process.env;
+child = spawn(process.argv[1], { shell: true, detached: true, env, stdio: ['inherit', 'pipe', 'pipe'] });
 for (const out of [process.stdout, process.stderr]) out.on('error', () => stop(13));
 const watch = setInterval(() => { if (process.ppid !== parent) stop(1); }, 250);
 child.stdout.pipe(process.stdout);

@@ -15,7 +15,9 @@
  */
 
 const fs = require('node:fs');
+const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 /** Grace between SIGTERM and SIGKILL (DEC-023). */
 const KILL_GRACE_MS = 3000;
@@ -208,34 +210,151 @@ function treeFromRows(rows: any[], proc: any) {
 /** The bound on the one listing `processTexts` reads; a larger listing fails, which reads as unknown. */
 const TEXTS_MAX_BYTES = 16 * 1024 * 1024;
 
+/** Whether /proc/<pid>/stat shows the process as a zombie (state Z) or dead (X); an unreadable stat is not a zombie. */
+function procIsZombie(fsImpl: any, pid: string): boolean {
+  try {
+    const stat = fsImpl.readFileSync(`/proc/${pid}/stat`).toString('utf8');
+    return /^[ZX]$/.test(stat.slice(stat.lastIndexOf(')') + 1).trim().charAt(0));
+  } catch { return false; }
+}
+
+/** The `Threads:` count in /proc/<pid>/status; null when it cannot be read. */
+function procThreads(fsImpl: any, pid: string): number | null {
+  try {
+    const match = /^Threads:\s*(\d+)\s*$/m.exec(fsImpl.readFileSync(`/proc/${pid}/status`).toString('utf8'));
+    return match ? Number(match[1]) : null;
+  } catch { return null; }
+}
+
+/** The command line and environment of a process whose main thread has exited, read through its first thread other than
+ * the main one that answers; null when none does. */
+function liveTaskText(fsImpl: any, pid: string): string | null {
+  let tids: string[];
+  try { tids = fsImpl.readdirSync(`/proc/${pid}/task`).filter((tid: string) => /^[0-9]+$/.test(tid) && tid !== pid); } catch { return null; }
+  for (const tid of tids) {
+    try {
+      const read = (file: string) => fsImpl.readFileSync(`/proc/${pid}/task/${tid}/${file}`).toString('utf8').split('\0').join(' ');
+      return `${read('cmdline')} ${read('environ')}`;
+    } catch { /* this thread ended or denies: try the next */ }
+  }
+  return null;
+}
+
+/** The state letter /proc/<pid>/stat shows (R, S, Z, ...); null when it cannot be read. */
+function procState(fsImpl: any, pid: string): string | null {
+  try {
+    const stat = fsImpl.readFileSync(`/proc/${pid}/stat`).toString('utf8');
+    return stat.slice(stat.lastIndexOf(')') + 1).trim().charAt(0) || null;
+  } catch { return null; }
+}
+
 /**
- * 165 review A-1: one text per process of this user, its command line and, where the OS shows it, its environment; null when
- * the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read), which a
- * caller reads as unknown. darwin: one `ps -wwAE -o command=` (environments of other users and of platform binaries are not
- * shown, so such a process is read from its command line alone). linux: `/proc/<pid>/cmdline` and `environ` of every process
- * this user owns. Writes nothing and signals nothing.
+ * What stopped `readProcessTexts` from reading the listing, for the caller to name: `reason` is `proc-entry` (one /proc entry
+ * of this user could not be read; `pid`, the `file` it failed on, the `errno`, and the stat `state` and `Threads` count when
+ * they were read), `proc-list` (/proc itself could not be listed), `ps-failed` (darwin), `no-uid` or `platform`.
  */
-function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, uid = typeof process.getuid === 'function' ? process.getuid() : null }: any = {}): string[] | null {
+type Unreadable = {
+  reason: string; pid: number | null; file: string | null; errno: string | null; state?: string | null; threads?: number | null; command?: string | null;
+};
+
+/** The `worker.cli.binary` of every harness in core/registry/harnesses.json; null when the registry cannot be read. */
+function harnessBinaries(fsImpl: any = fs): string[] | null {
+  try {
+    const parsed = JSON.parse(fsImpl.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8'));
+    return parsed.harnesses.map((harness: any) => harness?.worker?.cli?.binary).filter((binary: any) => typeof binary === 'string' && binary !== '');
+  } catch { return null; }
+}
+
+/** The real uid on the `Uid:` line of /proc/<pid>/status; null when it cannot be read. */
+function procRealUid(fsImpl: any, pid: string): number | null {
+  try {
+    const match = /^Uid:\s*(\d+)/m.exec(fsImpl.readFileSync(`/proc/${pid}/status`).toString('utf8'));
+    return match ? Number(match[1]) : null;
+  } catch { return null; }
+}
+
+/** The owner uid of a /proc file; null when it cannot be stated. */
+function procFileOwner(fsImpl: any, file: string): number | null {
+  try { return fsImpl.statSync(file).uid; } catch { return null; }
+}
+
+/**
+ * Whether an entry whose environ answered EACCES is a non-dumpable process of this user that names no harness, which is
+ * skipped. A process that set PR_SET_DUMPABLE 0 (ssh-agent, gpg-agent) or runs a setuid binary has its /proc files other than
+ * the directory owned by root, so its environ cannot be read, while its status still shows our real uid and its cmdline still
+ * reads. It is skipped only when no argv element has a harness binary as its basename (`node .../claude` and `timeout 30 claude`
+ * count); an unreadable registry, cmdline, status or owner leaves it unknown. The registry lists no binary for a harness's child
+ * processes, so only `worker.cli.binary` is compared.
+ */
+function nonDumpableNonHarness(fsImpl: any, pid: string, uid: number, argv: string[] | null, binaries: string[] | null): boolean {
+  if (argv === null || argv.length === 0 || binaries === null) return false;
+  if (procFileOwner(fsImpl, `/proc/${pid}/environ`) !== 0 || procRealUid(fsImpl, pid) !== uid) return false;
+  return !argv.some((arg) => binaries.includes(path.basename(arg)));
+}
+
+/**
+ * 165 review A-1: one text per process of this user, its command line and, where the OS shows it, its environment; `texts` is
+ * null when the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read),
+ * which a caller reads as unknown, and `unreadable` then names the first blocker. darwin: one `ps -wwAE -o command=`
+ * (environments of other users and of platform binaries are not shown, so such a process is read from its command line alone).
+ * linux: `/proc/<pid>/cmdline` and `environ` of every process this user owns. Writes nothing and signals nothing.
+ */
+function readProcessTexts({ platform = process.platform, run = runPs, fsImpl = fs, uid = typeof process.getuid === 'function' ? process.getuid() : null, binaries }: any = {}): { texts: string[] | null; unreadable: Unreadable | null } {
+  const blocked = (unreadable: Unreadable) => ({ texts: null, unreadable });
   if (platform === 'darwin') {
     const out = run(['-wwAE', '-o', 'command='], { maxBuffer: TEXTS_MAX_BYTES });
-    return out == null ? null : String(out).split('\n').filter((line) => line.trim() !== '');
+    if (out == null) return blocked({ reason: 'ps-failed', pid: null, file: null, errno: null });
+    return { texts: String(out).split('\n').filter((line) => line.trim() !== ''), unreadable: null };
   }
-  if (platform !== 'linux' || uid === null) return null;
+  if (platform !== 'linux') return blocked({ reason: 'platform', pid: null, file: null, errno: null });
+  if (uid === null) return blocked({ reason: 'no-uid', pid: null, file: null, errno: null });
   const texts: string[] = [];
   let names: string[];
-  try { names = fsImpl.readdirSync('/proc').filter((name: string) => /^[0-9]+$/.test(name)); } catch { return null; }
+  try { names = fsImpl.readdirSync('/proc').filter((name: string) => /^[0-9]+$/.test(name)); } catch (error: any) {
+    return blocked({ reason: 'proc-list', pid: null, file: '/proc', errno: typeof error?.code === 'string' ? error.code : null });
+  }
+  let registryBinaries: string[] | null | undefined = binaries;
   for (const name of names) {
+    let file = `/proc/${name}`;
+    let argv: string[] | null = null;
     try {
-      if (fsImpl.statSync(`/proc/${name}`).uid !== uid) continue;
-      const read = (file: string) => fsImpl.readFileSync(`/proc/${name}/${file}`).toString('utf8').split('\0').join(' ');
-      texts.push(`${read('cmdline')} ${read('environ')}`);
+      if (fsImpl.statSync(file).uid !== uid) continue;
+      const read = (part: string) => { file = `/proc/${name}/${part}`; return fsImpl.readFileSync(file).toString('utf8'); };
+      const cmdline = read('cmdline');
+      argv = cmdline.split('\0').filter((arg: string) => arg !== '');
+      texts.push(`${cmdline.split('\0').join(' ')} ${read('environ').split('\0').join(' ')}`);
     } catch (error: any) {
       // A process that ended between the listing and the read is gone; any other failure leaves the answer unknown.
-      if (error?.code === 'ENOENT' || error?.code === 'ESRCH') continue;
-      return null;
+      if (error?.code === 'ENOENT') continue;
+      const entry = (state: string | null, threads: number | null) => blocked({
+        reason: 'proc-entry', pid: Number(name), file, errno: typeof error?.code === 'string' ? error.code : null, state, threads,
+        command: argv && argv.length > 0 ? path.basename(argv[0]) : null,
+      });
+      // An entry whose stat shows Z or X answers EACCES for its environ, or ESRCH, depending on the kernel. With one thread it
+      // is a zombie (exited, not yet reaped) with nothing left to name a run, so it is skipped. With more, only its main
+      // thread has exited and the process still runs: it is read through a live thread, and stays unknown if none reads.
+      if ((error?.code === 'EACCES' || error?.code === 'EPERM' || error?.code === 'ESRCH') && procIsZombie(fsImpl, name)) {
+        const threads = procThreads(fsImpl, name);
+        if (threads === 1) continue;
+        const text = threads === null ? null : liveTaskText(fsImpl, name);
+        if (text === null) return entry(procState(fsImpl, name), threads);
+        texts.push(text);
+        continue;
+      }
+      if (error?.code === 'ESRCH') continue;
+      if (error?.code === 'EACCES' && file === `/proc/${name}/environ`) {
+        if (registryBinaries === undefined) registryBinaries = harnessBinaries();
+        if (nonDumpableNonHarness(fsImpl, name, uid, argv, registryBinaries)) continue;
+      }
+      return entry(procState(fsImpl, name), procThreads(fsImpl, name));
     }
   }
-  return texts;
+  return { texts, unreadable: null };
+}
+
+/** `readProcessTexts`' texts alone: the listing, or null when it cannot be read. */
+function processTexts(options: any = {}): string[] | null {
+  return readProcessTexts(options).texts;
 }
 
 /**
@@ -443,6 +562,7 @@ module.exports = {
   groupAlive,
   snapshotTree,
   processTexts,
+  readProcessTexts,
   escalate,
   spawnBounded,
 };

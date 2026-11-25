@@ -98,9 +98,11 @@ test('an absent optional tool is information, not an error', (t) => {
   assert.strictEqual(r.stderr, '');
   assert.match(r.stdout, /^Optional tools\n {2}absent {3}agent-browser {2}Checks a web user interface/m);
   assert.match(r.stdout, /install: npm install -g agent-browser, then agent-browser install\n.*or run: {2}doflow tools --tool agent-browser --action install/);
-  // brew is an alternative: shown with its evidence, with the line that DoFlow manages only the first route.
-  assert.match(r.stdout, /also: brew install agent-browser, then agent-browser install \(https:\/\/github\.com\/vercel-labs\/agent-browser\/blob\/main\/README\.md\)\n.*DoFlow updates and removes only what it installed through its first route, and runs no other\./);
   const darwin = process.platform === 'darwin';
+  // brew is an alternative route on darwin only: shown with its evidence, with the line that DoFlow manages only the first route.
+  // Linux has one route (npm), so no alternative is listed there.
+  if (darwin) assert.match(r.stdout, /also: brew install agent-browser, then agent-browser install \(https:\/\/github\.com\/vercel-labs\/agent-browser\/blob\/main\/README\.md\)\n.*DoFlow updates and removes only what it installed through its first route, and runs no other\./);
+  else assert.doesNotMatch(r.stdout, /also:/);
   assert.strictEqual(/run it yourself: agent-browser install --with-deps \(.*sudo/.test(r.stdout), !darwin, 'the sudo step is shown, as the user\'s own step, only where the platform needs it');
 });
 

@@ -504,9 +504,15 @@ test('161 review 4: reviews choose the 16 newest features by metadata, then read
   const features = path.join(a, 'agent-docs', 'doflow');
   const body = (slug: string) => JSON.stringify({ schema: 1, row: '161', slug, reviewedHead: '0123456789abcdef0123456789abcdef01234567', seats: [], converged: [] });
   const base = Date.now() - 100 * 60000;
-  for (let i = 0; i < 40; i += 1) write(path.join(features, `161-f${String(i).padStart(2, '0')}`, 'review', 'findings.json'), body(`161-f${i}`), base + i * 60000);
+  // A feature counts as touched at the later of its directory and its findings; both are set, so the order does not
+  // depend on how finely the filesystem stamps the directories created a moment apart (ext4 ties them on one tick).
+  const feature = (name: string, text: string, ms: number) => {
+    write(path.join(features, name, 'review', 'findings.json'), text, ms);
+    fs.utimesSync(path.join(features, name), ms / 1000, ms / 1000);
+  };
+  for (let i = 0; i < 40; i += 1) feature(`161-f${String(i).padStart(2, '0')}`, body(`161-f${i}`), base + i * 60000);
   assert.equal(typeof REVIEW_BYTES, 'number');
-  write(path.join(features, '161-big', 'review', 'findings.json'), ' '.repeat(REVIEW_BYTES + 1), base + 41 * 60000);
+  feature('161-big', ' '.repeat(REVIEW_BYTES + 1), base + 41 * 60000);
   const opened: string[] = [];
   const count = (file: any) => { if (typeof file === 'string' && file.endsWith('findings.json')) opened.push(file); };
   const fsImpl = {

@@ -289,11 +289,16 @@ describe('claim link: the shadow hook', () => {
     assert.ok(returnedAt - startedAt < 120, `the handler did not wait for the call (${returnedAt - startedAt} ms)`);
     assert.equal(a.asks().length, 0, 'the call has not even started when the handler returns');
     const line = await waitFor(() => s.lines()[0]);
+    const recordedAt = Date.now();
     assert.equal(a.asks().length, 1, 'the detached call reached the stalled model');
     assert.equal(line.type, 'miss');
     assert.equal(line.reason, 'timeout');
-    // A timer may fire a few ms early, so the lower bound is loose; the upper bound is the old ceiling, far below the 1500 ms a budget-ignoring cut would show.
-    assert.ok(line.durationMs >= 95 && line.durationMs < 1000, `the call ran ${line.durationMs}ms: expected a cut near the 120 ms budget (>= 95 ms and < 1000 ms)`);
+    // The child's deadline runs from when its payload arrived, so a slow start (module loading on a loaded machine) is taken
+    // out of the call's own durationMs (shadow-runner deadlineOf). The cut is therefore held to the budget from the moment the
+    // handler began: no line can exist sooner than budgetMs after it (a timer may fire a few ms early). The upper bound is the
+    // old ceiling, far below the 1500 ms a budget-ignoring cut would show.
+    assert.ok(recordedAt - startedAt >= 115, `the line was recorded ${recordedAt - startedAt} ms after the handler began: expected the cut at the 120 ms budget (>= 115 ms)`);
+    assert.ok(line.durationMs > 0 && line.durationMs < 1000, `the call ran ${line.durationMs}ms: expected a cut within the budget (> 0 ms and < 1000 ms)`);
   });
 
   test('an unreadable reply is recorded as a malformed-reply miss', async (t) => {

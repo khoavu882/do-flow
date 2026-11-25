@@ -13,6 +13,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
+const { STEP_BAR_BASELINES, stepBarMs, CONTROL_EXTRA_WORK } = require('../helper/hook-step-bar.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const BRIDGE_DIR = path.join(REPO, 'core/harnesses/shared/hooks/bridge');
@@ -157,8 +158,9 @@ test('(e) the Claude SessionEnd hook removes only the ending session\'s effort f
   assert.equal(fs.lstatSync(link).isSymbolicLink(), true, 'a link is never removed');
 });
 
-test('(g) the step finishes under 20 ms over a no-op baseline: median of 20 runs, steady state and write path, each less an interleaved no-op run of the same function', { skip: !POSIX }, (t) => {
-  // The baseline is the step's fixed process starts (bash and jq); the 20 ms bar limits DoFlow's own work above them.
+test('(g) the step finishes within four no-op baselines over one (about 20 ms on the reference Mac): median of 20 runs, steady state and write path, each less an interleaved no-op run of the same function; the same step with extra work fails the bar', { skip: !POSIX }, (t) => {
+  // The baseline is the step's fixed process starts (bash and jq); the bar limits DoFlow's own work above them and
+  // scales with the runner's own baseline (test/helper/hook-step-bar.ts).
   const s = scratch(t);
   const encode = (level: string) => {
     const out = spawnSync('jq', ['-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PreToolUse', '--arg', 'policy', POLICY, '--arg', 'mode', 'encode', '-f', path.join(BRIDGE_DIR, 'envelope.jq')],
@@ -173,19 +175,25 @@ test('(g) the step finishes under 20 ms over a no-op baseline: median of 20 runs
     assert.equal(result.status, 0);
     return Number(process.hrtime.bigint() - started) / 1e6;
   };
-  const invoke = (harness: string, envelope: string) => timed(['-c', `( . "$1/observe-effort.sh" && doflow_observe_effort "$2" "$3"${harness === '' ? '; jq -n . >/dev/null' : ''} ) >/dev/null 2>&1 </dev/null || true`, '_', BRIDGE_DIR, harness, envelope]);
-  const step = (envelope: string) => ({ base: invoke('', envelope), step: invoke('claude', envelope) });
+  const invoke = (harness: string, envelope: string, extra = '') => timed(['-c', `( . "$1/observe-effort.sh" && doflow_observe_effort "$2" "$3"${harness === '' ? '; jq -n . >/dev/null' : ''}${extra} ) >/dev/null 2>&1 </dev/null || true`, '_', BRIDGE_DIR, harness, envelope]);
+  const step = (envelope: string, extra = '') => ({ base: invoke('', envelope), step: invoke('claude', envelope, extra) });
   const median = (values: number[]) => { const sorted = [...values].sort((a, b) => a - b); return (sorted[9] + sorted[10]) / 2; };
   step(envelopes.high);
   assert.equal(JSON.parse(fs.readFileSync(s.file, 'utf8')).level, 'high');
   const steadyRuns = Array.from({ length: 20 }, () => step(envelopes.high));
   const writeRuns = Array.from({ length: 20 }, (_, i) => step(i % 2 === 0 ? envelopes.xhigh : envelopes.high));
   assert.equal(JSON.parse(fs.readFileSync(s.file, 'utf8')).level, 'high', 'the write runs alternated the level, ending on high');
+  // The control: the write path plus extra process starts (CONTROL_EXTRA_WORK) must fail the same bar, so a bar that
+  // scales with the runner does not pass a step that grew.
+  const controlRuns = Array.from({ length: 20 }, (_, i) => step(i % 2 === 0 ? envelopes.xhigh : envelopes.high, `; ${CONTROL_EXTRA_WORK}`));
   const steady = median(steadyRuns.map((r) => r.step));
   const steadyBase = median(steadyRuns.map((r) => r.base));
   const writes = median(writeRuns.map((r) => r.step));
   const writesBase = median(writeRuns.map((r) => r.base));
-  t.diagnostic(`observe-effort median of 20 (step vs no-op baseline): steady ${steady.toFixed(2)} ms vs baseline ${steadyBase.toFixed(2)} ms, write ${writes.toFixed(2)} ms vs baseline ${writesBase.toFixed(2)} ms`);
-  assert.ok(steady - steadyBase < 20, `steady-state median ${steady} ms, baseline ${steadyBase} ms`);
-  assert.ok(writes - writesBase < 20, `write-path median ${writes} ms, baseline ${writesBase} ms`);
+  const control = median(controlRuns.map((r) => r.step));
+  const controlBase = median(controlRuns.map((r) => r.base));
+  t.diagnostic(`observe-effort median of 20 (step vs no-op baseline, bar ${STEP_BAR_BASELINES} baselines): steady ${steady.toFixed(2)} ms vs baseline ${steadyBase.toFixed(2)} ms, write ${writes.toFixed(2)} ms vs baseline ${writesBase.toFixed(2)} ms, control ${control.toFixed(2)} ms vs baseline ${controlBase.toFixed(2)} ms`);
+  assert.ok(steady - steadyBase < stepBarMs(steadyBase), `steady-state median ${steady} ms, baseline ${steadyBase} ms, bar ${stepBarMs(steadyBase)} ms`);
+  assert.ok(writes - writesBase < stepBarMs(writesBase), `write-path median ${writes} ms, baseline ${writesBase} ms, bar ${stepBarMs(writesBase)} ms`);
+  assert.ok(control - controlBase >= stepBarMs(controlBase), `the control with extra work must fail the bar: median ${control} ms, baseline ${controlBase} ms, bar ${stepBarMs(controlBase)} ms`);
 });

@@ -127,10 +127,15 @@ function endedRecord(runId: string, token: number, extra: any = {}) {
   };
 }
 
-/** No planted marker, pid or marker number in the text. */
+/** No planted marker, pid or marker number in the text. The planted numbers stay numbers, so the record keeps the shape the
+ * readers see; each is matched as a whole number (no digit on either side), so a real inode, size or cursor that only
+ * contains its digits (inode 1031337830 held 31337) is not a leak, while the value itself, however it is printed, is. */
 function assertNothingPlanted(text: string) {
-  for (const marker of ['PLANTED', '424242', '434343', '454545', '454546', '98765', '87654', '31337', '09:09:09', '/home/test', 'sk-ant']) {
+  for (const marker of ['PLANTED', '09:09:09', '/home/test', 'sk-ant']) {
     assert.equal(text.includes(marker), false, `'${marker}' is not in ${text.slice(0, 200)}`);
+  }
+  for (const marker of ['424242', '434343', '454545', '454546', '98765', '87654', '31337']) {
+    assert.equal(new RegExp(`(?<![0-9])${marker}(?![0-9])`).test(text), false, `the number ${marker} is not in ${text.slice(0, 200)}`);
   }
 }
 

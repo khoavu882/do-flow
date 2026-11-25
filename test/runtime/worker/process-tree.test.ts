@@ -298,16 +298,83 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.equal(tree.processTexts({ platform: 'win32', run }), null);
   assert.equal(tree.processTexts({ platform: 'freebsd', run }), null);
   const files: any = { '/proc/1/cmdline': 'init\0', '/proc/1/environ': '', '/proc/7/cmdline': 'fake\0-p\0', '/proc/7/environ': 'DOFLOW_STARTED_RUN=w-aaaabbbbcccc\0' };
-  const proc = (owner: any, readable = true) => ({
+  const proc = (owner: any, readable = true, code = 'EACCES') => ({
     readdirSync: () => ['1', '7', 'self', '9'],
     statSync: (p: string) => ({ uid: p === '/proc/1' ? 0 : owner }),
     readFileSync: (p: string) => {
       if (p.startsWith('/proc/9/')) { const e: any = new Error('gone'); e.code = 'ENOENT'; throw e; }
-      if (!readable) { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; }
+      if (!readable) { const e: any = new Error('denied'); e.code = code; throw e; }
       return Buffer.from(files[p]);
     },
   });
   assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: 501 }), ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc ']);
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501, false), uid: 501 }), null, 'an unreadable entry of this user is unknown');
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: proc(501), uid: null }), null);
+  // A zombie answers EACCES for its environ and has nothing to name a run with: it is skipped; a live entry that denies is unknown.
+  const withStat = (state: string, threads = 1, tasks: any = {}, code = 'EACCES') => ({
+    ...proc(501, false, code),
+    readdirSync: (p: string) => (p === '/proc/7/task' ? ['7', ...Object.keys(tasks)] : proc(501, false, code).readdirSync()),
+    readFileSync: (p: string) => {
+      if (p === '/proc/7/stat') return Buffer.from(`7 (fake) ${state} 1 1 1`);
+      if (p === '/proc/7/status') return Buffer.from(`Name:\tfake\nState:\t${state}\nThreads:\t${threads}\n`);
+      const task = /^\/proc\/7\/task\/(\d+)\/(cmdline|environ)$/.exec(p);
+      if (task && tasks[task[1]]) return Buffer.from(tasks[task[1]][task[2]]);
+      return proc(501, false, code).readFileSync(p);
+    },
+  });
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z'), uid: 501 }), []);
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('S'), uid: 501 }), null);
+  // Seat A: a process whose main thread exited shows Z while its other threads run. It is read through a live thread, so a
+  // run it names stays open; with no thread that reads, the listing is unknown, never a dead reading.
+  const live = { cmdline: 'fake\0-p\0', environ: 'DOFLOW_STARTED_RUN=w-aaaabbbbcccc\0' };
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2, { 8: live }), uid: 501 }), ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc ']);
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2), uid: 501 }), null, 'no live thread reads: unknown');
+  const noStatus = { ...withStat('Z'), readFileSync: (p: string) => { if (p === '/proc/7/status') { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; } return withStat('Z').readFileSync(p); } };
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: noStatus, uid: 501 }), null, 'a thread count that cannot be read is unknown');
+  // Seat B: a kernel may answer ESRCH, not EACCES, for that process; it takes the same path, so a live one is never read as gone.
+  // ESRCH from an entry that is not a zombie is a process that ended between the listing and the read: gone.
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2, { 8: live }, 'ESRCH'), uid: 501 }), ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc ']);
+  assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2, {}, 'ESRCH'), uid: 501 }), null, 'ESRCH and no live thread reads: unknown');
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 1, {}, 'ESRCH'), uid: 501 }), [], 'an ESRCH zombie with one thread is skipped');
+  assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('S', 1, {}, 'ESRCH'), uid: 501 }), [], 'ESRCH from an entry that is not a zombie is gone');
+  // The A-1 diagnosis: a listing that cannot be read names its first blocker; a readable one names none.
+  const blocker = (options: any) => tree.readProcessTexts({ platform: 'linux', uid: 501, ...options });
+  assert.deepEqual(blocker({ fsImpl: proc(501) }), { texts: ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc '], unreadable: null });
+  assert.deepEqual(blocker({ fsImpl: withStat('S') }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'S', threads: 1, command: null } });
+  assert.deepEqual(blocker({ fsImpl: withStat('Z', 2) }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'Z', threads: 2, command: null } });
+  assert.deepEqual(blocker({ fsImpl: proc(501, false, 'EIO') }).unreadable, { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EIO', state: null, threads: null, command: null }, 'a stat and status that do not read are null');
+  assert.deepEqual(blocker({ fsImpl: { readdirSync: () => { const e: any = new Error('x'); e.code = 'EACCES'; throw e; } } }).unreadable, { reason: 'proc-list', pid: null, file: '/proc', errno: 'EACCES' });
+  assert.deepEqual(blocker({ fsImpl: proc(501), uid: null }).unreadable, { reason: 'no-uid', pid: null, file: null, errno: null });
+  assert.deepEqual(tree.readProcessTexts({ platform: 'darwin', run: () => null }).unreadable, { reason: 'ps-failed', pid: null, file: null, errno: null });
+  // A-1 root cause (CI run 45556190256): a live non-dumpable process of this user (ssh-agent, gpg-agent, a setuid binary) has
+  // its environ owned by root and answers EACCES. It is skipped when its cmdline names no harness; otherwise it stays unknown.
+  const nonDumpable = ({ cmdline = 'ssh-agent\0-s\0', environOwner = 0, realUid = 501, cmdlineReadable = true } = {}) => ({
+    readdirSync: () => ['7'],
+    statSync: (p: string) => ({ uid: p === '/proc/7/environ' ? environOwner : 501 }),
+    readFileSync: (p: string) => {
+      const denied = () => { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; };
+      if (p === '/proc/7/cmdline') return cmdlineReadable ? Buffer.from(cmdline) : denied();
+      if (p === '/proc/7/environ') return denied();
+      if (p === '/proc/7/stat') return Buffer.from('7 (x) S 1 1 1');
+      if (p === '/proc/7/status') return Buffer.from(`Name:\tx\nUid:\t${realUid}\t${realUid}\t${realUid}\t${realUid}\nThreads:\t1\n`);
+      throw new Error(`unexpected read ${p}`);
+    },
+  });
+  const binaries = ['claude', 'codex', 'kiro-cli'];
+  assert.deepEqual(blocker({ fsImpl: nonDumpable(), binaries }), { texts: [], unreadable: null }, 'a non-dumpable ssh-agent is skipped');
+  assert.deepEqual(blocker({ fsImpl: nonDumpable({ cmdline: '/usr/bin/codex\0exec\0' }), binaries }).unreadable,
+    { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 1, command: 'codex' }, 'argv[0] names a harness: unknown');
+  assert.deepEqual(blocker({ fsImpl: nonDumpable({ cmdline: '/usr/bin/node\0/opt/lib/claude\0-p\0' }), binaries }).unreadable?.command, 'node',
+    'argv[1] names a harness (node .../claude): unknown');
+  assert.equal(blocker({ fsImpl: nonDumpable({ cmdline: '/usr/bin/timeout\x0030\x00claude\x00-p\x00' }), binaries }).texts, null,
+    'a later argv element names a harness (timeout 30 claude): unknown');
+  assert.deepEqual(blocker({ fsImpl: nonDumpable({ environOwner: 501 }), binaries }).unreadable,
+    { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 1, command: 'ssh-agent' }, 'a dumpable process that denies: unknown');
+  assert.equal(blocker({ fsImpl: nonDumpable({ realUid: 502 }), binaries }).texts, null, 'a real uid other than ours: unknown');
+  assert.deepEqual(blocker({ fsImpl: nonDumpable({ cmdlineReadable: false }), binaries }).unreadable,
+    { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'S', threads: 1, command: null }, 'an unreadable cmdline: unknown');
+  assert.equal(blocker({ fsImpl: nonDumpable({ cmdline: '' }), binaries }).texts, null, 'an empty cmdline: unknown');
+  assert.equal(blocker({ fsImpl: nonDumpable(), binaries: null }).texts, null, 'a registry that cannot be read: unknown');
+  assert.deepEqual(blocker({ fsImpl: nonDumpable() }).texts, [], 'by default the binaries come from core/registry/harnesses.json');
+  assert.equal(blocker({ fsImpl: nonDumpable({ cmdline: '/usr/local/bin/claude\0' }) }).texts, null, 'a registry harness binary by default: unknown');
 });
