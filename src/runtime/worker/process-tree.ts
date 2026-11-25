@@ -265,30 +265,21 @@ function harnessBinaries(fsImpl: any = fs): string[] | null {
   } catch { return null; }
 }
 
-/** The real uid on the `Uid:` line of /proc/<pid>/status; null when it cannot be read. */
-function procRealUid(fsImpl: any, pid: string): number | null {
-  try {
-    const match = /^Uid:\s*(\d+)/m.exec(fsImpl.readFileSync(`/proc/${pid}/status`).toString('utf8'));
-    return match ? Number(match[1]) : null;
-  } catch { return null; }
-}
-
-/** The owner uid of a /proc file; null when it cannot be stated. */
-function procFileOwner(fsImpl: any, file: string): number | null {
-  try { return fsImpl.statSync(file).uid; } catch { return null; }
-}
-
 /**
- * Whether an entry whose environ answered EACCES is a non-dumpable process of this user that names no harness, which is
- * skipped. A process that set PR_SET_DUMPABLE 0 (ssh-agent, gpg-agent) or runs a setuid binary has its /proc files other than
- * the directory owned by root, so its environ cannot be read, while its status still shows our real uid and its cmdline still
- * reads. It is skipped only when no argv element has a harness binary as its basename (`node .../claude` and `timeout 30 claude`
- * count); an unreadable registry, cmdline, status or owner leaves it unknown. The registry lists no binary for a harness's child
- * processes, so only `worker.cli.binary` is compared.
+ * Whether an entry of this user whose environ answered EACCES is one the kernel will not let us inspect and that names no
+ * harness, which is skipped. Two mechanisms are known: a process that set PR_SET_DUMPABLE 0 (ssh-agent, gpg-agent) or runs a
+ * setuid binary has its /proc files other than the directory owned by root; a process that holds more privilege than we do
+ * (a capability superset, for example `systemd --user` with CAP_WAKE_ALARM; also an LSM denial) keeps its files ours but
+ * fails the ptrace access check with EACCES. The rule is mechanism-independent on purpose: the entry is already selected
+ * because its /proc directory is owned by this uid, and a third mechanism would otherwise block every user who has one. It is
+ * skipped when its cmdline reads, is non-empty and no argv element has a harness binary as its basename (`node .../claude` and
+ * `timeout 30 claude` count); an unreadable registry or cmdline, or an empty argv, leaves it unknown. The registry lists no
+ * binary for a harness's child processes, so only `worker.cli.binary` is compared. Trade-off: a privileged non-harness child
+ * of a harness (a file-capability binary run as a tool) is skipped too, which can read a run as dead while that child runs; a
+ * harness itself never gains privilege, so it is never skipped here.
  */
-function nonDumpableNonHarness(fsImpl: any, pid: string, uid: number, argv: string[] | null, binaries: string[] | null): boolean {
+function uninspectableNonHarness(argv: string[] | null, binaries: string[] | null): boolean {
   if (argv === null || argv.length === 0 || binaries === null) return false;
-  if (procFileOwner(fsImpl, `/proc/${pid}/environ`) !== 0 || procRealUid(fsImpl, pid) !== uid) return false;
   return !argv.some((arg) => binaries.includes(path.basename(arg)));
 }
 
@@ -344,7 +335,7 @@ function readProcessTexts({ platform = process.platform, run = runPs, fsImpl = f
       if (error?.code === 'ESRCH') continue;
       if (error?.code === 'EACCES' && file === `/proc/${name}/environ`) {
         if (registryBinaries === undefined) registryBinaries = harnessBinaries();
-        if (nonDumpableNonHarness(fsImpl, name, uid, argv, registryBinaries)) continue;
+        if (uninspectableNonHarness(argv, registryBinaries)) continue;
       }
       return entry(procState(fsImpl, name), procThreads(fsImpl, name));
     }
