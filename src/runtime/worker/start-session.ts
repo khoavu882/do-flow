@@ -335,12 +335,16 @@ function dispatchRunning(root: string, platform: string) {
  * read. The listing is read once, on the first question, and only when one is asked.
  */
 function namingScan(platform: string) {
-  let texts: string[] | null | undefined;
-  return (runId: string): 'found' | 'none' | 'unknown' => {
-    if (texts === undefined) texts = processTree.processTexts({ platform });
-    if (texts === null || texts === undefined) return 'unknown';
-    return texts.some((text) => text.includes(runId)) ? 'found' : 'none';
+  let reading: { texts: string[] | null; unreadable: any } | undefined;
+  const unknown = new Set<string>();
+  const named = (runId: string): 'found' | 'none' | 'unknown' => {
+    if (reading === undefined) reading = processTree.readProcessTexts({ platform });
+    if (!reading || reading.texts === null) { unknown.add(runId); return 'unknown'; }
+    return reading.texts.some((text) => text.includes(runId)) ? 'found' : 'none';
   };
+  /** What stopped the listing, when this run's reading was unknown because of it; null otherwise. */
+  named.unreadableFor = (runId: string) => (unknown.has(runId) ? reading?.unreadable ?? null : null);
+  return named;
 }
 
 /**
@@ -537,7 +541,11 @@ async function startSession(o: any) {
       const here = open.filter((run) => run.project?.worktreeKey === worktreeKey);
       const busy = here.find((run) => states.get(run.runId) !== 'unknown');
       if (busy) return { code: 'checkout-busy', current: { runId: busy.runId } };
-      if (here.length > 0) return { code: 'checkout-busy-unknown', current: { runId: here[0].runId } };
+      if (here.length > 0) {
+        // The listing's blocker rides along only when the listing is why that run's reading is unknown.
+        const unreadable = named.unreadableFor(here[0].runId);
+        return { code: 'checkout-busy-unknown', current: { runId: here[0].runId, ...(unreadable ? { unreadable } : {}) } };
+      }
       const mine = open.filter((run) => run.startedBy === startedBy).length + (away.byActor.get(startedBy) ?? 0);
       if (mine >= LIMITS.perActor) return { code: 'actor-limit', current: { open: mine, max: LIMITS.perActor } };
       const all = open.length + away.total;
@@ -556,7 +564,7 @@ async function startSession(o: any) {
       const existing = readRuns(file)[inserted.runId];
       return { ok: true, replayed: true, run: replyRun(existing, root, projectKey) };
     }
-    const words = inserted.reason === 'checkout-busy-unknown' ? unknownWords(inserted.current.runId) : LIMIT_WORDS[inserted.reason] ?? inserted.reason;
+    const words = inserted.reason === 'checkout-busy-unknown' ? unknownWords(inserted.current.runId, inserted.current.unreadable) : LIMIT_WORDS[inserted.reason] ?? inserted.reason;
     return refusal(inserted.reason, words, inserted.current);
   }
 
@@ -586,8 +594,16 @@ async function startSession(o: any) {
 }
 
 /** 165 review A-1: the words of `checkout-busy-unknown`, with the cancel that clears it. */
-const unknownWords = (runId: string) => `a started session in this checkout (${runId}) may still be running and its processes cannot be checked; `
+const unknownWords = (runId: string, unreadable?: any) => `a started session in this checkout (${runId}) may still be running and its processes cannot be checked; `
+  + (unreadable ? `${blockerWords(unreadable)}; ` : '')
   + `if it has ended, clear it with: doflow worker --action cancel --slug ${STARTED_SLUG} --worker-run ${runId} --operator --via console --reason ended`;
+
+/** The process-table blocker in words: the file and errno, and the stat state and Threads count when they were read. */
+function blockerWords(u: any): string {
+  if (u.reason !== 'proc-entry') return `the process table could not be read (${u.reason}${u.errno ? ` ${u.errno}` : ''})`;
+  const seen = [u.state ? `state ${u.state}` : null, typeof u.threads === 'number' ? `Threads ${u.threads}` : null].filter(Boolean);
+  return `the process table could not be read: ${u.file} answered ${u.errno ?? 'an error'}${seen.length ? ` (${seen.join(', ')})` : ''}`;
+}
 
 const LIMIT_WORDS: Record<string, string> = Object.freeze({
   'checkout-busy': 'a started session is already open in this checkout',

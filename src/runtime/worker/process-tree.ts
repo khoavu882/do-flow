@@ -238,30 +238,54 @@ function liveTaskText(fsImpl: any, pid: string): string | null {
   return null;
 }
 
+/** The state letter /proc/<pid>/stat shows (R, S, Z, ...); null when it cannot be read. */
+function procState(fsImpl: any, pid: string): string | null {
+  try {
+    const stat = fsImpl.readFileSync(`/proc/${pid}/stat`).toString('utf8');
+    return stat.slice(stat.lastIndexOf(')') + 1).trim().charAt(0) || null;
+  } catch { return null; }
+}
+
 /**
- * 165 review A-1: one text per process of this user, its command line and, where the OS shows it, its environment; null when
- * the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read), which a
- * caller reads as unknown. darwin: one `ps -wwAE -o command=` (environments of other users and of platform binaries are not
- * shown, so such a process is read from its command line alone). linux: `/proc/<pid>/cmdline` and `environ` of every process
- * this user owns. Writes nothing and signals nothing.
+ * What stopped `readProcessTexts` from reading the listing, for the caller to name: `reason` is `proc-entry` (one /proc entry
+ * of this user could not be read; `pid`, the `file` it failed on, the `errno`, and the stat `state` and `Threads` count when
+ * they were read), `proc-list` (/proc itself could not be listed), `ps-failed` (darwin), `no-uid` or `platform`.
  */
-function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, uid = typeof process.getuid === 'function' ? process.getuid() : null }: any = {}): string[] | null {
+type Unreadable = { reason: string; pid: number | null; file: string | null; errno: string | null; state?: string | null; threads?: number | null };
+
+/**
+ * 165 review A-1: one text per process of this user, its command line and, where the OS shows it, its environment; `texts` is
+ * null when the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read),
+ * which a caller reads as unknown, and `unreadable` then names the first blocker. darwin: one `ps -wwAE -o command=`
+ * (environments of other users and of platform binaries are not shown, so such a process is read from its command line alone).
+ * linux: `/proc/<pid>/cmdline` and `environ` of every process this user owns. Writes nothing and signals nothing.
+ */
+function readProcessTexts({ platform = process.platform, run = runPs, fsImpl = fs, uid = typeof process.getuid === 'function' ? process.getuid() : null }: any = {}): { texts: string[] | null; unreadable: Unreadable | null } {
+  const blocked = (unreadable: Unreadable) => ({ texts: null, unreadable });
   if (platform === 'darwin') {
     const out = run(['-wwAE', '-o', 'command='], { maxBuffer: TEXTS_MAX_BYTES });
-    return out == null ? null : String(out).split('\n').filter((line) => line.trim() !== '');
+    if (out == null) return blocked({ reason: 'ps-failed', pid: null, file: null, errno: null });
+    return { texts: String(out).split('\n').filter((line) => line.trim() !== ''), unreadable: null };
   }
-  if (platform !== 'linux' || uid === null) return null;
+  if (platform !== 'linux') return blocked({ reason: 'platform', pid: null, file: null, errno: null });
+  if (uid === null) return blocked({ reason: 'no-uid', pid: null, file: null, errno: null });
   const texts: string[] = [];
   let names: string[];
-  try { names = fsImpl.readdirSync('/proc').filter((name: string) => /^[0-9]+$/.test(name)); } catch { return null; }
+  try { names = fsImpl.readdirSync('/proc').filter((name: string) => /^[0-9]+$/.test(name)); } catch (error: any) {
+    return blocked({ reason: 'proc-list', pid: null, file: '/proc', errno: typeof error?.code === 'string' ? error.code : null });
+  }
   for (const name of names) {
+    let file = `/proc/${name}`;
     try {
-      if (fsImpl.statSync(`/proc/${name}`).uid !== uid) continue;
-      const read = (file: string) => fsImpl.readFileSync(`/proc/${name}/${file}`).toString('utf8').split('\0').join(' ');
+      if (fsImpl.statSync(file).uid !== uid) continue;
+      const read = (part: string) => { file = `/proc/${name}/${part}`; return fsImpl.readFileSync(file).toString('utf8').split('\0').join(' '); };
       texts.push(`${read('cmdline')} ${read('environ')}`);
     } catch (error: any) {
       // A process that ended between the listing and the read is gone; any other failure leaves the answer unknown.
       if (error?.code === 'ENOENT') continue;
+      const entry = (state: string | null, threads: number | null) => blocked({
+        reason: 'proc-entry', pid: Number(name), file, errno: typeof error?.code === 'string' ? error.code : null, state, threads,
+      });
       // An entry whose stat shows Z or X answers EACCES for its environ, or ESRCH, depending on the kernel. With one thread it
       // is a zombie (exited, not yet reaped) with nothing left to name a run, so it is skipped. With more, only its main
       // thread has exited and the process still runs: it is read through a live thread, and stays unknown if none reads.
@@ -269,15 +293,20 @@ function processTexts({ platform = process.platform, run = runPs, fsImpl = fs, u
         const threads = procThreads(fsImpl, name);
         if (threads === 1) continue;
         const text = threads === null ? null : liveTaskText(fsImpl, name);
-        if (text === null) return null;
+        if (text === null) return entry(procState(fsImpl, name), threads);
         texts.push(text);
         continue;
       }
       if (error?.code === 'ESRCH') continue;
-      return null;
+      return entry(procState(fsImpl, name), procThreads(fsImpl, name));
     }
   }
-  return texts;
+  return { texts, unreadable: null };
+}
+
+/** `readProcessTexts`' texts alone: the listing, or null when it cannot be read. */
+function processTexts(options: any = {}): string[] | null {
+  return readProcessTexts(options).texts;
 }
 
 /**
@@ -485,6 +514,7 @@ module.exports = {
   groupAlive,
   snapshotTree,
   processTexts,
+  readProcessTexts,
   escalate,
   spawnBounded,
 };

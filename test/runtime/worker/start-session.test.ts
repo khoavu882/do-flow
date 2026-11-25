@@ -718,6 +718,25 @@ test('A-1: a run whose liveness cannot be read is refused checkout-busy-unknown 
   await ended(f, free.body.run.runId);
 });
 
+test('A-1: when the process table is why a run reads unknown, checkout-busy-unknown names the blocker in its words and in current.unreadable', POSIX, async (t: any) => {
+  const f = fixture(t);
+  const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
+  const real = tree.readProcessTexts;
+  const unreadable = { reason: 'proc-entry', pid: 4321, file: '/proc/4321/environ', errno: 'EACCES', state: 'S', threads: 3 };
+  tree.readProcessTexts = () => ({ texts: null, unreadable });
+  t.after(() => { tree.readProcessTexts = real; });
+  const runId = unsupervisedRun(f);
+  const refused = await start(f, { harness: 'codex' });
+  assert.deepEqual([refused.exit, refused.body.code, refused.body.current], [1, 'checkout-busy-unknown', { runId, unreadable }], JSON.stringify(refused.body));
+  assert.match(refused.body.message, /its processes cannot be checked; the process table could not be read: \/proc\/4321\/environ answered EACCES \(state S, Threads 3\); if it has ended, clear it with: doflow worker --action cancel/);
+  // A run whose unknown reading comes from a recorded pid, not from the table, keeps the old shape and words.
+  const other = fixture(t);
+  const pinned = unsupervisedRun(other, { proc: { ...liveChild(), start: null } });
+  const plain = await start(other, { harness: 'codex' });
+  assert.deepEqual(plain.body.current, { runId: pinned });
+  assert.doesNotMatch(plain.body.message, /process table/);
+});
+
 // ---- 165 review A-3: only a missing dispatch directory means "no dispatch records" -----------------------------------------------
 
 test('A-3: a dispatch directory that cannot be listed (EACCES) refuses the start and marks the options running; a missing one does not', { ...POSIX, skip: POSIX.skip || (process.getuid?.() === 0 && 'root reads a mode-000 directory') }, async (t: any) => {

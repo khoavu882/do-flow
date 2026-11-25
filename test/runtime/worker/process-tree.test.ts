@@ -337,4 +337,13 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.equal(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 2, {}, 'ESRCH'), uid: 501 }), null, 'ESRCH and no live thread reads: unknown');
   assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('Z', 1, {}, 'ESRCH'), uid: 501 }), [], 'an ESRCH zombie with one thread is skipped');
   assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('S', 1, {}, 'ESRCH'), uid: 501 }), [], 'ESRCH from an entry that is not a zombie is gone');
+  // The A-1 diagnosis: a listing that cannot be read names its first blocker; a readable one names none.
+  const blocker = (options: any) => tree.readProcessTexts({ platform: 'linux', uid: 501, ...options });
+  assert.deepEqual(blocker({ fsImpl: proc(501) }), { texts: ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc '], unreadable: null });
+  assert.deepEqual(blocker({ fsImpl: withStat('S') }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'S', threads: 1 } });
+  assert.deepEqual(blocker({ fsImpl: withStat('Z', 2) }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'Z', threads: 2 } });
+  assert.deepEqual(blocker({ fsImpl: proc(501, false, 'EIO') }).unreadable, { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EIO', state: null, threads: null }, 'a stat and status that do not read are null');
+  assert.deepEqual(blocker({ fsImpl: { readdirSync: () => { const e: any = new Error('x'); e.code = 'EACCES'; throw e; } } }).unreadable, { reason: 'proc-list', pid: null, file: '/proc', errno: 'EACCES' });
+  assert.deepEqual(blocker({ fsImpl: proc(501), uid: null }).unreadable, { reason: 'no-uid', pid: null, file: null, errno: null });
+  assert.deepEqual(tree.readProcessTexts({ platform: 'darwin', run: () => null }).unreadable, { reason: 'ps-failed', pid: null, file: null, errno: null });
 });
