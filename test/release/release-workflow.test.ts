@@ -319,9 +319,10 @@ test('R15: the rehearsal job must exist, run on the preflight Node, run the rehe
     // R11 also reports a pin that is not the engines floor; R15 is the relative rule against preflight.
     ['another Node', workflow.replace(rehearseJob, rehearseJob.replace('24.22.1', '24.22.2')), /same Node as preflight/, 'R11'],
     ['no Node pin', workflow.replace(rehearseJob, rehearseJob.replace(/      - uses: actions\/setup-node[^\n]*\n        with:\n          node-version: 24\.22\.1\n/, '')), /same Node as preflight/],
+    ['does not skip the rehearsal preflight', workflow.replace(rehearseJob, rehearseJob.replace(' -- --skip-preflight', '')), /must pass --skip-preflight/],
     ['does not run the rehearsal', workflow.replace(rehearseJob, rehearseJob.replace('release:rehearse', 'build:package')), /must run release:rehearse/],
     ['continue-on-error on the job', workflow.replace(rehearseJob, rehearseJob.replace('    runs-on: ubuntu-latest\n', '    runs-on: ubuntu-latest\n    continue-on-error: true\n')), /rehearse must not declare continue-on-error/],
-    ['continue-on-error on the rehearsal step', workflow.replace(rehearseJob, rehearseJob.replace('      - run: npm run release:rehearse', '      - run: npm run release:rehearse\n        continue-on-error: true')), /rehearse must not declare continue-on-error/],
+    ['continue-on-error on the rehearsal step', workflow.replace(rehearseJob, rehearseJob.replace('      - run: npm run release:rehearse -- --skip-preflight', '      - run: npm run release:rehearse -- --skip-preflight\n        continue-on-error: true')), /rehearse must not declare continue-on-error/],
   ];
   for (const [name, mutated, message, alsoRule] of mutations as Array<[string, string, RegExp, string | undefined]>) {
     assert.notEqual(mutated, workflow, name + ' mutation must change the fixture');

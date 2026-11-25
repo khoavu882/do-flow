@@ -33,7 +33,7 @@ jobs:
       - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v7.1.0
         with:
           node-version: 24.22.1
-      - run: npm run release:rehearse
+      - run: npm run release:rehearse -- --skip-preflight
   verify-artifact:
     needs: [preflight, test, rehearse]
     runs-on: ubuntu-latest

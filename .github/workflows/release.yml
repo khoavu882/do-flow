@@ -52,7 +52,8 @@ jobs:
 
   # The from-nothing rehearsal on the release Node: a clone of this commit, a child environment
   # built from nothing, the stages a tagged cut depends on. It needs full history, so it cannot be
-  # folded into the reusable test call, and verify-artifact waits for it.
+  # folded into the reusable test call, and verify-artifact waits for it. It skips its own preflight
+  # stage: it runs on the tag, which that stage rejects as already used, and the preflight job owns it.
   rehearse:
     runs-on: ubuntu-latest
     permissions:
@@ -64,7 +65,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.22.1
-      - run: npm run release:rehearse
+      - run: npm run release:rehearse -- --skip-preflight
 
   verify-artifact:
     needs: [preflight, test, rehearse]
