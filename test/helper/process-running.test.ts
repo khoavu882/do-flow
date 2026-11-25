@@ -5,10 +5,11 @@ const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const { processRunning } = require('./process-running.ts');
 
-// A zombie that stays one: the shell starts `true` in the background, prints its pid and becomes `sleep`, which never
-// collects the exit status of the child it inherited.
+// A zombie that stays one: the shell starts a short `sleep` in the background, prints its pid and becomes a long `sleep`, which
+// never collects the exit status of the child it inherited. The child must still run when the shell execs: a child that has
+// already exited is reaped by the shell itself (macOS CI: `kill ESRCH`), so no zombie would ever exist.
 test('a running process is running; a zombie and a pid that is gone are not', { skip: process.platform === 'win32' && 'POSIX processes and ps' }, async (t) => {
-  const holder = spawn('sh', ['-c', 'true & echo $!; exec sleep 5'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const holder = spawn('sh', ['-c', 'sleep 0.3 & echo $!; exec sleep 5'], { stdio: ['ignore', 'pipe', 'ignore'] });
   t.after(() => { try { holder.kill('SIGKILL'); } catch { /* already gone */ } });
   const zombie = Number(await new Promise((resolve) => holder.stdout.once('data', (chunk: Buffer) => resolve(String(chunk).trim()))));
   assert.ok(zombie > 1, 'the shell printed its child\'s pid');
