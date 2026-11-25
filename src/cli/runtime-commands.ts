@@ -25,6 +25,7 @@ const {
 } = require('../runtime/cli.ts');
 const { loadRegistry } = require('../registry/index.ts');
 const { enforcementFor, UnknownEnforcementTarget } = require('../lifecycle/coverage.ts');
+const { ruleReport, renderRuleReport } = require('../runtime/guidance/rule-ledger.ts');
 // `doctor` comes from the health module rather than src/runtime/cli.ts: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health.ts');
@@ -509,6 +510,15 @@ function handleEnforcementCommand(o: any): number {
     process.exitCode = 2;
     return 2;
   };
+  if (o.rules) {
+    if (o.harness != null || o.policy != null || o.profile != null) return fail('usage', '--rules cannot be combined with --harness, --policy or --profile');
+    let report: any;
+    try { report = ruleReport(REPO_ROOT); } catch (error: any) { return fail('rules-unreadable', error.message); }
+    if (o.json) console.log(JSON.stringify({ ok: report.neither === 0, rules: report }));
+    else for (const line of renderRuleReport(report)) console.log(line);
+    process.exitCode = report.neither === 0 ? 0 : 1;
+    return process.exitCode;
+  }
   if (typeof o.harness !== 'string' || !o.harness || typeof o.policy !== 'string' || !o.policy || (o.profile !== undefined && typeof o.profile !== 'string')) return fail('usage', 'requires --harness <id> --policy <id> [--profile <id>]');
   try {
     const registry = loadRegistry({ repoRoot: REPO_ROOT });

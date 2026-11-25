@@ -7,7 +7,10 @@
  * or two rows span, is a finding with a `path:line` locator.
  */
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { proseLines } = require('../plan-content.ts');
+const { loadRuleLedger } = require('./ablation.ts');
 
 export type RuleLine = { line: number; text: string };
 export type CoverFinding = { kind: 'uncovered' | 'double-covered'; path: string; line: number; text: string; rows: string[] };
@@ -77,4 +80,66 @@ function coverRuleLines(files: Array<{ path: string; text: string }>, ledger: { 
   return findings;
 }
 
-module.exports = { findRuleLines, coverRuleLines };
+export type RuleFileCounts = { path: string; check: number; judgementOnly: number; notARule: number; neither: number };
+export type RuleReport = {
+  total: number; check: number; judgementOnly: number; notARule: number; neither: number;
+  files: RuleFileCounts[]; uncovered: Array<{ path: string; line: number }>;
+};
+
+/** Every `.md` under the 13 skill directories and `core/shared/guidance` (IC-018), as repo-relative
+ * `/` paths in sorted order. Symlinks are not followed. */
+function ruleSourceFiles(repoRoot: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    for (const entry of fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true })) {
+      const child = `${rel}/${entry.name}`;
+      if (entry.isDirectory()) walk(child);
+      else if (entry.isFile() && entry.name.endsWith('.md')) out.push(child);
+    }
+  };
+  const skills = 'core/shared/skills';
+  for (const entry of fs.readdirSync(path.join(repoRoot, skills), { withFileTypes: true })) if (entry.isDirectory()) walk(`${skills}/${entry.name}`);
+  walk('core/shared/guidance');
+  return out.sort();
+}
+
+/** A row has a valid enforcement when it satisfies the IC-018 pairing G71 checks: a `check` names an
+ * existing file and has no reason; `judgement-only` and `not-a-rule` have no ref and a one-line reason. */
+function validEnforcement(row: any, repoRoot: string): boolean {
+  if (row.enforcement === 'check') return typeof row.enforcementRef === 'string' && row.enforcementRef.trim() !== '' && fs.existsSync(path.join(repoRoot, row.enforcementRef)) && row.reason === null;
+  if (row.enforcement === 'judgement-only' || row.enforcement === 'not-a-rule') return row.enforcementRef === null && typeof row.reason === 'string' && row.reason.trim() !== '' && !/[\r\n]/.test(row.reason);
+  return false;
+}
+
+/** The IC-020 report for the tree at `repoRoot`: the ledger rows counted by enforcement value, plus
+ * every rule line that no row (or more than one row) covers. `neither` is the rows without a valid
+ * enforcement plus those lines, so `check + judgementOnly + notARule + neither = total + uncovered.length`.
+ * Reads only; the same tree gives the same value. */
+function ruleReport(repoRoot: string): RuleReport {
+  const ledger = loadRuleLedger({ repoRoot });
+  const files = ruleSourceFiles(repoRoot).map((p) => ({ path: p, text: fs.readFileSync(path.join(repoRoot, p), 'utf8') }));
+  const uncovered = coverRuleLines(files, ledger).map((f) => ({ path: f.path, line: f.line }));
+  const per = new Map<string, RuleFileCounts>();
+  const of = (p: string): RuleFileCounts => { let c = per.get(p); if (!c) per.set(p, c = { path: p, check: 0, judgementOnly: 0, notARule: 0, neither: 0 }); return c; };
+  const report: RuleReport = { total: ledger.rules.length, check: 0, judgementOnly: 0, notARule: 0, neither: 0, files: [], uncovered };
+  for (const row of ledger.rules) {
+    const c = of(row.sourceFile);
+    if (!validEnforcement(row, repoRoot)) { c.neither++; report.neither++; }
+    else if (row.enforcement === 'check') { c.check++; report.check++; }
+    else if (row.enforcement === 'judgement-only') { c.judgementOnly++; report.judgementOnly++; }
+    else { c.notARule++; report.notARule++; }
+  }
+  for (const hit of uncovered) { of(hit.path).neither++; report.neither++; }
+  report.files = [...per.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return report;
+}
+
+/** The text form of a report: one line per enforcement value, `neither`, then one line per file. */
+function renderRuleReport(report: RuleReport): string[] {
+  return [
+    `check ${report.check}`, `judgement-only ${report.judgementOnly}`, `not-a-rule ${report.notARule}`, `neither ${report.neither}`,
+    ...report.files.map((f) => `${f.path}: check ${f.check}, judgement-only ${f.judgementOnly}, not-a-rule ${f.notARule}, neither ${f.neither}`),
+  ];
+}
+
+module.exports = { findRuleLines, coverRuleLines, ruleSourceFiles, ruleReport, renderRuleReport };

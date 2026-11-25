@@ -77,7 +77,7 @@ function parseArgs(argv: string[]): any {
     if (a.startsWith('-')) o.flagsGiven.push(a);
     // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
     // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
-    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a === '--lan' && o.cmd !== 'ui' ? '' : a === '--check' && o.cmd === 'followup' ? '' : a.startsWith('--action=') ? '--action' : a) {
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a === '--lan' && o.cmd !== 'ui' ? '' : a === '--check' && o.cmd === 'followup' ? '' : a === '--rules' && o.cmd !== 'enforcement' ? '' : a.startsWith('--action=') ? '--action' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -119,6 +119,8 @@ function parseArgs(argv: string[]): any {
       // context-emit: decide and render without taking a claim or writing a ledger line.
       case '--peek': o.peek = true; break;
       case '--check': o.check = true; break;
+      // enforcement --rules: the guidance rule ledger's counts instead of one policy's coverage (181 IC-020). Only that verb knows it.
+      case '--rules': o.rules = true; break;
       // roadmap --action init-policy: commit the policy onto local develop by plumbing instead of only writing it.
       case '--commit': o.commit = true; break;
       // events: follow the channels until a signal or stdin EOF (149 IC-001). Like `--commit`, only the
@@ -590,7 +592,7 @@ Commands:
   tools                List external tools and whether each is present; install, update or uninstall one
   ui [<project>]       Run the DoFlow Console, a separately installed package (--port N, --lan, --action pair|devices|revoke; exit 2 when it is not installed)
   capabilities         Show registered abstract capabilities and resolved providers
-  enforcement          Report lifecycle policy enforcement coverage (--harness, --policy)
+  enforcement          Report lifecycle policy enforcement coverage (--harness, --policy), or with --rules the guidance rule ledger's counts per enforcement value and file
   doctor               System health and capability smoke check diagnostics
   readiness            Evaluate task readiness contract (--task-class, --task-id, both required)
   evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)
@@ -787,6 +789,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
       --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
       --intent, --query, --check, --harness  route
+      --rules                               enforcement (the guidance rule ledger's counts; not with --harness, --policy or --profile)
       --statement, --claim-id,
       --evidence-id, --relation             claim
       --kind, --provenance, --provider,
