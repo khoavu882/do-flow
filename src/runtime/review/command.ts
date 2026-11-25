@@ -129,8 +129,9 @@ function handleReviewInput({ slug, base, json, cwd, env, resolve, out }: any): n
     root: resolved ? resolved.featureRoot : cwd, taskId, head, fsImpl: fs, featureDir: resolved ? resolved.featureFolder : null,
   });
   const notRun = what.flows.filter((flow: any) => flow.status === 'not-run').map((flow: any) => ({ id: flow.id, title: flow.title }));
+  const workarounds = require('./workarounds.ts').scanWorkarounds({ root: resolved ? resolved.featureRoot : cwd, base: baseSha, head });
   if (json) {
-    out(JSON.stringify({ ok: true, action: 'input', head, base: baseSha, whatRan: what, notRun }));
+    out(JSON.stringify({ ok: true, action: 'input', head, base: baseSha, whatRan: what, notRun, workarounds }));
     return finishRuntime(0);
   }
   const cut = (sha: string): string => sha.slice(0, 8);
@@ -143,6 +144,11 @@ function handleReviewInput({ slug, base, json, cwd, env, resolve, out }: any): n
   for (const flow of notRun) lines.push(`- Flow ${flow.id} (${flow.title}): not run on ${cut(head)}`);
   if (what.featureMap === 'invalid') lines.push('- The feature map is invalid: a flow it lists is not shown as run unless it has a result on the head.');
   for (const problem of what.problems) lines.push(`- Run evidence: ${problem}`);
+  lines.push('', 'Workaround copies:');
+  for (const m of workarounds.matches) lines.push(`- ${m.path}:${m.line} · ${m.mark} · ${m.reason} · use instead: ${m.alternative}`);
+  if (workarounds.matches.length === 0) lines.push('- none');
+  if (workarounds.truncated) lines.push('- The scan stopped early; later added lines were not checked.');
+  for (const finding of workarounds.findings) lines.push(`- Workaround marks: ${finding}`);
   for (const line of lines) out(String(printSafe(line, { keepLineBreaks: false })));
   return finishRuntime(0);
 }

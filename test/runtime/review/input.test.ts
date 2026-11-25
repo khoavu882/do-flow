@@ -88,7 +88,8 @@ test('--json answers head, base, whatRan and notRun, and exits 0', (t) => {
   const res = input(r, ['--base', r.base, '--json']);
   assert.equal(res.status, 0, res.stderr);
   const json = JSON.parse(res.stdout);
-  assert.deepEqual(Object.keys(json), ['ok', 'action', 'head', 'base', 'whatRan', 'notRun']);
+  assert.deepEqual(Object.keys(json), ['ok', 'action', 'head', 'base', 'whatRan', 'notRun', 'workarounds']);
+  assert.deepEqual(json.workarounds, { file: 'absent', matches: [], truncated: false, findings: [] });
   assert.deepEqual([json.ok, json.action, json.head, json.base], [true, 'input', r.head, r.base]);
   assert.equal(json.whatRan.head, r.head);
   assert.deepEqual(json.whatRan.verify.checks.map((c: any) => c.command), ['npm run build']);
@@ -164,6 +165,37 @@ test('exit 1 when the base or the head cannot be resolved, 2 for usage', (t) => 
   }
   const noSlug = spawnSync(process.execPath, [CLI, 'review', '--action', 'input', '--json'], { cwd: r.cwd, env: r.env, encoding: 'utf8' });
   assert.equal(noSlug.status, 2);
+});
+
+const MARKS = { version: 1, marks: [{ id: 'any-cast', pattern: 'as any', paths: ['src/**/*.ts'], reason: 'a cast hides the type error', alternative: 'narrow the type', since: '2026-11-01' }] };
+
+test('a copied workaround pattern is listed after Not run, with file, line, reason and alternative', (t) => {
+  const r = repo(t);
+  put(r.cwd, 'src/c.ts', 'const a = 1;\nconst b = x as any;\n');
+  git(r.cwd, r.env, ['add', '-A']);
+  git(r.cwd, r.env, ['commit', '-q', '-m', 'copy']);
+  put(r.cwd, '.doflow/workarounds.json', JSON.stringify(MARKS));
+  const res = input(r, ['--base', r.base]);
+  assert.equal(res.status, 0, res.stderr);
+  const lines = res.stdout.split('\n');
+  const at = lines.indexOf('Workaround copies:');
+  assert.ok(at > lines.indexOf('Not run:'), res.stdout);
+  assert.equal(lines[at + 1], '- src/c.ts:2 · any-cast · a cast hides the type error · use instead: narrow the type');
+  const json = JSON.parse(input(r, ['--base', r.base, '--json']).stdout);
+  assert.deepEqual(json.workarounds.matches.map((m: any) => [m.mark, m.path, m.line, m.reason, m.alternative]),
+    [['any-cast', 'src/c.ts', 2, 'a cast hides the type error', 'narrow the type']]);
+  assert.equal(json.workarounds.file, 'present');
+});
+
+test('a project with no marks reports none; a bad mark shows as a finding and the exit stays 0', (t) => {
+  const r = repo(t);
+  const quiet = input(r, ['--base', r.base]);
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.match(quiet.stdout, /Workaround copies:\n- none\n?/);
+  put(r.cwd, '.doflow/workarounds.json', JSON.stringify({ version: 1, marks: [{ id: 'bad', pattern: '(', paths: ['src/**'], reason: 'r', alternative: 'a', since: '2026-11-01' }] }));
+  const res = input(r, ['--base', r.base]);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /- Workaround marks: mark 'bad': pattern does not compile/);
 });
 
 test('it writes nothing', (t) => {
