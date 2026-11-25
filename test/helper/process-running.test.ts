@@ -16,6 +16,12 @@ test('a running process is running; a zombie and a pid that is gone are not', { 
   assert.doesNotThrow(() => process.kill(zombie, 0), 'kill(pid, 0) still answers for the zombie');
   assert.equal(processRunning(zombie), false, 'the zombie runs nothing');
   assert.equal(processRunning(holder.pid), true, 'the sleep that holds it is running');
+  // Review Seat B: a ps that gives no answer is not "gone"; kill(pid, 0) stands, so the zombie counts as running.
+  const savedPath = process.env.PATH;
+  process.env.PATH = '';
+  try { assert.equal(processRunning(zombie), true, 'with no ps to ask, kill(pid, 0) is the answer'); } finally { process.env.PATH = savedPath; }
+  // Only ESRCH is gone: pid 1 answers EPERM to a user that may not signal it, and is running either way.
+  assert.equal(processRunning(1), true, 'pid 1 is running');
   holder.kill('SIGKILL');
   await new Promise((resolve) => holder.once('exit', resolve));
   assert.equal(processRunning(holder.pid), false, 'a reaped pid is gone');

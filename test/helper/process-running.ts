@@ -8,12 +8,14 @@
 const { spawnSync } = require('node:child_process');
 
 function processRunning(pid: number): boolean {
-  try { process.kill(pid, 0); } catch { return false; }
+  // Only ESRCH means no such process; EPERM is a process this user may not signal, which is running.
+  try { process.kill(pid, 0); } catch (error: any) { return error?.code !== 'ESRCH'; }
   const ps = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
-  if (ps.error) return true; // no ps to ask: kill(pid, 0) is the answer
   const state = String(ps.stdout ?? '').trim();
-  if (!state) return false; // ps no longer lists it
-  return !state.startsWith('Z');
+  if (state) return !state.startsWith('Z');
+  // ps lists nothing: "no such pid" only when kill(pid, 0) now agrees; any other failure of ps (missing, or a ps without
+  // -p) is no answer, and kill(pid, 0) stands.
+  try { process.kill(pid, 0); return true; } catch (error: any) { return error?.code !== 'ESRCH'; }
 }
 
 module.exports = { processRunning };
