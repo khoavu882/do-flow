@@ -1904,9 +1904,9 @@
       "statement": "**Universal thresholds:** declared in `review-policy.json`, never here. A guard fails the suite if a number from it reappears in any document. Read what a run applies from the run: `--json` carries a `policy` block naming the thresholds in force and the tiers that supplied them.",
       "sourceFile": "core/shared/skills/do-code-review/references/tools.md",
       "category": "skill",
-      "enforcement": "check",
-      "enforcementRef": "test/guards/docs.test.ts",
-      "reason": null,
+      "enforcement": "judgement-only",
+      "enforcementRef": null,
+      "reason": "The thresholds live in review-policy.json, but only this repository's own test suite fails when a document repeats one; no shipped verb or hook does",
       "neverAblate": false,
       "ablationCandidate": false
     },
@@ -2949,7 +2949,7 @@
       "sourceFile": "core/shared/skills/do-execute-plan/references/scaffold.md",
       "category": "skill",
       "enforcement": "check",
-      "enforcementRef": "test/guards/scaffold.test.ts",
+      "enforcementRef": "src/runtime/scaffold/generate.ts",
       "reason": null,
       "neverAblate": false,
       "ablationCandidate": false

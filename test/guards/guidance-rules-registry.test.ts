@@ -67,6 +67,8 @@ function validateRulesRegistry(ledger: any, repoRoot: string = REPO): Validation
   }
 
   const seenIds = new Set<string>();
+  // A check ref must ship: the package carries only the package.json `files` entries, so `doflow enforcement --rules` run from an install sees no other file.
+  const shipped: string[] = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).files;
 
   ledger.rules.forEach((rule: any, i: number) => {
     const loc = `rules[${i}]`;
@@ -107,6 +109,8 @@ function validateRulesRegistry(ledger: any, repoRoot: string = REPO): Validation
         at(`${loc}.enforcementRef`, `rule '${rule.id}': a check row must name an enforcement file`);
       } else if (!fs.existsSync(path.join(repoRoot, rule.enforcementRef))) {
         at(`${loc}.enforcementRef`, `rule '${rule.id}': referenced enforcement file does not exist: '${rule.enforcementRef}'`);
+      } else if (!shipped.some((entry: string) => rule.enforcementRef === entry.replace(/\/$/, '') || rule.enforcementRef.startsWith(entry.replace(/\/?$/, '/')))) {
+        at(`${loc}.enforcementRef`, `rule '${rule.id}': enforcement file '${rule.enforcementRef}' is not under a package.json files entry, so an installed doflow cannot see it`);
       }
       if (rule.reason !== null) {
         at(`${loc}.reason`, `rule '${rule.id}': a check row must have reason: null`);
@@ -305,6 +309,15 @@ describe('Guard G71 Negative Controls (Planted Invariant Failures)', () => {
     assert.equal(res.ok, false);
     assert.match(res.errors.join('\n'), new RegExp(`rule '${judgement.id}': a judgement-only row needs a one-line reason`));
     assert.match(res.errors.join('\n'), new RegExp(`rule '${check.id}': referenced enforcement file does not exist`));
+  });
+
+  test('rejects a check row whose enforcement file exists but is not under a package.json files entry', () => {
+    const ledger = validLedger();
+    const check = ledger.rules.find((r: any) => r.enforcement === 'check');
+    check.enforcementRef = 'test/guards/scaffold.test.ts';
+    const res = validateRulesRegistry(ledger);
+    assert.equal(res.ok, false);
+    assert.match(res.errors.join('\n'), new RegExp(`rule '${check.id}': enforcement file 'test/guards/scaffold.test.ts' is not under a package.json files entry`));
   });
 
   test('rejects ledger with invalid rule ID format', () => {
