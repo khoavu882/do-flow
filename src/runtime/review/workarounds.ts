@@ -10,12 +10,17 @@
  * 2,000 characters is skipped and counted, and the scan stops after 5,000 tested added lines with `truncated`.
  * A pattern that does not compile is a finding, never a throw.
  *
- * What bounds run time is the pattern, not a clock: `RegExp.test` cannot be interrupted, so a time budget would
- * not help. `riskyPattern` rejects, as a finding, any quantified group that contains a quantifier or an
- * alternation (`(a+)+`, `(a|aa)*`, `(\w+\s?)*`) and any backreference (`\1`, `\k<name>`); the check is
- * syntactic and conservative, so a safe pattern may be refused but a nested quantifier is not missed. Ceiling
- * accepted: adjacent quantifiers (`.*.*x`) stay polynomial in the line length, which the 2,000-character line
- * limit bounds.
+ * What bounds run time is a clock. `RegExp.test` cannot be interrupted in this process, so the matching runs in a
+ * child `node` (`spawnSync`, no shell) that is killed with SIGKILL when its window closes: each child gets at most
+ * MARK_BUDGET_MS and the scan at most SCAN_BUDGET_MS. The child reports each mark as it starts and as it finishes,
+ * so a finished mark keeps its matches; a mark still running when its child is stopped, after at least half the
+ * window of its own, is a finding and dropped, a mark stopped sooner is retried first in a new child, and a mark
+ * the scan budget never reached is a finding. `spawnSync` returns only once the child has exited, so none
+ * outlives the scan. `riskyPattern` is a fast syntactic pre-filter in front of the clock: it rejects, as a
+ * finding, a repeated group that holds a quantifier or an alternation at any depth (`(a+)+`, `((a|aa))+`,
+ * `(\w+\s?)*`), the same item repeated without bound twice in a row (`a*a*`, `.*.*`) and any backreference
+ * (`\1`, `\k<name>`). It is conservative, so a safe pattern may be refused, but it cannot see every polynomial
+ * blow-up (`[a]*a*[a]*a*b`); those are what the clock stops.
  */
 
 const nodeFs = require('node:fs');
@@ -31,11 +36,24 @@ const ADDED_LINES_MAX = 5000;
 const MARK_KEYS = ['id', 'pattern', 'paths', 'reason', 'alternative', 'since'];
 const FILE_KEYS = ['version', 'marks'];
 const GIT_BUFFER = 256 * 1024 * 1024;
+// A linear mark over the whole scan ceiling (5,000 lines of 2,000 characters) runs in tens of milliseconds, so 2 s
+// per child is a wide margin; 10 s per scan keeps `review --action input` interactive with several bad marks.
+const MARK_BUDGET_MS = 2000;
+const SCAN_BUDGET_MS = 10000;
+const MATCHER_BUFFER = 64 * 1024 * 1024;
+// The child: reads { lines, jobs } on stdin and writes one JSON line as each job starts and as it finishes.
+const MATCHER = `const fs = require('node:fs');
+const { lines, jobs } = JSON.parse(fs.readFileSync(0, 'utf8'));
+for (const { k, pattern, idx } of jobs) {
+  fs.writeSync(1, JSON.stringify(['start', k, Date.now()]) + '\\n');
+  const regex = new RegExp(pattern);
+  fs.writeSync(1, JSON.stringify(['done', k, idx.filter((i) => regex.test(lines[i]))]) + '\\n');
+}`;
 
 type Mark = { id: string; pattern: string; paths: string[]; reason: string; alternative: string; since: string };
 type Match = { mark: string; path: string; line: number; text: string; reason: string; alternative: string };
 type Scan = { file: 'present' | 'absent' | 'invalid'; matches: Match[]; truncated: boolean; findings: string[] };
-type Ready = { mark: Mark; regex: RegExp; globs: RegExp[] };
+type Ready = { mark: Mark; globs: RegExp[] };
 
 const isObject = (value: any): boolean => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -66,14 +84,43 @@ function validDate(value: any): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-const RANGE_QUANTIFIER = /^\{\d+(,\d*)?\}/;
+const QUANTIFIER = /^(?:[*+?]|\{\d+(?:,\d*)?\})\??/;
+const GROUP_PREFIX = /^\(\?(?:[:=!]|<[=!]|<[^>]*>)/;
+type Group = { start: number; quant: boolean; alt: boolean };
 
-/** Why a pattern could run super-linearly (design R6), or null: a quantified group holding a quantifier or an alternation, or a backreference. */
+/**
+ * Why a pattern could run super-linearly (design R6), or null: a repeated group holding a quantifier or an
+ * alternation at any depth, the same item repeated without bound twice in a row, or a backreference.
+ */
 function riskyPattern(pattern: string): string | null {
-  const groups: { quant: boolean; alt: boolean }[] = [{ quant: false, alt: false }];
+  const groups: Group[] = [{ start: 0, quant: false, alt: false }];
+  let item = -1; // where the item a quantifier here would repeat starts; -1 when there is none
+  let closed: Group | null = null; // that item, when it is a group
+  let unbounded = { text: '', end: -1 }; // the last item repeated without bound, and where its quantifier ends
   for (let i = 0; i < pattern.length; i += 1) {
     const ch = pattern[i];
     const top = groups[groups.length - 1];
+    const quantifier = item >= 0 ? QUANTIFIER.exec(pattern.slice(i)) : null;
+    if (quantifier) {
+      const q = quantifier[0];
+      if (q[0] !== '?') {
+        if (closed && (closed.quant || closed.alt)) {
+          return 'pattern must not repeat a group that holds a quantifier or an alternation (nested quantifiers can run for ever)';
+        }
+        const text = pattern.slice(item, i);
+        if (q[0] === '*' || q[0] === '+' || q.includes(',}')) {
+          if (unbounded.end === item && unbounded.text === text) return 'pattern must not repeat the same item without bound twice in a row (such as a*a*)';
+          unbounded = { text, end: i + q.length };
+        }
+      }
+      top.quant = true;
+      i += q.length - 1;
+      item = -1;
+      closed = null;
+      continue;
+    }
+    item = i;
+    closed = null;
     if (ch === '\\') {
       const next = pattern[i + 1];
       if ((next >= '1' && next <= '9') || (next === 'k' && pattern[i + 2] === '<')) return 'pattern must not use a backreference';
@@ -81,17 +128,19 @@ function riskyPattern(pattern: string): string | null {
     } else if (ch === '[') {
       for (i += 1; i < pattern.length && pattern[i] !== ']'; i += 1) if (pattern[i] === '\\') i += 1;
     } else if (ch === '(') {
-      groups.push({ quant: false, alt: false });
-      if (pattern[i + 1] === '?') i += 1;
-    } else if (ch === '|') top.alt = true;
-    else if (ch === '*' || ch === '+' || ch === '?' || (ch === '{' && RANGE_QUANTIFIER.test(pattern.slice(i)))) top.quant = true;
-    else if (ch === ')' && groups.length > 1) {
-      const group = groups.pop() as { quant: boolean; alt: boolean };
-      const next = pattern[i + 1];
-      if ((next === '*' || next === '+' || (next === '{' && RANGE_QUANTIFIER.test(pattern.slice(i + 1)))) && (group.quant || group.alt)) {
-        return 'pattern must not repeat a group that holds a quantifier or an alternation (nested quantifiers can run for ever)';
-      }
+      groups.push({ start: i, quant: false, alt: false });
+      const prefix = GROUP_PREFIX.exec(pattern.slice(i));
+      if (prefix) i += prefix[0].length - 1;
+      item = -1;
+    } else if (ch === '|') {
+      top.alt = true;
+      item = -1;
+    } else if (ch === ')' && groups.length > 1) {
+      const group = groups.pop() as Group;
       if (group.quant) groups[groups.length - 1].quant = true;
+      if (group.alt) groups[groups.length - 1].alt = true;
+      item = group.start;
+      closed = group;
     }
   }
   return null;
@@ -149,7 +198,7 @@ function readMarks(root: string, fsImpl: any): { file: Scan['file']; ready: Read
     else if (seen.has(mark.id)) problems.unshift('id duplicates an earlier mark');
     if (isObject(mark) && typeof mark.id === 'string') seen.add(mark.id);
     if (problems.length) { for (const problem of problems) findings.push(`${name}: ${problem}`); return; }
-    ready.push({ mark, regex: new RegExp(mark.pattern), globs: mark.paths.map(globToRegExp) });
+    ready.push({ mark, globs: mark.paths.map(globToRegExp) });
   });
   return { file: 'present', ready, findings };
 }
@@ -179,7 +228,51 @@ function* addedLines(diff: string): Generator<{ path: string; line: number; text
   }
 }
 
-function scanWorkarounds({ root, base, head, fsImpl = nodeFs }: { root: string; base: string; head: string; fsImpl?: any }): Scan {
+type Job = { k: number; pattern: string; idx: number[] };
+
+/**
+ * Each mark's matching line indexes, run in child processes under the clock (design R6): `hits` maps a mark's index
+ * in `ready` to the indexes in `lines` it matched; a mark that did not finish is a finding and absent from `hits`.
+ */
+function matchUnderClock(ready: Ready[], lines: string[], jobs: Job[], { markMs, scanMs }: { markMs: number; scanMs: number }):
+  { hits: Map<number, number[]>; findings: string[] } {
+  const hits = new Map<number, number[]>();
+  const findings: string[] = [];
+  const env = { ...process.env };
+  delete env.NODE_OPTIONS;
+  const deadline = Date.now() + scanMs;
+  let pending = jobs;
+  let why = `not checked: the scan's ${scanMs} ms budget ran out`;
+  while (pending.length > 0 && Date.now() < deadline) {
+    const res = spawnSync(process.execPath, ['-e', MATCHER], {
+      input: JSON.stringify({ lines, jobs: pending }), env, encoding: 'utf8', maxBuffer: MATCHER_BUFFER,
+      timeout: Math.max(1, Math.min(markMs, deadline - Date.now())), killSignal: 'SIGKILL', stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const stopped = Date.now();
+    let running: { k: number; at: number } | null = null;
+    for (const raw of String(res.stdout ?? '').split('\n')) {
+      let msg: any;
+      try { msg = JSON.parse(raw); } catch { continue; }
+      if (msg[0] === 'start') running = { k: msg[1], at: msg[2] };
+      else if (msg[0] === 'done') { hits.set(msg[1], msg[2]); running = null; }
+    }
+    pending = pending.filter((job) => !hits.has(job.k));
+    if ((res.error as any)?.code !== 'ETIMEDOUT') {
+      if (pending.length > 0) why = `not checked: the matcher failed (${String(res.error?.message || res.stderr || `exit ${res.status}`).trim().split('\n')[0]})`;
+      break;
+    }
+    if (running && stopped - running.at >= markMs / 2) {
+      const k = running.k;
+      findings.push(`mark '${ready[k].mark.id}': pattern did not finish on the added lines within ${markMs} ms and was stopped; its matches are not shown`);
+      pending = pending.filter((job) => job.k !== k);
+    }
+  }
+  for (const job of pending) findings.push(`mark '${ready[job.k].mark.id}': ${why}`);
+  return { hits, findings };
+}
+
+function scanWorkarounds({ root, base, head, fsImpl = nodeFs, budget = { markMs: MARK_BUDGET_MS, scanMs: SCAN_BUDGET_MS } }:
+  { root: string; base: string; head: string; fsImpl?: any; budget?: { markMs: number; scanMs: number } }): Scan {
   const { file, ready, findings } = readMarks(root, fsImpl);
   const result: Scan = { file, matches: [], truncated: false, findings };
   if (ready.length === 0) return result;
@@ -195,21 +288,32 @@ function scanWorkarounds({ root, base, head, fsImpl = nodeFs }: { root: string; 
   }
   if (overflow) { result.truncated = true; findings.push('the diff is larger than the scan buffer; only its first part was scanned'); }
 
-  let tested = 0;
+  const tested: { path: string; line: number; text: string; marks: number[] }[] = [];
   let tooLong = 0;
   for (const added of addedLines(String(res.stdout ?? ''))) {
-    const marks = ready.filter((r) => r.globs.some((glob) => glob.test(added.path)));
+    const marks = ready.flatMap((r, k) => (r.globs.some((glob) => glob.test(added.path)) ? [k] : []));
     if (marks.length === 0) continue;
     if (added.text.length > ADDED_LINE_MAX) { tooLong += 1; continue; }
-    if (tested === ADDED_LINES_MAX) { result.truncated = true; break; }
-    tested += 1;
-    for (const { mark, regex } of marks) {
-      if (!regex.test(added.text)) continue;
-      result.matches.push({ mark: mark.id, path: added.path, line: added.line, text: added.text.slice(0, LINE_MAX), reason: mark.reason, alternative: mark.alternative });
-    }
+    if (tested.length === ADDED_LINES_MAX) { result.truncated = true; break; }
+    tested.push({ ...added, marks });
+  }
+  const jobs: Job[] = ready.map((r, k) => ({ k, pattern: r.mark.pattern, idx: tested.flatMap((t, i) => (t.marks.includes(k) ? [i] : [])) }))
+    .filter((job) => job.idx.length > 0);
+  if (jobs.length > 0) {
+    const { hits, findings: clock } = matchUnderClock(ready, tested.map((t) => t.text), jobs, budget);
+    findings.push(...clock);
+    const matched = new Set<string>();
+    for (const [k, idx] of hits) for (const i of idx) matched.add(`${i}:${k}`);
+    tested.forEach((added, i) => {
+      for (const k of added.marks) {
+        if (!matched.has(`${i}:${k}`)) continue;
+        const { mark } = ready[k];
+        result.matches.push({ mark: mark.id, path: added.path, line: added.line, text: added.text.slice(0, LINE_MAX), reason: mark.reason, alternative: mark.alternative });
+      }
+    });
   }
   if (tooLong) findings.push(`${tooLong} added line${tooLong === 1 ? '' : 's'} longer than ${ADDED_LINE_MAX} characters skipped`);
-  if (tested === ADDED_LINES_MAX && result.truncated) findings.push(`the scan stopped after ${ADDED_LINES_MAX} added lines`);
+  if (tested.length === ADDED_LINES_MAX && result.truncated) findings.push(`the scan stopped after ${ADDED_LINES_MAX} added lines`);
   return result;
 }
 

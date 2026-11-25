@@ -106,7 +106,8 @@ test('a bad mark is a finding and skipped while the others still apply', (t) => 
 });
 
 test('a pattern that can run super-linearly is a finding and the scan returns promptly with the other marks applied', (t) => {
-  const risky = ['^(a+)+$', '(a*)*', '(a|aa)+', '(\\w+\\s?)*', '((a+)b)+', '(a+){2,}', '(a)\\1', '(?<x>a)\\k<x>'];
+  const risky = ['^(a+)+$', '(a*)*', '(a|aa)+', '^((a|aa))+$', '(?:x(a|aa))*', '(\\w+\\s?)*', '((a+)b)+', '(a+){2,}', 'a*a*a*a*a*a*b', '.*?.*x',
+    '(a)\\1', '(?<x>a)\\k<x>'];
   const marks = [...risky.map((pattern, i) => ({ ...MARK, id: `risky-${i}`, pattern })),
     { ...MARK, id: 'plain', pattern: 'foo\\d+bar' }, { ...MARK, id: 'safe-group', pattern: '(foo|bar)\\d' }, { ...MARK, id: 'escaped', pattern: '\\(a+\\)+' }, { ...MARK, id: 'class', pattern: '[(+]+x' }];
   const r = repo(t, { change: { 'src/a.ts': `${'a'.repeat(30)}b\nfoo123bar\nbar7\n(aaa)+\n(+x\n` }, marks: { version: 1, marks } });
@@ -116,6 +117,27 @@ test('a pattern that can run super-linearly is a finding and the scan returns pr
   assert.deepEqual(out.matches.map((m: any) => [m.mark, m.line]), [['plain', 2], ['safe-group', 2], ['safe-group', 3], ['escaped', 4], ['class', 5]]);
   assert.equal(out.findings.length, risky.length, out.findings.join('\n'));
   for (let i = 0; i < risky.length; i += 1) assert.ok(out.findings.some((f: string) => f.startsWith(`mark 'risky-${i}': pattern must not`)), risky[i]);
+});
+
+test('a pattern the pre-filter cannot see is stopped by the clock, named, and the marks around it keep their matches', (t) => {
+  const marks = [{ ...MARK, id: 'plain', pattern: 'foo\\d+bar' }, { ...MARK, id: 'slow', pattern: '[a]*a*[a]*a*[a]*a*b' }, { ...MARK, id: 'after', pattern: 'oo1' }];
+  const r = repo(t, { change: { 'src/a.ts': `foo123bar\n${'a'.repeat(1999)}\n` }, marks: { version: 1, marks } });
+  const started = Date.now();
+  const out = scanWorkarounds({ root: r.root, base: r.base, head: r.head, budget: { markMs: 500, scanMs: 4000 } });
+  assert.ok(Date.now() - started < 3000, `the scan returned within the budget (${Date.now() - started} ms)`);
+  assert.deepEqual(out.matches.map((m: any) => [m.mark, m.line]), [['plain', 1], ['after', 1]]);
+  assert.deepEqual(out.findings, ["mark 'slow': pattern did not finish on the added lines within 500 ms and was stopped; its matches are not shown"]);
+});
+
+test('a mark the scan budget never reaches is a finding that names it, never a hang', (t) => {
+  const marks = [{ ...MARK, id: 'slow-1', pattern: '[a]*a*[a]*a*[a]*a*b' }, { ...MARK, id: 'slow-2', pattern: 'a*[a]*a*[a]*a*[a]*b' }, { ...MARK, id: 'after', pattern: 'a' }];
+  const r = repo(t, { change: { 'src/a.ts': `${'a'.repeat(1999)}\n` }, marks: { version: 1, marks } });
+  const started = Date.now();
+  const out = scanWorkarounds({ root: r.root, base: r.base, head: r.head, budget: { markMs: 400, scanMs: 600 } });
+  assert.ok(Date.now() - started < 2500, `the scan returned within the budget (${Date.now() - started} ms)`);
+  assert.deepEqual(out.matches, []);
+  for (const id of ['slow-2', 'after']) assert.ok(out.findings.includes(`mark '${id}': not checked: the scan's 600 ms budget ran out`), out.findings.join('\n'));
+  assert.ok(out.findings.some((f: string) => f.startsWith("mark 'slow-1': ")), out.findings.join('\n'));
 });
 
 test('patterns compile with no flags: matching is case sensitive', (t) => {
