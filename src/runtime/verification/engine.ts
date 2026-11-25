@@ -1636,6 +1636,11 @@ function reusedCount(report: any): number {
   return count;
 }
 
+/** 181 IC-024: the tiers the inner-loop verdict reads. A tier of these that listed no check (nothing
+ * detected, declared absent, subsumed, or skipped after a fatal failure) is recorded as one entry with
+ * the tier's own status, `command` and `exitCode` null, so the verdict reads it from the record alone. */
+const INNER_LOOP_TIERS = ['build', 'static-analysis', 'targeted-tests'];
+
 /** 181 IC-005: one `{ tier, role, command, status, exitCode, log }` per check the report lists, in
  * report order. `role` is null unless it is one of the registry's command roles (a requirement check
  * has none); `command` is masked like other record text; `exitCode` is null when nothing ran; `log` is
@@ -1643,7 +1648,11 @@ function reusedCount(report: any): number {
 function recordChecks(report: any, commandRoles: string[], projectRoot: string): any[] {
   const out: any[] = [];
   for (const tier of Array.isArray(report?.tiers) ? report.tiers : []) {
-    for (const check of Array.isArray(tier?.checks) ? tier.checks : []) {
+    const listed = Array.isArray(tier?.checks) ? tier.checks : [];
+    if (listed.length === 0 && INNER_LOOP_TIERS.includes(tier?.id) && typeof tier.status === 'string') {
+      out.push({ tier: tier.id, role: null, command: null, status: tier.status, exitCode: null, log: null });
+    }
+    for (const check of listed) {
       if (!check || typeof check !== 'object') continue;
       const log = typeof check.logPath === 'string' && check.logPath !== '' ? path.relative(projectRoot, check.logPath) : '';
       out.push({
@@ -1722,6 +1731,13 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     assertSafeTaskId(taskId);
   } catch (error: any) {
     return usageError('verify', error.message, json);
+  }
+
+  // 181 IC-024: the inner-loop verdict reads the latest run record and runs nothing, so it answers
+  // before any contract is compiled. Required here, not at load: inner-loop.ts requires this module.
+  if (action === 'inner-loop') {
+    const { handleInnerLoopCommand } = require('./inner-loop.ts');
+    return handleInnerLoopCommand({ taskId, json, projectRoot: projectRoot || process.cwd(), env });
   }
 
   if (verificationPhase !== null && verificationPhase !== undefined) {
@@ -1833,7 +1849,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     return finishRuntime(0);
   }
   if (action !== 'report' && action !== 'status') {
-    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract`, json);
+    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract, inner-loop`, json);
   }
 
   const runGitState = action === 'report' ? verificationGitState(cwd, env) : null;
@@ -1911,6 +1927,8 @@ function sameSet(a: string[], b: string[]): boolean {
 module.exports = {
   verificationRunsRoot,
   verificationRunRecordFile,
+  INNER_LOOP_TIERS,
+  verificationGitState,
   VerificationContractRunner,
   VerificationEngine,
   loadVerificationRegistry,
