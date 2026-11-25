@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { placeholderFindings, coverageFindings } = require('../../src/runtime/plan-content.ts');
+const { placeholderFindings, coverageFindings, constraintFindings } = require('../../src/runtime/plan-content.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 
@@ -135,4 +135,56 @@ test('placeholder: "later" counts only in a placeholder phrasing, not in prose',
 test('coverage: an id named only inside an HTML comment or a fence is not traced', () => {
   const plan = ['# Plan', '<!-- US1 -->', '```', 'US2', '```', '- [ ] A.1 Build — FR-001, FR-003', ''].join('\n');
   assert.deepEqual(coverageFindings(plan, 'plan.md', REQUIREMENT, 'requirement.md').map((f: any) => f.id), ['US1', 'US2']);
+});
+
+// ── row 181 IC-023: constraint-coverage ───────────────────────────────────────────────────────────
+
+const SPECS = (contracts: string[]) => [
+  '# Specs', '', '## 1. Interface Contracts', '',
+  '| ID | Contract | Family | Kind | Status |', '|---|---|---|---|---|',
+  '| IC-001 | A verb | CLI | cli-verb | Live |',
+  '| IC-002 | No raw ids | Boundaries | constraint | Live |',
+  '| IC-003 | Superseded rule | Boundaries | constraint | Superseded → IC-002 |', '',
+  '**Detail**', '', '#### IC-001: A verb', '', 'Shape.', '', ...contracts, '',
+].join('\n');
+const CONSTRAINT = ['#### IC-002: No raw ids', '', 'A raw id cannot be passed.', '', 'Check: test at test/guards/ids.test.ts; passes when no raw id is accepted.'];
+
+const constraint = (plan: string[], specs = SPECS(CONSTRAINT)) => constraintFindings({ planText: PLAN(plan), planPath: 'plan.md', specsText: specs, specsPath: 'design/specs.md' })
+  .map((f: any) => [f.rule, f.severity, f.path, f.line, f.id]);
+
+test('constraint-coverage: a constraint no task cites is uncovered at its contract heading', () => {
+  assert.deepEqual(constraint(['- [ ] A.1 [US1] Build A — acceptance: IC-001; owner: x; files: src/a.ts']),
+    [['constraint-uncovered', 'fix', 'design/specs.md', 17, 'IC-002']]);
+});
+
+test('constraint-coverage: a task citing a constraint without its check path is named at the task line', () => {
+  assert.deepEqual(constraint(['- [ ] A.1 [US1] Build — acceptance: IC-002; owner: x; files: src/a.ts']),
+    [['constraint-task-without-check', 'fix', 'plan.md', 7, 'IC-002']]);
+});
+
+test('constraint-coverage: a task citing the constraint and listing its check path covers it, wrapped line included', () => {
+  assert.deepEqual(constraint(['- [ ] A.1 [US1] Build the check — acceptance: IC-002;', '  owner: x; files: src/a.ts, ./test/guards/ids.test.ts']), []);
+});
+
+test('constraint-coverage: a constraint with no parseable Check line is check-missing, not compared with the plan', () => {
+  const noCheck = SPECS(['#### IC-002: No raw ids', '', 'A raw id cannot be passed.', '', 'Check: lint at x.ts; passes when clean.']);
+  assert.deepEqual(constraint(['- [ ] A.1 [US1] Build — acceptance: IC-002; owner: x; files: x.ts'], noCheck),
+    [['constraint-check-missing', 'fix', 'design/specs.md', 17, 'IC-002']]);
+});
+
+test('constraint-coverage: a spec with no constraint contract gives no finding', () => {
+  const noConstraint = SPECS([]).replace(/^\| IC-00[23] .*\n/gm, '');
+  assert.deepEqual(constraint(['- [ ] A.1 [US1] Build A — acceptance: IC-001'], noConstraint), []);
+});
+
+test('plan-check reads design/specs.md beside the plan and reports a constraint no task builds', (t) => {
+  const s = scratch(t);
+  fs.mkdirSync(path.join(s.cwd, 'design'));
+  fs.writeFileSync(path.join(s.cwd, 'design', 'specs.md'), SPECS(CONSTRAINT));
+  fs.writeFileSync(path.join(s.cwd, 'plan.md'), PLAN(['- [ ] A.1 [US1] Build A — acceptance: IC-001; owner: x; files: src/a.ts']));
+  const body = JSON.parse(s.cli(['plan.md', '--json']).stdout);
+  assert.deepEqual(body.findings.filter((f: any) => f.rule.startsWith('constraint-')).map((f: any) => `${f.rule} ${f.path}:${f.line} ${f.id}`),
+    [`constraint-uncovered ${path.join('design', 'specs.md')}:17 IC-002`]);
+  fs.rmSync(path.join(s.cwd, 'design'), { recursive: true });
+  assert.deepEqual(JSON.parse(s.cli(['plan.md', '--json']).stdout).findings.filter((f: any) => f.rule.startsWith('constraint-')), []);
 });
