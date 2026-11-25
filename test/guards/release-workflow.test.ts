@@ -191,6 +191,16 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
       '      - run: npm run release:rehearse',
       '      - run: npm run build:package',
     ) },
+    { name: 'R15 rehearse job continues on error', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '  rehearse:\n    runs-on: ubuntu-latest\n',
+      '  rehearse:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n',
+    ) },
+    { name: 'R15 rehearsal step continues on error', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse',
+      '      - run: npm run release:rehearse\n        continue-on-error: true',
+    ) },
     { name: 'R15 rehearse job removed', rules: ['R15'], text: replaceOnce(
       replaceOnce(workflow, '  rehearse:\n', '  rehearse-renamed:\n'),
       '  verify-artifact:\n    needs: [preflight, test, rehearse]',

@@ -734,6 +734,10 @@ function releaseWorkflowFindings(text: string, { nodeFloor }: { nodeFloor?: stri
     if (!jobHasCommand(rehearse, /npm\s+run\s+release:rehearse(?:\s|$)/)) {
       r15Violations.push('rehearse must run release:rehearse');
     }
+    // A failed rehearsal must fail the job: continue-on-error on the job or on any of its steps lets verify-artifact go on.
+    if (yamlKeys(rehearse.text).some((entry) => entry.key === 'continue-on-error')) {
+      r15Violations.push('rehearse must not declare continue-on-error, on the job or on a step');
+    }
     const preflightPins = new Set(preflight ? workflowNodePins(preflight.text).map((pin) => pin.value) : []);
     const rehearsePins = workflowNodePins(rehearse.text).map((pin) => pin.value);
     if (!rehearsePins.length || rehearsePins.some((value) => !preflightPins.has(value))) {
