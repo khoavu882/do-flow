@@ -53,7 +53,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 **Stop when** every work-list finding the contract names has an answer or a stated gap, **and** the last round produced no new work-list finding. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
-Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
+Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage; on findings, first run `"$DOFLOW" verify --action inner-loop --task-id "<feature_slug>"`, relay a `REFUSED` verbatim and start no loop.
 
 2. **Resolve the task id, then evaluate readiness — skip only when standalone**:
    - `<task id>` is the same unit every recording stage keys on: the plan task id when one exists,
@@ -90,10 +90,8 @@ Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-
      Every call records its evaluation; `verify` bounds the change by a `--scope` path list, so a
      change with no plan states its paths here. Both are inputs you state, reported back as
      `Caller-stated`. Add `--slug=<feature slug>` when the task id is not the feature's slug.
-     Both `--task-class` and `--task-id` are required — omitting either exits 2 and names the valid
-     set. Branch on the returned `stageEntry.decision`, never the exit code or your own reading of
-     `state`: the entry policy is owned by the runtime, and this verb exits 0 for every state it
-     computes, so a zero exit is not a green light.
+     Branch on the returned `stageEntry.decision`, never the exit code or your own reading of
+     `state`: this verb exits 0 for every state it computes, so a zero exit is not a green light.
      - **`STOP`** — refuse to modify source. Report which claim is conflicted and what evidence
        disagrees, then stop. Do not edit anyway.
      - **`ASK_USER`** — a decision is owed by the user. Ask it through RULE_04 (`rules/RULES.md`)
@@ -109,19 +107,11 @@ Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-
      ```bash
      "$DOFLOW" context-pack --task-id "<task id>" --json
      ```
-     This verb exits 1 on an empty pack by design — nothing recorded is not the same as nothing
-     needed — and that non-zero exit is never read as success; exit 3 means overflow: the pack is
-     complete, act on `overflowAction.message` and report the gap. Because this call only runs after
-     the evidence check above already found something recorded for this task id, an exit 1 here means
-     the compiled pack still held nothing usable (evidence with no linked claims, most likely):
-     treat that as a mismatch worth naming in step 6's report, not as license to proceed as though
-     there were no prior context to look for. On a normal, non-empty pack, carry its evidence and
-     claims into step 4's change set instead of re-deriving what an earlier stage already
-     established.
-   - The repository's `pre-implement-gate` hook checks file existence (`requirement.md` /
-     `design.md` / `plan.md`) on every `Edit`/`Write` call regardless of which skill is editing. On
-     a harness with an edit hook it also advises when a held task's readiness record is not
-     `READY`; the hook never denies. This step writes that record, and is not a way around it.
+     Exit 1 (empty pack) is never read as success; exit 3 means overflow: the pack is complete,
+     act on `overflowAction.message` and report the gap. An exit 1 here, after the evidence check found
+     something recorded for this task id, is a mismatch to name in step 6's report, not license to
+     proceed as though there were no prior context. On a non-empty pack, carry its evidence and
+     claims into step 4's change set instead of re-deriving what an earlier stage established.
 
 3. **Understand before writing**:
    - Read the files the change touches and their immediate neighbors — naming conventions, error
@@ -174,21 +164,13 @@ Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-
      "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-implement --note "<one line: what was implemented>" --result <passed|failed> --json
      ```
      Name the `DEC-###` ids step 5 registered in `--note`.
-     A handoff on a run whose implementation stage has a readiness template is refused unless
-     step 2's recorded readiness is `READY`.
      Use step 6's verification outcome for `--result`: `passed` when every check in the named set
      passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish.
-     The runtime selects this class's implementation stage — the only mutating stage a caller may
-     complete — and returns `disposition`. `deferred` means a gate, an unfinished mutating stage
-     elsewhere, or a rejected run prevented it; report `reason` and stop, this skill resolves no
-     gate. Render the trail after a recorded completion:
+     Report the returned `disposition`; on `deferred` report `reason` and stop, this skill resolves
+     no gate. Render the trail after a recorded completion:
      ```bash
      "$DOFLOW" render-audit --slug="<task id>" --json
      ```
-   - Without this call, the orchestrator's cursor never advances past `implementation` for any
-     class that routes here — `bug`, `refactor`, `dependency-change`, `trivial-edit` all do — and
-     every later stage's own handoff call is refused with `blocked-on-mutating-stage:implementation`
-     until this one runs.
 
 8. **Report and hand off**:
    - Summarize what changed, file by file, and why — not a restatement of the diff.

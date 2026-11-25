@@ -128,6 +128,7 @@ a `design.md` for it invents an artifact its workflow never reads.
    entity/table name instead of an id. `design.md` has no section for either: the template's one
    line under Components & Boundaries points at `./specs.md` §1 and `./data-model.md` §1 and §2, and
    none of the three files restates another's content.
+   Fill each decision row's `Makes unwritable` with the Kind `constraint` `IC-###` ids it enforces, or `none`.
    Fill `data-model.md` §1 to §9. Read `references/data_model_example.md` only while filling it.
    Each table row ends in a Source tag; for every `proposed` or `UNKNOWN -> Open Point` row, write
    one `design.md` Open Points for Review bullet that asks its question and names the row, without

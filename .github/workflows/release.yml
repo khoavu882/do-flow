@@ -50,8 +50,24 @@ jobs:
     permissions:
       contents: read
 
+  # The from-nothing rehearsal on the release Node: a clone of this commit, a child environment
+  # built from nothing, the stages a tagged cut depends on. It needs full history, so it cannot be
+  # folded into the reusable test call, and verify-artifact waits for it.
+  rehearse:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+      - run: npm run release:rehearse
+
   verify-artifact:
-    needs: [preflight, test]
+    needs: [preflight, test, rehearse]
     runs-on: ubuntu-latest
     permissions:
       contents: read

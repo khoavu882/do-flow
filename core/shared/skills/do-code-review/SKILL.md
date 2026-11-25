@@ -57,7 +57,7 @@ State this before producing a single finding, and report against it when the rev
 5. **Process-leak scan** — run
    `doflow leak-scan --path <each reviewed file> --json` over the reviewed set. These are DoFlow's
    own identifiers (`FR-###`, `agent-docs/`, chain artifact names) reaching files that ship to
-   people who never used DoFlow. `agent-docs/` is excluded by the verb itself; it never blocks.
+   people who never used DoFlow.
 
    **Say first whether the repository *uses* DoFlow or *implements* it.** A using one reports every
    finding; an implementing one holds this vocabulary by the hundred, so narrow it with
@@ -73,6 +73,8 @@ State this before producing a single finding, and report against it when the rev
    Any other exit: stop and report it. Never decide depth here.
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
+
+Before reading the diff, run `"$DOFLOW" review --action input --json` and present its What ran, Not run and workaround copies first.
 
 ## Tools
 
@@ -113,9 +115,8 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
    conclusion in the report: never file a judgement as if it were something the code itself stated.
    Add the review's verdict rationale and any other conclusion as a claim in the same pass.
 
-   A finding never carries `score`, `confidence`, `relevance` or a similarity field — the runtime
-   refuses those keys by name and the whole batch writes nothing. The Complexity score and Risk
-   categorization this skill's Tools compute are inputs to your `content`, never fields on the item.
+   The Complexity score and Risk categorization this skill's Tools compute are inputs to your
+   `content`, never fields on the item.
 
    This gains the review no gate: recording evidence and claims here is bookkeeping, not authority.
    `do-code-review` still cannot block a merge or stop a downstream stage — only the Block verdict
@@ -141,38 +142,26 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
    ```bash
    "$DOFLOW" orchestrate --action handoff --task-id "<feature_slug>" --calling-skill do-code-review --result <passed|failed> --note "<verdict and finding counts>" --json
    ```
-   The runtime derives the class and stage from the existing run. `standalone` creates no run
-   and asks no gate question. `deferred` reports a prior gate, unfinished mutating stage or
-   rejected run: report its `reason` and leave that transition to its owner. `completed` records
-   the review; `annotated` records a re-review without replaying any stage.
-   Only a `completed` handoff can present a newly reached gate owned by this stage, below.
+   Report the returned `disposition`; on `deferred` report its `reason` and leave that transition
+   to its owner. Only a `completed` handoff can present a newly reached gate owned by this stage, below.
    - **The gate after this stage — check that one exists before trying to resolve one.** Read the
      handoff response's `awaitingGate` field; do not re-derive it from `workflow.gates[]`.
      - **`awaitingGate` is non-null and its `gateId` is anchored after this stage** — `gate-b`,
        "Before commit or merge", in the `feature` workflow, the only shipped class that declares a gate
        itself. Unattended, neither ask nor decide it: report and stop (the loop
-       decides). Attended: this stage is that workflow's last and nothing downstream runs to ask it (its own
-       `handoff` sends commit and merge to `/do-git`, outside the workflow), so ask it here: put
-       `awaitingGate.prompt` to the user through the question tool as a plain go/no-go. Its trigger
-       is `always` — nothing in this review's own output answers it, so never approve it mechanically.
-       No gate is ever auto-approved by `catch-up`, `clarification`-kind included — only a human or
-       that gate's own owning skill decides it. On approve:
+       decides). Attended: this stage is that workflow's last and nothing downstream runs to ask it, so ask it
+       here: put `awaitingGate.prompt` to the user through the question tool as a plain go/no-go.
+       Nothing in this review's own output answers it, so never approve it mechanically. On approve:
        ```bash
        "$DOFLOW" orchestrate --action decide-gate --task-id "<feature_slug>" --gate "<awaitingGate.gateId>" --decision approve --note "<the user's own answer, one line>" --json
        ```
        On "not yet", leave the gate open and say so plainly — the run stays `AWAITING_GATE` and the
        user can decide later. Do not send `--decision reject` for a deferral: reject terminates the
        run outright, which is a different answer from "not now", and do not force the approval.
-     - **`awaitingGate` is `null`** — there is no gate to resolve. `bug`, `refactor`, `review`,
-       `documentation` and `dependency-change` declare none of their own (a loop run's `gate-b` is the loop's:
-       call nothing), so the response comes back with the run
-       either `COMPLETED` or simply advanced. Say the review is recorded and stop: do not fabricate a
-       prompt, and do not call `decide-gate` on a gate that does not exist.
-     - When `/do-flow` is driving the chain it presents this gate and records the answer itself. That
-       needs no special-casing here: a gate it already decided is no longer open, so the `catch-up`
-       above never stops on it and `awaitingGate` comes back `null` — the same no-op branch.
-     Finish by rendering the trail — the `--slug` value attaches with an `=`; a space-separated one
-     is rejected with an error rather than silently rendering the wrong feature's trail:
+     - **`awaitingGate` is `null`** — there is no gate to resolve (a loop run's `gate-b` is the
+       loop's: call nothing). Say the review is recorded and stop: do not fabricate a prompt, and do
+       not call `decide-gate` on a gate that does not exist.
+     Finish by rendering the trail (`--slug` attaches with an `=`):
      ```bash
      "$DOFLOW" render-audit --slug="<feature_slug>" --json
      ```

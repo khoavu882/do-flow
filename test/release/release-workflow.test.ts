@@ -18,7 +18,7 @@ test('parseWorkflow reads top permissions, job fields, uses, text, and source li
   const parsed = parseWorkflow(workflow);
   assert.equal(parsed.topPermissions, '{}');
   assert.ok(parsed.jobs instanceof Map);
-  assert.deepEqual(parsed.jobs.get('verify-artifact').needs, ['preflight', 'test']);
+  assert.deepEqual(parsed.jobs.get('verify-artifact').needs, ['preflight', 'test', 'rehearse']);
   assert.match(parsed.jobs.get('publish').permissions, /id-token: write/);
   assert.ok(parsed.jobs.get('publish').uses.length > 0);
   assert.match(parsed.jobs.get('publish').text, /npm publish/);
@@ -29,13 +29,13 @@ test('the release fixture satisfies every workflow rule', () => {
   assert.deepEqual(releaseWorkflowFindings(workflow), []);
 });
 
-test('release workflow rule ids preserve R1-R12 and add R13-R14', () => {
+test('release workflow rule ids preserve R1-R12 and add R13-R15', () => {
   assert.deepEqual(RELEASE_WORKFLOW_RULE_IDS, [
-    'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14',
+    'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15',
   ]);
 });
 
-test('each R1-R14 fault mutation reports only its rule', () => {
+test('each R1-R15 fault mutation reports only its rule', () => {
   const mutations = [
     ['R1', workflow.replace('permissions: {}', 'permissions:\n  contents: read')],
     ['R2', workflow.replace(
@@ -51,7 +51,7 @@ test('each R1-R14 fault mutation reports only its rule', () => {
       'actions/checkout@0123456789abcdef0123456789abcdef01234567',
       'actions/checkout@v7')],
     ['R6', workflow.replace('--tag-pushed', '--offline')],
-    ['R7', workflow.replace('needs: [preflight, test]', 'needs: [test]')],
+    ['R7', workflow.replace('needs: [preflight, test, rehearse]', 'needs: [test, rehearse]')],
     ['R8', workflow.replace('--draft --title', '--title')],
     ['R9', workflow.replace('--tag "${channel}-candidate"', '--tag beta')],
     ['R10', workflow.replace('*-*) channel=beta ;;', '*-*) channel=latest ;;')],
@@ -62,6 +62,7 @@ test('each R1-R14 fault mutation reports only its rule', () => {
       '  verify-registry:\n    needs: [publish]\n    runs-on: ${{ matrix.os }}\n    continue-on-error: true',
     )],
     ['R14', workflow.replace('--tag-pushed', '--tag-pushed --allow-stable')],
+    ['R15', workflow.replace('needs: [preflight, test, rehearse]', 'needs: [preflight, test]')],
   ];
 
   for (const [rule, mutated] of mutations) {
@@ -134,7 +135,8 @@ test('R11: every Node pin must equal the engines floor, not only the verify-regi
   assert.ok(pins.length >= 4, 'the fixture pins Node in several places');
   assert.ok(pins.every((pin: any) => pin.value === '24.22.1'), JSON.stringify(pins));
   const mutations = [
-    ['a setup-node pin of 24', workflow.replace('node-version: 24.22.1', 'node-version: 24')],
+    ['a setup-node pin of 24', workflow.replace('node-version: 24.22.1\n      - run: npm run build:package\n      - run: npm pack',
+      'node-version: 24\n      - run: npm run build:package\n      - run: npm pack')],
     ['the macOS matrix pin of 24', workflow.replace('os: macos-latest\n            node: "24.22.1"', 'os: macos-latest\n            node: "24"')],
   ];
   for (const [name, mutated] of mutations) {
@@ -238,15 +240,15 @@ test('quoted job keys are parsed and block-list needs are accepted', () => {
     '  "leak":\n    runs-on: ubuntu-latest\n    permissions: { id-token: write, contents: write }\n  verify-registry:',
   );
   const blockNeeds = workflow.replace(
-    '    needs: [preflight, test]',
-    '    needs:\n      - preflight\n      - test',
+    '    needs: [preflight, test, rehearse]',
+    '    needs:\n      - preflight\n      - test\n      - rehearse',
   );
 
   assert.ok(parseWorkflow(quotedJob).jobs.has('leak'));
   assert.ok(releaseWorkflowFindings(quotedJob).some((finding: any) => finding.startsWith('R3 ')));
   assert.ok(releaseWorkflowFindings(quotedJob).some((finding: any) => finding.startsWith('R4 ')));
   assert.deepEqual(releaseWorkflowFindings(blockNeeds), []);
-  assert.deepEqual(parseWorkflow(blockNeeds).jobs.get('verify-artifact').needs, ['preflight', 'test']);
+  assert.deepEqual(parseWorkflow(blockNeeds).jobs.get('verify-artifact').needs, ['preflight', 'test', 'rehearse']);
 });
 
 test('every npm publish invocation needs the candidate tag', () => {
@@ -279,8 +281,8 @@ test('R13 rejects job-level if on the chain up to publish and failure bypasses a
       '  publish-release:\n    needs: [promote]\n    if: cancelled()',
     ),
     workflow.replace(
-      '  verify-artifact:\n    needs: [preflight, test]',
-      '  verify-artifact:\n    needs: [preflight, test]\n    if: always()',
+      '  verify-artifact:\n    needs: [preflight, test, rehearse]',
+      '  verify-artifact:\n    needs: [preflight, test, rehearse]\n    if: always()',
     ),
     workflow.replace(
       '  draft-release:\n    needs: [verify-artifact]',
@@ -305,6 +307,29 @@ test('R13 rejects job-level if on the chain up to publish and failure bypasses a
     const findings = releaseWorkflowFindings(mutated);
     assert.equal(findings.length, 1, 'failure-bypass should produce one finding: ' + findings.join('; '));
     assert.match(findings[0], /^R13 /);
+  }
+});
+
+test('R15: the rehearsal job must exist, run on the preflight Node, run the rehearsal and gate verify-artifact', () => {
+  const rehearseJob = workflow.slice(workflow.indexOf('  rehearse:\n'), workflow.indexOf('  verify-artifact:\n'));
+  assert.ok(rehearseJob.includes('release:rehearse'), 'the fixture carries a rehearse job');
+  const mutations = [
+    ['job missing', workflow.replace(rehearseJob, '').replace('needs: [preflight, test, rehearse]', 'needs: [preflight, test]'), /rehearse job is missing/],
+    ['not in verify-artifact needs', workflow.replace('needs: [preflight, test, rehearse]', 'needs: [preflight, test]'), /verify-artifact must need rehearse/],
+    // R11 also reports a pin that is not the engines floor; R15 is the relative rule against preflight.
+    ['another Node', workflow.replace(rehearseJob, rehearseJob.replace('24.22.1', '24.22.2')), /same Node as preflight/, 'R11'],
+    ['no Node pin', workflow.replace(rehearseJob, rehearseJob.replace(/      - uses: actions\/setup-node[^\n]*\n        with:\n          node-version: 24\.22\.1\n/, '')), /same Node as preflight/],
+    ['does not run the rehearsal', workflow.replace(rehearseJob, rehearseJob.replace('release:rehearse', 'build:package')), /must run release:rehearse/],
+    ['continue-on-error on the job', workflow.replace(rehearseJob, rehearseJob.replace('    runs-on: ubuntu-latest\n', '    runs-on: ubuntu-latest\n    continue-on-error: true\n')), /rehearse must not declare continue-on-error/],
+    ['continue-on-error on the rehearsal step', workflow.replace(rehearseJob, rehearseJob.replace('      - run: npm run release:rehearse', '      - run: npm run release:rehearse\n        continue-on-error: true')), /rehearse must not declare continue-on-error/],
+  ];
+  for (const [name, mutated, message, alsoRule] of mutations as Array<[string, string, RegExp, string | undefined]>) {
+    assert.notEqual(mutated, workflow, name + ' mutation must change the fixture');
+    const findings = releaseWorkflowFindings(mutated);
+    const r15 = findings.filter((finding: any) => finding.startsWith('R15 '));
+    assert.equal(r15.length, 1, name + ' should produce one R15 finding: ' + findings.join('; '));
+    assert.match(r15[0], message, name);
+    assert.deepEqual(findings.filter((finding: any) => !finding.startsWith('R15 ') && !finding.startsWith((alsoRule ?? '-') + ' ')), [], name);
   }
 });
 

@@ -20,6 +20,7 @@
  */
 
 const path = require('node:path');
+const { maskBody } = require('../mask.ts');
 const os = require('node:os');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
@@ -1635,21 +1636,55 @@ function reusedCount(report: any): number {
   return count;
 }
 
+/** 181 IC-024: the tiers the inner-loop verdict reads. A tier of these that listed no check (nothing
+ * detected, declared absent, subsumed, or skipped after a fatal failure) is recorded as one entry with
+ * the tier's own status, `command` and `exitCode` null, so the verdict reads it from the record alone. */
+const INNER_LOOP_TIERS = ['build', 'static-analysis', 'targeted-tests'];
+
+/** 181 IC-005: one `{ tier, role, command, status, exitCode, log }` per check the report lists, in
+ * report order. `role` is null unless it is one of the registry's command roles (a requirement check
+ * has none); `command` is masked like other record text; `exitCode` is null when nothing ran; `log` is
+ * the check's log path relative to the project root, or null when none was kept or it lies outside it. */
+function recordChecks(report: any, commandRoles: string[], projectRoot: string): any[] {
+  const out: any[] = [];
+  for (const tier of Array.isArray(report?.tiers) ? report.tiers : []) {
+    const listed = Array.isArray(tier?.checks) ? tier.checks : [];
+    if (listed.length === 0 && INNER_LOOP_TIERS.includes(tier?.id) && typeof tier.status === 'string') {
+      out.push({ tier: tier.id, role: null, command: null, status: tier.status, exitCode: null, log: null });
+    }
+    for (const check of listed) {
+      if (!check || typeof check !== 'object') continue;
+      const log = typeof check.logPath === 'string' && check.logPath !== '' ? path.relative(projectRoot, check.logPath) : '';
+      out.push({
+        tier: check.tier ?? tier.id,
+        role: commandRoles.includes(check.role) ? check.role : null,
+        command: typeof check.command === 'string' && check.command !== '' ? maskBody(check.command).text : null,
+        status: check.status,
+        exitCode: Number.isInteger(check.exitCode) ? check.exitCode : null,
+        log: log !== '' && !log.startsWith('..') && !path.isAbsolute(log) ? log.split(path.sep).join('/') : null,
+      });
+    }
+  }
+  return out;
+}
+
 /** Persist the already printed report as one JSONL line; state I/O never changes its answer.
+ * 181 IC-005: schema 2 adds `checks` right after `risk`; a schema 1 line reads as `checks: []`.
  * 089 IC-006: with reuse on for the run, `reused` (the count) precedes `reportSha256`; with reuse
  * off the record has no `reused` key. 095b IC-004: `risk` (the report's risk level) follows `verdict`;
  * readers default a missing one, and `verifyRecordReasons` ignores it. */
-function appendVerificationRunRecord({ taskId, report, gitState, reuse = false, fsImpl = nodeFs }: any): void {
+function appendVerificationRunRecord({ taskId, report, gitState, reuse = false, commandRoles = [], fsImpl = nodeFs }: any): void {
   if (!gitState) return;
   try {
     const reportJson = JSON.stringify(report, null, 2);
     const record = {
-      schema: 1,
+      schema: 2,
       taskId,
       head: gitState.head,
       clean: gitState.clean,
       verdict: report.status,
       risk: report.riskLevel,
+      checks: recordChecks(report, commandRoles, gitState.projectRoot),
       at: new Date().toISOString(),
       ...(reuse === true ? { reused: reusedCount(report) } : {}),
       reportSha256: `sha256:${nodeCrypto.createHash('sha256').update(reportJson, 'utf8').digest('hex')}`,
@@ -1676,9 +1711,10 @@ function readVerifyReuse(env: any = process.env): boolean {
   }
 }
 
-function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null, env = process.env, fsImpl = nodeFs }: {
+function handleVerifyCommand({ taskId, action = 'report', flow = null, risk, planPath, json = false, projectRoot, slug = null, scope = null, verificationInput = null, verificationPhase = null, baselineRef = null, env = process.env, fsImpl = nodeFs }: {
   taskId?: any;
   action?: string;
+  flow?: string[] | null;
   risk?: any;
   planPath?: any;
   json?: boolean;
@@ -1690,12 +1726,28 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   baselineRef?: string | null;
   env?: any;
   fsImpl?: any;
-} = {}): number {
+} = {}): number | Promise<number> {
   // The task id names state files here, so it obeys the rule every other task verb applies.
   try {
     assertSafeTaskId(taskId);
   } catch (error: any) {
     return usageError('verify', error.message, json);
+  }
+
+  if (flow?.length && action !== 'feature-map') return usageError('verify', '--flow applies to --action feature-map only', json);
+
+  // 181 IC-024: the inner-loop verdict reads the latest run record and runs nothing, so it answers
+  // before any contract is compiled. Required here, not at load: inner-loop.ts requires this module.
+  if (action === 'inner-loop') {
+    const { handleInnerLoopCommand } = require('./inner-loop.ts');
+    return handleInnerLoopCommand({ taskId, json, projectRoot: projectRoot || process.cwd(), env });
+  }
+
+  // 181 IC-008: the feature map run drives the project's flows, not the contract's tiers, so it also
+  // answers before any contract is compiled. It is asynchronous (the tool status read), so it returns a promise.
+  if (action === 'feature-map') {
+    const { handleFeatureMapCommand } = require('./feature-map.ts');
+    return handleFeatureMapCommand({ taskId, flows: flow ?? [], json, projectRoot: projectRoot || process.cwd(), slug, env, fsImpl });
   }
 
   if (verificationPhase !== null && verificationPhase !== undefined) {
@@ -1807,7 +1859,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
     return finishRuntime(0);
   }
   if (action !== 'report' && action !== 'status') {
-    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract`, json);
+    return usageError('verify', `unknown --action '${action}'. Valid: report (default), contract, inner-loop, feature-map`, json);
   }
 
   const runGitState = action === 'report' ? verificationGitState(cwd, env) : null;
@@ -1860,7 +1912,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   const exitCode = report.status === 'PASS' ? 0 : 1;
-  if (action === 'report') appendVerificationRunRecord({ taskId, report, gitState: runGitState, reuse, fsImpl });
+  if (action === 'report') appendVerificationRunRecord({ taskId, report, gitState: runGitState, reuse, commandRoles: engine.policy.commandRoles || [], fsImpl });
   // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
   emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: state.projectRoot || cwd, env, fsImpl });
   upkeepAfterVerify({ projectRoot: state.projectRoot });
@@ -1885,6 +1937,8 @@ function sameSet(a: string[], b: string[]): boolean {
 module.exports = {
   verificationRunsRoot,
   verificationRunRecordFile,
+  INNER_LOOP_TIERS,
+  verificationGitState,
   VerificationContractRunner,
   VerificationEngine,
   loadVerificationRegistry,

@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
-export type RuleCategory = 'safety' | 'workflow' | 'quality' | 'questions' | 'principles';
-export type EnforcementType = 'mechanical' | 'advisory';
+export type RuleCategory = 'safety' | 'workflow' | 'quality' | 'questions' | 'principles' | 'skill' | 'reference' | 'mcp' | 'mode';
+export type EnforcementType = 'check' | 'judgement-only' | 'not-a-rule';
 
 export interface RuleEntry {
   id: string;
@@ -15,19 +15,20 @@ export interface RuleEntry {
   category: RuleCategory;
   enforcement: EnforcementType;
   enforcementRef: string | null;
+  reason: string | null;
   neverAblate: boolean;
   ablationCandidate: boolean;
   description?: string;
 }
 
 export interface RuleLedger {
-  version: 1;
+  version: 2;
   description: string;
   rules: RuleEntry[];
 }
 
 /**
- * Loads and validates core/registry/rules.json (IC-001 / IC-003).
+ * Loads and validates core/registry/rules.json (IC-001 / IC-003, IC-018).
  */
 function loadRuleLedger(options?: { repoRoot?: string; fsImpl?: any }): RuleLedger {
   const fsImpl = options?.fsImpl || fs;
@@ -58,8 +59,8 @@ function loadRuleLedger(options?: { repoRoot?: string; fsImpl?: any }): RuleLedg
     throw err;
   }
 
-  if (!parsed || typeof parsed !== 'object' || parsed.version !== 1 || !Array.isArray(parsed.rules)) {
-    const err: any = new Error('ERR_RULE_LEDGER_INVALID: schema must have version: 1 and rules: array');
+  if (!parsed || typeof parsed !== 'object' || parsed.version !== 2 || !Array.isArray(parsed.rules)) {
+    const err: any = new Error('ERR_RULE_LEDGER_INVALID: schema must have version: 2 and rules: array');
     err.code = 'ERR_RULE_LEDGER_INVALID';
     throw err;
   }

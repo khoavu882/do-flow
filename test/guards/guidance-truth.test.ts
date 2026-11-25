@@ -13,6 +13,7 @@ const CHAIN_REL = 'core/shared/guidance/references/DOFLOW_CHAIN.md';
 const CHAIN_FILE = path.join(REPO, CHAIN_REL);
 const GATE_REL = 'core/harnesses/shared/hooks/policies/pre-implementation-gate.sh';
 const GATE_FILE = path.join(REPO, GATE_REL);
+const CONTRIBUTING_REL = 'CONTRIBUTING.md';
 const DO_SKILL_FILE = path.join(REPO, 'core/shared/skills/do/SKILL.md');
 const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/assets.json'), 'utf8')).assets;
 const CODE_RE = /^[a-z]+(-[a-z]+)+$/;
@@ -126,7 +127,7 @@ const GUIDANCE_REL = path.relative(REPO, GUIDANCE).split(path.sep).join('/');
 const SKILLS_REL = path.relative(REPO, SKILLS).split(path.sep).join('/');
 const AGENT_SPECS_REL = path.relative(REPO, AGENT_SPECS).split(path.sep).join('/');
 
-// The three roots G46.2 scans, read through one path for the real tree and for a scratch copy of it.
+// The roots G46.2 scans (the three markdown trees and CONTRIBUTING.md), read through one path for the real tree and for a scratch copy of it.
 function guidanceCorpus(root: any = REPO) {
   const skillDirs = fs.readdirSync(path.join(root, SKILLS_REL), { withFileTypes: true })
     .filter((entry: any) => entry.isDirectory())
@@ -135,10 +136,11 @@ function guidanceCorpus(root: any = REPO) {
     ...markdownFiles(GUIDANCE_REL, false, root),
     ...skillDirs.flatMap((dir: any) => markdownFiles(dir, true, root)),
     ...markdownFiles(AGENT_SPECS_REL, false, root),
+    { rel: CONTRIBUTING_REL, text: fs.readFileSync(path.join(root, CONTRIBUTING_REL), 'utf8') },
   ];
 }
 
-// Copy only the markdown of the three scanned roots, then apply { rel: (text) => text } edits.
+// Copy only the markdown of the scanned roots, then apply { rel: (text) => text } edits.
 function withScratchTree(t: any, edits: any, fn: any) {
   const scratch = tempDir(t, 'doflow-g46-tree-');
   for (const rel of [GUIDANCE_REL, SKILLS_REL, AGENT_SPECS_REL]) {
@@ -147,6 +149,7 @@ function withScratchTree(t: any, edits: any, fn: any) {
       filter: (src: any) => fs.statSync(src).isDirectory() || src.endsWith('.md'),
     });
   }
+  fs.copyFileSync(path.join(REPO, CONTRIBUTING_REL), path.join(scratch, CONTRIBUTING_REL));
   for (const [rel, edit] of Object.entries(edits)) {
     const file = path.join(scratch, rel);
     fs.writeFileSync(file, edit(fs.readFileSync(file, 'utf8')));
@@ -368,6 +371,113 @@ function replaceLayoutNote(text: any, replacement: any) {
   return lines.join('\n');
 }
 
+// G46.7 — the repository facts table in CONTRIBUTING.md is compared, row by row, with the file that owns each fact.
+const FACTS_HEADING = '## Repository facts';
+const FACTS_HEADER = '| Fact | Value | Owner |';
+const HARNESSES_REL = 'core/registry/harnesses.json';
+const FACTS: any = [
+  { fact: 'Node floor', file: 'package.json', key: 'engines.node' },
+  { fact: 'Test command', file: 'package.json', key: 'scripts.test' },
+  { fact: 'Typecheck command', file: 'package.json', key: 'scripts.typecheck' },
+  { fact: 'Harnesses', file: HARNESSES_REL, key: 'harnesses[].id' },
+  { fact: 'Implement gate', file: GATE_REL, key: 'doflow_decide deny' },
+  { fact: 'Suites outside npm test', file: 'package.json', key: 'scripts.test scope' },
+];
+
+function readUnder(root: any, rel: any) {
+  return fs.readFileSync(path.join(root, rel), 'utf8');
+}
+
+function factRows(text: any) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line: any) => line.trim() === FACTS_HEADING);
+  const rows: any = new Map();
+  let header = false;
+  if (start < 0) return { found: false, header, rows };
+  for (let i = start + 1; i < lines.length && !/^#{1,6}\s/.test(lines[i]); i += 1) {
+    if (!/^\s*\|/.test(lines[i])) continue;
+    if (lines[i].trim() === FACTS_HEADER) header = true;
+    const cells = lines[i].trim().replace(/^\||\|$/g, '').split('|').map((cell: any) => cell.trim());
+    if (cells.length === 3 && cells[0] !== 'Fact' && !/^-+$/.test(cells[0])) rows.set(cells[0], { value: cells[1], owner: cells[2] });
+  }
+  return { found: true, header, rows };
+}
+
+// A `scripts.test` glob such as "test/**/*.test.ts" as a regular expression over repository-relative paths.
+function globRegExp(glob: any) {
+  const body = glob.split('**/')
+    .map((part: any) => part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*'))
+    .join('(?:.*/)?');
+  return new RegExp(`^${body}$`);
+}
+
+function decidesDeny(gateText: any) {
+  return literalDecisionCodes(gateText, ['deny']).length > 0 || /\bdoflow_decide\s+deny\b/.test(gateText);
+}
+
+function suiteFindings({ items, pkg, root }: any) {
+  const findings: any = [];
+  const globs: any = [...(pkg.scripts?.test ?? '').matchAll(/"([^"]+)"/g)].map(([, glob]) => glob);
+  if (!items.length) findings.push('lists no suite');
+  if (!globs.length) findings.push('package.json scripts.test names no quoted glob');
+  for (const item of items) {
+    if (item.startsWith('npm run ')) {
+      if (!pkg.scripts?.[item.slice('npm run '.length)]) findings.push(`${item} is not a package.json script`);
+    } else if (!fs.existsSync(path.join(root, item))) {
+      findings.push(`${item} does not exist`);
+    } else if (globs.some((glob: any) => globRegExp(glob).test(item))) {
+      findings.push(`${item} is run by npm test`);
+    }
+  }
+  return findings;
+}
+
+// Findings for one fact: the row is missing, its Owner cell does not name the owner file, or its value differs from the owner's.
+// Ceiling: a suite that exists outside npm test but is not listed in the row is not noticed.
+function checkFact({ fact, file, key }: any, root: any = REPO) {
+  const label = `G46.7: fact "${fact}" (owner ${file} ${key})`;
+  const table = factRows(readUnder(root, CONTRIBUTING_REL));
+  if (!table.found) return [`${label}: ${CONTRIBUTING_REL} has no "${FACTS_HEADING}" section`];
+  const row = table.rows.get(fact);
+  if (!row) return [`${label}: ${CONTRIBUTING_REL} has no row for it`];
+  const findings: any = [];
+  if (!row.owner.includes(file)) findings.push(`${label}: Owner cell "${row.owner}" does not name ${file}`);
+  const value = row.value.replace(/^`([^`]*)`$/, '$1');
+  const pkg: any = JSON.parse(readUnder(root, 'package.json'));
+  const expected: any = {
+    'Node floor': () => pkg.engines?.node,
+    'Test command': () => pkg.scripts?.test,
+    'Typecheck command': () => pkg.scripts?.typecheck,
+    Harnesses: () => {
+      const ids = JSON.parse(readUnder(root, HARNESSES_REL)).harnesses.map((harness: any) => harness.id);
+      return `${ids.length}: ${ids.join(', ')}`;
+    },
+    'Implement gate': () => decidesDeny(readUnder(root, GATE_REL)) ? 'the hook emits a deny decision' : 'advises, never denies',
+  };
+  if (fact === 'Suites outside npm test') {
+    const items = [...row.value.matchAll(/`([^`]+)`/g)].map(([, item]) => item);
+    findings.push(...suiteFindings({ items, pkg, root }).map((finding: any) => `${label}: ${finding}`));
+  } else if (value !== expected[fact]()) {
+    findings.push(`${label}: table says ${JSON.stringify(value)}, owner says ${JSON.stringify(expected[fact]())}`);
+  }
+  return findings;
+}
+
+// A scratch copy of CONTRIBUTING.md and every file its facts read, with { rel: (text) => text } edits applied.
+function withFactTree(t: any, edits: any, fn: any) {
+  const scratch = tempDir(t, 'doflow-g46-facts-');
+  const suites = [...(factRows(read(CONTRIBUTING_REL)).rows.get('Suites outside npm test')?.value ?? '').matchAll(/`(test\/[^`]+)`/g)].map(([, item]) => item);
+  for (const rel of [CONTRIBUTING_REL, 'package.json', HARNESSES_REL, GATE_REL, ...suites]) {
+    fs.mkdirSync(path.dirname(path.join(scratch, rel)), { recursive: true });
+    fs.copyFileSync(path.join(REPO, rel), path.join(scratch, rel));
+  }
+  for (const [rel, edit] of Object.entries(edits)) {
+    const file = path.join(scratch, rel);
+    fs.writeFileSync(file, edit(fs.readFileSync(file, 'utf8')));
+  }
+  return fn(scratch);
+}
+
 const CHAIN_TEXT = read(CHAIN_REL);
 const GATE_TEXT = read(GATE_REL);
 const DO_SKILL_TEXT = read('core/shared/skills/do/SKILL.md');
@@ -512,6 +622,25 @@ test('G46.3 control: removing the shared-policy row anchor is caught', () => {
   assert.ok(findings.some((finding: any) => finding.includes('found no Layout row anchor')), findings.join('\n'));
 });
 
+// 181 G.6 (NFR-001): the Stop policy advises only. It is read the way the implement gate is: no literal `doflow_decide deny`.
+const STOP_REL = 'core/harnesses/shared/hooks/policies/stop-check.sh';
+
+test('G46.3: the Stop policy emits no deny decision', () => {
+  assert.equal(decidesDeny(read(STOP_REL)), false, `${STOP_REL} emits a deny decision; hooks advise only`);
+});
+
+test('G46.3 control: a deny planted in a scratch copy of stop-check.sh is caught', (t) => {
+  const dir = tempDir(t, 'doflow-g46-stop-');
+  const copy = path.join(dir, 'stop-check.sh');
+  fs.copyFileSync(path.join(REPO, STOP_REL), copy);
+  assert.equal(decidesDeny(fs.readFileSync(copy, 'utf8')), false, 'the unedited copy must pass');
+  for (const planted of ['doflow_decide deny lint-left', 'doflow_decide deny blocked']) {
+    fs.appendFileSync(copy, `\n${planted}\n`);
+    assert.equal(decidesDeny(fs.readFileSync(copy, 'utf8')), true, `${planted} was not caught`);
+    fs.copyFileSync(path.join(REPO, STOP_REL), copy);
+  }
+});
+
 test('G46.4: templates row matches templates.doflow files', () => {
   assert.deepEqual(checkLayoutRow({ chain: CHAIN_TEXT, pathCell: TEMPLATE_PATH, expected: TEMPLATE_NAMES, suffixRe: /-template\.md$/, label: 'G46.4', glob: '*-template.md' }), []);
 });
@@ -576,4 +705,63 @@ test('G46.6 control: re-seeding the baseline .claude install-root note is caught
 test('G46.6 control: removing the install-root note anchor is caught', () => {
   const findings = checkInstallRoots({ chain: replaceLayoutNote(CHAIN_TEXT, ''), resolver: RESOLVER });
   assert.ok(findings.some((finding: any) => finding.includes('found no install-root note anchor')), findings.join('\n'));
+});
+
+test('G46.2 vacuity: CONTRIBUTING.md is a scanned root', () => {
+  assert.ok(CANONICAL_CORPUS.some(({ rel }: any) => rel === CONTRIBUTING_REL), `G46.2 did not scan ${CONTRIBUTING_REL}`);
+});
+
+test('G46.2 control: a hard-gate scope claim added to CONTRIBUTING.md in a scratch tree is caught', (t) => {
+  const findings = withScratchTree(t, {
+    [CONTRIBUTING_REL]: (text: any) => `${text}\nThe chain's one hard gate covers artifact existence only.\n`,
+  }, (root: any) => checkCanonicalGate(guidanceCorpus(root)));
+  assert.deepEqual(findings, [`G46.2: ${CONTRIBUTING_REL} has a hard-gate scope claim without DOFLOW_CHAIN.md`]);
+});
+
+// One stale value per fact: the edit turns the table (or, for the gate, the owner) into a copy that disagrees with the other side.
+const FACT_CONTROLS: any = {
+  'Node floor': { rel: CONTRIBUTING_REL, edit: (text: any) => replaceOnce(text, '| >=24.22.1 |', '| >=18 |') },
+  'Test command': { rel: CONTRIBUTING_REL, edit: (text: any) => replaceOnce(text, '"test/**/*.test.ts"', '') },
+  'Typecheck command': { rel: CONTRIBUTING_REL, edit: (text: any) => replaceOnce(text, 'typescript@5.7.2', 'typescript@4.0.0') },
+  Harnesses: { rel: CONTRIBUTING_REL, edit: (text: any) => replaceOnce(text, '| 7: claude,', '| 8: gemini, claude,') },
+  'Implement gate': { rel: GATE_REL, edit: (text: any) => `${text}\ndoflow_decide deny edit-blocked\n` },
+  'Suites outside npm test': { rel: CONTRIBUTING_REL, edit: (text: any) => replaceOnce(text, '`test/verify-hooks.sh`', '`test/ghost-suite.sh`') },
+};
+
+test('G46.7: the facts section carries the Fact, Value, Owner header', () => {
+  const table = factRows(read(CONTRIBUTING_REL));
+  assert.ok(table.found, `${CONTRIBUTING_REL} has no "${FACTS_HEADING}" section`);
+  assert.ok(table.header, `${CONTRIBUTING_REL} facts table lacks the header ${FACTS_HEADER}`);
+});
+
+for (const spec of FACTS) {
+  test(`G46.7: "${spec.fact}" matches ${spec.file}`, () => {
+    assert.deepEqual(checkFact(spec), []);
+  });
+
+  test(`G46.7 control: a stale "${spec.fact}" in a scratch copy fails naming the fact and ${spec.file}`, (t) => {
+    const { rel, edit } = FACT_CONTROLS[spec.fact];
+    withFactTree(t, {}, (root: any) => assert.deepEqual(checkFact(spec, root), []));
+    const findings = withFactTree(t, { [rel]: edit }, (root: any) => checkFact(spec, root));
+    assert.ok(findings.length > 0, 'the stale copy was not caught');
+    for (const finding of findings) {
+      assert.ok(finding.includes(`fact "${spec.fact}"`) && finding.includes(spec.file), finding);
+    }
+  });
+
+  test(`G46.7 control: a missing "${spec.fact}" row in a scratch copy fails naming the fact and ${spec.file}`, (t) => {
+    const findings = withFactTree(t, {
+      [CONTRIBUTING_REL]: (text: any) => text.split(/\r?\n/).filter((line: any) => !line.startsWith(`| ${spec.fact} |`)).join('\n'),
+    }, (root: any) => checkFact(spec, root));
+    assert.equal(findings.length, 1, findings.join('\n'));
+    assert.match(findings[0], new RegExp(`fact "${spec.fact}".*${spec.file.replace(/[.]/g, '\\.')}.*no row`));
+  });
+}
+
+test('G46.7 control: a suite that npm test already runs is caught by the scope comparison', (t) => {
+  const spec = FACTS.find(({ fact }: any) => fact === 'Suites outside npm test');
+  const findings = withFactTree(t, {
+    'package.json': (text: any) => replaceOnce(text, '\\"test/**/*.test.ts\\"', '\\"test/**/*.test.ts\\" \\"test/*.sh\\"'),
+  }, (root: any) => checkFact(spec, root));
+  assert.ok(findings.some((finding: any) => finding.includes('is run by npm test') && finding.includes('package.json')), findings.join('\n'));
 });

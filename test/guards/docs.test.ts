@@ -100,7 +100,8 @@ test('G6: specs-template.md provides technical scaffolding for endpoints and rep
   // of specs-template.md §2 into its own data-model-template.md, checked separately below.
   const specsTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/specs-template.md'), 'utf8');
   // Row 179 widened the template header to UI component props and events and model tool or prompt schemas, so the Kind list names them too.
-  assert.ok(specsTmpl.includes('endpoint / cli-verb / schema / file-format / ui-component / tool-schema'), 'specs template must scaffold the endpoint/cli-verb/schema/file-format/ui-component/tool-schema Kind vocabulary');
+  assert.ok(specsTmpl.includes('endpoint / cli-verb / schema / file-format / ui-component / tool-schema / constraint'), 'specs template must scaffold the endpoint/cli-verb/schema/file-format/ui-component/tool-schema/constraint Kind vocabulary');
+  assert.ok(/`Check: <kind> at <path>; passes when <condition>`/.test(specsTmpl.replace(/\s+/g, ' ')), 'specs template must scaffold the constraint Check: line');
   assert.ok(specsTmpl.includes('repository/service interface'), 'specs template must scaffold Repository/service interfaces');
 });
 

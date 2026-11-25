@@ -289,6 +289,27 @@ test('G18: design-template.md Architecture Approach carries the decision-and-blo
     'ARTIFACT_FORMAT.md §10 decision-summary columns', 'templates/doflow/design-template.md Architecture Approach table header');
 });
 
+const DECISION_COLUMNS = ['Decision', 'Shape chosen', 'Makes unwritable', 'Owner', 'Blocks approval?'];
+
+/** The cells of the decision table's header row in a design template's Architecture Approach. */
+function decisionHeader(text: any) {
+  const header = section(text, /^## \d+\. Architecture Approach/).split('\n').find((l: any) => /^\|.*\|/.test(l));
+  return header ? header.split('|').slice(1, -1).map((c: any) => c.trim()).filter(Boolean) : [];
+}
+
+test('G18: the decision table names the five columns, `Makes unwritable` among them, in §10 and in the template', () => {
+  assert.deepEqual(decisionHeader(template('design-template.md')), DECISION_COLUMNS);
+  const declared = REVIEWER_SECTIONS.replace(/\s+/g, ' ').match(/A table with the columns ((?:`[^`]+`[,\s]*(?:and )?)+)/);
+  assert.ok(declared, 'ARTIFACT_FORMAT.md §10 no longer declares the decision-summary columns');
+  assert.deepEqual(backticked(declared[1]), DECISION_COLUMNS);
+});
+
+test('G18 control: a design template without the `Makes unwritable` column is not the five-column table', () => {
+  const without = template('design-template.md').replace(/ Makes unwritable \|/, '').replace(/\| none \|/, '|');
+  assert.notDeepEqual(decisionHeader(without), DECISION_COLUMNS);
+  assert.ok(!decisionHeader(without).includes('Makes unwritable'));
+});
+
 test('G18: specs-template.md carries the §1 family grouping; data-model-template.md carries the §2-shaped data-model views §10 declares', () => {
   const specs = template('specs-template.md');
   const one = section(specs, /^## 1\. /);

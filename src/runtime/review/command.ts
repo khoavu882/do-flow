@@ -7,6 +7,7 @@ const { validateFindings, countFindings, reviewAdvisories, invalidProjectCandida
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
+const { printSafe } = require('../mask.ts');
 const { handleReviewStart, validSlug } = require('./start.ts');
 const { crossCheckAuthor, authoringIdentities } = require('./identity.ts');
 const { isQualifiedId } = require('../../helper/package-ids.ts');
@@ -76,6 +77,82 @@ function emptyValue(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length === 0;
 }
 
+/** The text of one What ran line: a check of the verify run, or a flow that has an outcome on the head. */
+function inputRunLines(what: any): string[] {
+  const line = (...cells: any[]): string => `- ${cells.map((cell) => String(printSafe(String(cell ?? ''))).replace(/\s+/g, ' ').trim()).join(' · ')}`;
+  const short = (sha: any): string => (typeof sha === 'string' && sha ? sha.slice(0, 8) : 'none recorded');
+  const NONE = 'none recorded';
+  const lines: string[] = [];
+  for (const c of what.verify?.checks ?? []) lines.push(line(c.tier, c.command ?? NONE, c.status, `exit ${c.exitCode ?? NONE}`, `commit ${short(what.head)}`));
+  for (const f of what.flows.filter((flow: any) => flow.status !== 'not-run')) {
+    lines.push(line(`flow ${f.id}`, f.action ?? NONE, f.status, f.observed ?? NONE, f.locator ?? NONE, `commit ${short(f.commit)}`));
+  }
+  return lines.length ? lines : [`- ${NONE}`];
+}
+
+/**
+ * 181 IC-011 `review --action input`: what ran on the head commit (the latest verify run's checks and each
+ * feature-map flow's result), then the flows that did not run. It never refuses on evidence and writes nothing:
+ * exit 0 whenever git answers, 1 when the head or the base cannot be resolved, 2 for usage.
+ */
+function handleReviewInput({ slug, base, json, cwd, env, resolve, out }: any): number {
+  const fail = (error: string, message: string): number => {
+    out(json ? JSON.stringify({ ok: false, action: 'input', error, message }) : `doflow review: ${error}: ${message}`);
+    return finishRuntime(1);
+  };
+  let feature: any = null;
+  try { feature = (resolve as FeatureResolver)({ projectRoot: cwd, slug }); } catch { feature = null; }
+  const resolved = feature && !feature.error && typeof feature.featureFolder === 'string' && feature.featureFolder ? feature : null;
+  const taskId: string | null = slug ?? (validSlug(feature?.paths?.feature_slug) ? feature.paths.feature_slug : null);
+  if (!taskId) return usage('--slug is required when no active feature resolves', json, out);
+
+  const gitEnv = { ...env };
+  for (const key of require('../dispatch/verify-run.ts').REPO_ENV) delete gitEnv[key];
+  const rev = spawnSync('git', ['-C', cwd, 'rev-parse', '--verify', 'HEAD'], { cwd, env: gitEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30000 });
+  const head = rev.status === 0 ? String(rev.stdout).trim() : '';
+  if (!/^[0-9a-f]{40,64}$/.test(head)) return fail('head-unresolved', 'HEAD could not be resolved');
+  const { resolveExplicitBaseline, resolveIntegrationBase } = require('../verification/scope-bound.ts');
+  let baseSha: string | null = null;
+  let reason = '';
+  if (base !== null) {
+    const explicit = resolveExplicitBaseline({ cwd, ref: base });
+    baseSha = explicit.ok ? explicit.sha : null;
+    reason = explicit.ok ? '' : String(explicit.reason);
+  } else {
+    const integration = resolveIntegrationBase({ cwd });
+    baseSha = typeof integration.mergeBase === 'string' && integration.mergeBase ? integration.mergeBase : null;
+    reason = baseSha ? '' : String(integration.reason ?? 'no integration branch');
+  }
+  if (!baseSha) return fail('base-unresolved', reason);
+
+  const what = require('../run-evidence.ts').compileRunEvidence({
+    root: resolved ? resolved.featureRoot : cwd, taskId, head, fsImpl: fs, featureDir: resolved ? resolved.featureFolder : null,
+  });
+  const notRun = what.flows.filter((flow: any) => flow.status === 'not-run').map((flow: any) => ({ id: flow.id, title: flow.title }));
+  const workarounds = require('./workarounds.ts').scanWorkarounds({ root: resolved ? resolved.featureRoot : cwd, base: baseSha, head });
+  if (json) {
+    out(JSON.stringify({ ok: true, action: 'input', head, base: baseSha, whatRan: what, notRun, workarounds }));
+    return finishRuntime(0);
+  }
+  const cut = (sha: string): string => sha.slice(0, 8);
+  const lines = [`What ran on ${cut(head)} (base ${cut(baseSha)}):`, ...inputRunLines(what)];
+  if (what.verify && !what.verify.onHead) lines.push('The latest verify run is not on the head commit; its checks are not shown as evidence for this head.');
+  else if (what.verify && what.verify.clean !== true) lines.push('The latest verify run was on a tree with uncommitted changes; its checks are not shown as evidence for this head.');
+  lines.push('', 'Not run:');
+  if (what.featureMap === 'absent') lines.push('- No feature map: no user-facing flow is shown as run.');
+  else if (notRun.length === 0) lines.push('- none');
+  for (const flow of notRun) lines.push(`- Flow ${flow.id} (${flow.title}): not run on ${cut(head)}`);
+  if (what.featureMap === 'invalid') lines.push('- The feature map is invalid: a flow it lists is not shown as run unless it has a result on the head.');
+  for (const problem of what.problems) lines.push(`- Run evidence: ${problem}`);
+  lines.push('', 'Workaround copies:');
+  for (const m of workarounds.matches) lines.push(`- ${m.path}:${m.line} · ${m.mark} · ${m.reason} · use instead: ${m.alternative}`);
+  if (workarounds.matches.length === 0) lines.push('- none');
+  if (workarounds.truncated) lines.push('- The scan stopped early; later added lines were not checked.');
+  for (const finding of workarounds.findings) lines.push(`- Workaround marks: ${finding}`);
+  for (const line of lines) out(String(printSafe(line, { keepLineBreaks: false })));
+  return finishRuntime(0);
+}
+
 function handleReviewCommand({
   action,
   slug,
@@ -95,7 +172,7 @@ function handleReviewCommand({
   resolve = resolveActiveFeature,
   out = (line: string) => console.log(line),
 }: any = {}): number | Promise<number> {
-  if (action !== 'check' && action !== 'start' && action !== 'similar') return usage('action must be check, start or similar', json, out);
+  if (action !== 'check' && action !== 'start' && action !== 'similar' && action !== 'input') return usage('action must be check, start, similar or input', json, out);
   if ([slug, recordPath, base, preset, seats, outFile].some(emptyValue)) return usage('flag values must not be empty', json, out);
   if (action === 'similar') {
     // 176 IC-007: the seats file and --out replace the record path; the slug names the feature.
@@ -106,6 +183,13 @@ function handleReviewCommand({
     return require('./similar.ts').handleReviewSimilar({ slug: hasValue(slug) ? slug : null, seats: hasValue(seats) ? seats : null, outFile: hasValue(outFile) ? outFile : null, json, cwd, env, resolve, out });
   }
   if (hasValue(seats) || hasValue(outFile)) return usage('--seats and --out are valid only with --action similar', json, out);
+  if (action === 'input') {
+    if (hasValue(recordPath) || hasValue(preset)) return usage('--path and --preset are not valid with --action input', json, out);
+    if ((hasValue(slug) && !validSlug(slug)) || (hasValue(base) && typeof base !== 'string')) {
+      return usage('--slug must be a plain feature name and --base a string', json, out);
+    }
+    return handleReviewInput({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, json, cwd, env, resolve, out });
+  }
   if (action === 'start') {
     // 095b IC-001: the start verb reads no record path, and the slug becomes a file name.
     if (hasValue(recordPath)) return usage('--path is not valid with --action start', json, out);

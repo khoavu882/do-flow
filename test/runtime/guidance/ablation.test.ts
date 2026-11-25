@@ -17,7 +17,7 @@ const {
 
 function createMockLedger(): any {
   return {
-    version: 1,
+    version: 2,
     description: 'Mock rule ledger for runtime tests',
     rules: [
       {
@@ -26,8 +26,9 @@ function createMockLedger(): any {
         statement: 'Parallel when write sets are disjoint; otherwise sequential.',
         sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'workflow',
-        enforcement: 'advisory',
+        enforcement: 'judgement-only',
         enforcementRef: null,
+        reason: 'Fixture row with no enforcing check.',
         neverAblate: false,
         ablationCandidate: true,
       },
@@ -37,8 +38,9 @@ function createMockLedger(): any {
         statement: 'Naming: Follow language standards (camelCase JS, snake_case Python); no mixed conventions',
         sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'quality',
-        enforcement: 'advisory',
+        enforcement: 'judgement-only',
         enforcementRef: null,
+        reason: 'Fixture row with no enforcing check.',
         neverAblate: false,
         ablationCandidate: true,
       },
@@ -48,8 +50,9 @@ function createMockLedger(): any {
         statement: 'Read the date from the environment before any temporal claim; never infer it from your knowledge cutoff, and state its source.',
         sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'safety',
-        enforcement: 'advisory',
+        enforcement: 'judgement-only',
         enforcementRef: null,
+        reason: 'Fixture row with no enforcing check.',
         neverAblate: true,
         ablationCandidate: false,
       },
@@ -59,8 +62,9 @@ function createMockLedger(): any {
         statement: 'Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requirements.',
         sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'safety',
-        enforcement: 'mechanical',
+        enforcement: 'check',
         enforcementRef: 'core/harnesses/shared/hooks/policies/pre-implementation-gate.sh',
+        reason: null,
         neverAblate: true,
         ablationCandidate: false,
       },
@@ -70,8 +74,9 @@ function createMockLedger(): any {
         statement: 'Inert non-candidate rule statement.',
         sourceFile: 'core/shared/guidance/PRINCIPLES.md',
         category: 'principles',
-        enforcement: 'advisory',
+        enforcement: 'judgement-only',
         enforcementRef: null,
+        reason: 'Fixture row with no enforcing check.',
         neverAblate: false,
         ablationCandidate: false,
       },
@@ -83,7 +88,7 @@ describe('IC-001: Rule Ledger Loading & Candidate Discovery', () => {
   test('loadRuleLedger() loads core/registry/rules.json by default', () => {
     const ledger = loadRuleLedger();
     assert.ok(ledger, 'Rule ledger must be returned');
-    assert.equal(ledger.version, 1);
+    assert.equal(ledger.version, 2);
     assert.ok(typeof ledger.description === 'string');
     assert.ok(Array.isArray(ledger.rules));
     assert.ok(ledger.rules.length > 0);
@@ -97,7 +102,7 @@ describe('IC-001: Rule Ledger Loading & Candidate Discovery', () => {
     fs.writeFileSync(path.join(registryDir, 'rules.json'), JSON.stringify(mock, null, 2), 'utf8');
 
     const loaded = loadRuleLedger({ repoRoot: tempRoot });
-    assert.equal(loaded.version, 1);
+    assert.equal(loaded.version, 2);
     assert.equal(loaded.rules.length, 5);
     assert.equal(loaded.rules[0].id, 'rule-safe-candidate-1');
   });

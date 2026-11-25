@@ -33,6 +33,7 @@ const { parseSeed } = require('./roadmap/rows.ts');
 const { roadmapStatusResult, resolveMainRoot, RUN_ID, readRunFile } = require('./roadmap/loop.ts');
 const { validateFindings } = require('./review/findings.ts');
 const { printSafe } = require('./mask.ts');
+const { compileRunEvidence } = require('./run-evidence.ts');
 const { finishRuntime, usageError } = require('./cli-result.ts');
 const { isSafeSlug } = require('./task-scope.ts');
 
@@ -244,9 +245,12 @@ function gatherFacts({ cwd, slug, feature, fsImpl = nodeFs }: any): any {
     try { run = readRunRecord(fsImpl, found.file, runStoreDir(found.root)); } catch (error: any) { runError = String(error?.message ?? error); }
   } else if (found.status === 'ambiguous') runError = `the run of '${slug}' is in more than one checkout`;
   const seed = seedRowFor(root, slug, fsImpl);
+  const result = gatherResult({ cwd, slug, run, seedRow: seed.row });
   return {
     slug, root, featureDir, run, runError, register, registerError, seedRow: seed.row, seedError: seed.error,
-    result: gatherResult({ cwd, slug, run, seedRow: seed.row }),
+    result,
+    // 181 IC-010: what ran on the head, from the verify record and the evidence ledger; nothing without a head.
+    whatRan: result.head ? compileRunEvidence({ root, taskId: run?.taskId || slug, head: result.head, fsImpl, featureDir }) : null,
     decisions: register?.decisions || [],
     gates: gatherGates({ run, register }),
     verification: gatherVerification({ slug, run, root, fsImpl }),
@@ -279,7 +283,31 @@ function sectionResult(f: any): string[] {
     out.push(`- Run state: ${clean(r.runState)}${r.current ? `, at ${clean(r.current)}` : ''} (${clean(r.progress)})`);
     out.push(`- Stage reached: ${r.lastStage ? clean(r.lastStage) : 'no stage completed'}`);
   }
+  out.push(`- ${flowCountLine(f.whatRan)}`);
   return out;
+}
+
+/** IC-010: the count of user-facing flows by what ran on the head, never a verified claim for a flow that did not run. */
+function flowCountLine(w: any): string {
+  if (!w) return `User-facing flows: ${NOT_DETERMINED}`;
+  if (w.featureMap === 'absent') return 'User-facing flows: no feature map';
+  if (w.featureMap === 'invalid' && w.flows.length === 0) return 'User-facing flows: the feature map is invalid';
+  const n = (status: string) => w.flows.filter((x: any) => x.status === status).length;
+  return `User-facing flows run on head: ${n('passed')} passed, ${n('failed')} failed, ${n('unreached')} unreached, ${n('not-run')} not run (of ${w.flows.length})`;
+}
+
+/** IC-010 section 2: each check of the latest verify run on the head, then each flow that has an outcome on it. */
+function sectionWhatRan(f: any): string[] {
+  const w = f.whatRan;
+  if (!w) return ['- The head commit is not determined: nothing is shown as run on it.'];
+  const out: string[] = [];
+  for (const c of w.verify?.checks ?? []) {
+    out.push(`- ${clean(c.tier)} · ${clean(c.command ?? NONE)} · ${clean(c.status)} · exit ${c.exitCode === null || c.exitCode === undefined ? NONE : clean(c.exitCode)} · commit ${short(w.head)}`);
+  }
+  for (const x of w.flows.filter((flow: any) => flow.status !== 'not-run')) {
+    out.push(`- flow ${clean(x.id)} · ${clean(x.action ?? NONE)} · ${clean(x.status)} · ${clean(x.observed ?? NONE)} · ${clean(x.locator ?? NONE)} · commit ${short(x.commit)}`);
+  }
+  return out.length ? out : [`- ${NONE}`];
 }
 
 function sectionDecisions(f: any): string[] {
@@ -368,6 +396,20 @@ function sectionOpen(f: any): string[] {
   return out;
 }
 
+/** IC-010: flows with no run on the head, a missing or invalid map, and a verify run that is not evidence for the head. */
+function notVerifiedRunEvidence(f: any): string[] {
+  const w = f.whatRan;
+  if (!w) return [];
+  const out: string[] = [];
+  if (w.verify && !w.verify.onHead) out.push('- The latest verify run is not on the head commit; its checks are not shown as evidence for this head.');
+  else if (w.verify && w.verify.clean !== true) out.push('- The latest verify run was on a tree with uncommitted changes; its checks are not shown as evidence for this head.');
+  if (w.featureMap === 'absent') out.push('- No feature map: no user-facing flow is shown as run.');
+  if (w.featureMap === 'invalid') out.push('- The feature map is invalid: a flow it lists is not shown as run unless it has a result on the head.');
+  for (const x of w.flows.filter((flow: any) => flow.status === 'not-run')) out.push(`- Flow ${clean(x.id)} (${clean(x.title)}): not run on ${short(w.head)}`);
+  for (const problem of w.problems) out.push(`- Run evidence: ${clean(problem)}`);
+  return out;
+}
+
 function sectionNotVerified(f: any): string[] {
   const out: string[] = [];
   if (f.registerError) out.push(`- The decision register could not be read: ${clean(f.registerError)}`);
@@ -379,8 +421,9 @@ function sectionNotVerified(f: any): string[] {
   const v = f.verification;
   if (v.error) out.push(`- The verify record could not be read: ${clean(v.error)}`);
   else if (v.runs.length === 0 && v.unreadable === 0) out.push('- No verify run on record.');
-  else if (v.runs.length > 0) out.push('- The verify record keeps the verdict, risk, commit, tree state and a digest of the report, not the commands or contract that ran.');
+  else if (v.runs.length > 0 && v.runs[v.runs.length - 1].schema === 1) out.push('- The verify record predates check details; its commands are not shown.');
   if (v.unreadable) out.push(`- ${v.unreadable} line(s) of the verify record could not be read.`);
+  out.push(...notVerifiedRunEvidence(f));
   const r = f.review;
   if (r.state === 'absent') out.push('- No review on record (no review/findings.json).');
   else if (r.state === 'unreadable') out.push(`- The review record could not be read: ${clean(r.reason)}`);
@@ -397,6 +440,7 @@ function sectionNotVerified(f: any): string[] {
 function renderPack(f: any, now: Date): string {
   const sections: Array<[string, string[]]> = [
     ['Result', sectionResult(f)],
+    ['What ran', sectionWhatRan(f)],
     ['Decisions taken for you', sectionDecisions(f)],
     ['Gates', sectionGates(f)],
     ['Verification', sectionVerification(f)],

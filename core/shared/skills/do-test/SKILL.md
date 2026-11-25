@@ -32,9 +32,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 2. **State the contract before running anything** — compile it, do not recall it:
 
    `<task id>` is the plan task id when the run is scoped to one task, otherwise the feature slug —
-   the same id every other stage used for it. `--risk` is an input the caller supplies: omitted, the
-   contract compiles at the registry's default; a change touching security, auth, payments or data
-   migration is what `HIGH` is for, and the level also sets `maxRecoveryIterations`.
+   the same id every other stage used for it. `--risk` is an input the caller supplies: a change touching
+   security, auth, payments or data migration is what `HIGH` is for.
 
    Optionally ask for a decision-model second opinion before compiling the contract:
 
@@ -56,12 +55,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    Report, before any tier runs:
    - the compiled `tiers[]` in the order returned — that list, and nothing else, is what will run;
    - the `riskLevel` it compiled at and the `maxRecoveryIterations` it carries;
-   - `detection.absent` — the command roles the runtime could not find in this repo's manifests
-     (`detection.manifests` names what it read). Those are the tiers most likely to come back
-     unresolved, and naming them up front is the difference between a gap and a surprise.
+   - `detection.absent` — the command roles the runtime could not find; those tiers are the likeliest to come
+     back unresolved, so name them up front.
 
-   Detection belongs to the verb. Do not re-derive the toolchain by hand, and do not substitute a
-   runner the contract did not compile.
+   Do not re-derive the toolchain by hand or substitute a runner the contract did not compile.
 
 3. **Run the contract and report against it**:
 
@@ -69,18 +66,17 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 "$DOFLOW" verify --task-id "<task id>" --risk "<the same level>" --action report --json
 ```
 
-   When an explicit manifest and pinned ancestor baseline are provided, pass `--verification-input <file> --verification-phase postimplementation --baseline-ref <ref>`; the verdict proves current checks under postimplementation chronology without claiming preimplementation compilation.
+   When an explicit manifest and pinned ancestor baseline are provided, pass `--verification-input <file> --verification-phase postimplementation --baseline-ref <ref>`.
 
-   Every tier step 2 listed gets a status in the report — `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`,
-   `NOT_APPLICABLE`, `SKIPPED` or `NOT_RUN`. Report all of them. A tier the contract named and the
-   run did not reach is reported as unreached, never omitted.
-**Stop when** every required tier the contract names has an answer or a stated gap, **and** the last round produced no new required tier. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
+   Report every tier step 2 listed with the status the report gives it; a tier the run did not reach
+   is reported as unreached, never omitted.
+
+   With a feature map (the project's or the feature's), also read this skill's `references/feature-map.md` and run it. Before a property or fuzz campaign, run `"$DOFLOW" verify --action inner-loop --task-id "<task id>"`, relay a `REFUSED` verbatim and start no campaign.
+   **Stop when** every required tier has an answer or a stated gap; report the gaps rather than continuing.
 
 4. **Read the verdict as it stands**:
-   - A tier whose command cannot be detected is `UNRESOLVED`, and one unresolved required tier makes
-     the whole run `INCONCLUSIVE`. The verb computes that and returns it in `status` with a `reason`
-     naming the tiers — report it as it stands. Never call a check passed that was not run, and
-     never narrow the set to make the report green.
+   - Report `status` and its `reason` as the verb returns them. Never call a check passed that was
+     not run, and never narrow the set to make the report green.
    - Coverage comes with the test tiers and with what the detected runner already emits, not from a
      separate request: report line and branch numbers when the runner produces them, and say
      plainly that it does not when it does not.
@@ -98,9 +94,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    ```bash
    "$DOFLOW" orchestrate --action handoff --task-id "<task id>" --calling-skill do-test --note "<work completed and verification result>" --result <passed|failed> --json
    ```
-   The runtime selects this skill's stage, records completion or a rerun annotation, and returns
-   `disposition`. Report `deferred` with its `reason`; resolve no gate in this skill.
-   `standalone` means no run was created. Render the trail after a recorded handoff:
+   Report the returned `disposition`; resolve no gate in this skill. Render the trail after a recorded handoff:
    ```bash
    "$DOFLOW" render-audit --slug="<task id>" --json
    ```

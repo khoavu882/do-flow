@@ -294,8 +294,9 @@ Three sections exist so a reviewer can reach a judgement from the top of a docum
 reading it whole:
 
 - **`design.md` Architecture Approach — the decision-and-blocker summary.** A table with the columns `Decision`,
-  `Shape chosen`, `Owner`, `Blocks approval?`, positioned above the architectural prose. One row per
-  decision the design makes. A reviewer who reads only this table knows what is being settled, who
+  `Shape chosen`, `Makes unwritable`, `Owner`, `Blocks approval?`, positioned above the architectural prose. One row per
+  decision the design makes; `Makes unwritable` holds the `IC-###` ids of its Kind `constraint`
+  contracts, or `none`. A reviewer who reads only this table knows what is being settled, who
   settled it, and what stands between the design and approval.
 - **`specs.md` §1 — families.** The index carries a `Family` column, and the detail beneath is
   grouped under `#### Family: <name>` headings, with contracts ordered within a family and families

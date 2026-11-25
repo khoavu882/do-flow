@@ -77,7 +77,7 @@ function parseArgs(argv: string[]): any {
     if (a.startsWith('-')) o.flagsGiven.push(a);
     // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
     // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
-    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a === '--lan' && o.cmd !== 'ui' ? '' : a.startsWith('--action=') ? '--action' : a) {
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a === '--follow' && o.cmd !== 'events' ? '' : a === '--lan' && o.cmd !== 'ui' ? '' : a === '--check' && o.cmd === 'followup' ? '' : a === '--rules' && o.cmd !== 'enforcement' ? '' : a.startsWith('--action=') ? '--action' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -119,6 +119,8 @@ function parseArgs(argv: string[]): any {
       // context-emit: decide and render without taking a claim or writing a ledger line.
       case '--peek': o.peek = true; break;
       case '--check': o.check = true; break;
+      // enforcement --rules: the guidance rule ledger's counts instead of one policy's coverage (181 IC-020). Only that verb knows it.
+      case '--rules': o.rules = true; break;
       // roadmap --action init-policy: commit the policy onto local develop by plumbing instead of only writing it.
       case '--commit': o.commit = true; break;
       // events: follow the channels until a signal or stdin EOF (149 IC-001). Like `--commit`, only the
@@ -139,6 +141,8 @@ function parseArgs(argv: string[]): any {
       case '--stdin': o.stdin = true; break;
       // followup --action list: each item names its possible duplicates (row 176 IC-008); any other action refuses it.
       case '--similar': o.similar = true; break;
+      // followup --action propose: write the proposal as a check.proposed event instead of only printing it (181 IC-014).
+      case '--record': o.record = true; break;
       // advise --action configure: these are deliberately presence-only switches.
       case '--off': o.off = true; break;
       // advise --action replay: store the replay's figures in the user-level result store (175 IC-005).
@@ -319,6 +323,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--evidence', 'evidence'],          // followup --action settle --as done: what shows it was done
   ['--duplicate-of', 'duplicateOf'],   // followup --action settle --as dismissed: the FU id the dismissed items duplicate (180)
   ['--title', 'title'],                // followup --action promote: the new intent's title
+  ['--proposal', 'proposal'],          // followup --action decide: the CP-xxxxxx check proposal id (181 IC-015)
+  ['--alternative', 'alternative'],    // followup --action decide --decision accept: the preferred alternative the check's message names (181 IC-015)
+  ['--check', 'checkPath'],            // followup --action decide --decision built: the repository-relative file of the built check; every other verb's --check is a switch (181 IC-015)
   ['--release', 'release'],            // followup --action add --source release: the release tag
   ['--take', 'take'],                  // lifecycle --action init: comma-separated FU ids the feature takes
   ['--goal', 'goal'],                  // lifecycle --action init: the goal the feature serves
@@ -415,7 +422,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--verification-input', 'verificationInput'], // verify: manifest JSON file for explicit structuralChecks/requirements (IC-022)
   ['--verification-phase', 'verificationPhase'], // verify: postimplementation (IC-022)
   ['--baseline-ref', 'baselineRef'],             // verify: explicit ancestor commit or ref to measure change against (IC-022)
-  ['--base', 'base'],                  // review --action start: the commit or ref the changed paths are measured from (095b IC-001)
+  ['--base', 'base'],                  // review --action start|input: the commit or ref the changed paths are measured from (095b IC-001, 181 IC-011)
   ['--preset', 'preset'],              // review --action start: a review preset id to run with, never looser than the decided one (119 IC-005)
   ['--seats', 'seats'],                // review --action similar: the seats file (default: the feature's review/seats.json; 176 IC-007)
   ['--layer', 'layer'],                // config validate|set|unset: user | project | local, checked in handleConfigCommand (119 IC-008)
@@ -499,6 +506,7 @@ const RUNTIME_LIST_FLAGS = new Map([
   ['--item', 'item'],                  // goal --action add: a checklist item, one per occurrence · goal --action check: the one item id (C3)
   ['--blocker', 'blocker'],            // dispatch submit: one blocker line per occurrence, at most 20
   ['--part', 'parts'],                 // prompt-frame render: <key>=<file>, one frame part per occurrence
+  ['--flow', 'flow'],                  // verify --action feature-map: one flow id to run, one per occurrence (181 IC-008)
 ]);
 
 /** Non-negative integer arguments. */
@@ -584,7 +592,7 @@ Commands:
   tools                List external tools and whether each is present; install, update or uninstall one
   ui [<project>]       Run the DoFlow Console, a separately installed package (--port N, --lan, --action pair|devices|revoke; exit 2 when it is not installed)
   capabilities         Show registered abstract capabilities and resolved providers
-  enforcement          Report lifecycle policy enforcement coverage (--harness, --policy)
+  enforcement          Report lifecycle policy enforcement coverage (--harness, --policy), or with --rules the guidance rule ledger's counts per enforcement value and file
   doctor               System health and capability smoke check diagnostics
   readiness            Evaluate task readiness contract (--task-class, --task-id, both required)
   evidence             Record a stage's evidence batch, or inspect what is recorded (--task-id)
@@ -608,6 +616,8 @@ Commands:
   prompt-frame         Compose a prompt in the six-section frame, or print its guide (--action render|guide)
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
+                       verify --action inner-loop --task-id <id> [--json]   READY or REFUSED from the latest verify run on this head: build, static-analysis and targeted-tests green (exit 0 READY, 1 REFUSED, 2 usage; runs nothing)
+                       verify --action feature-map --task-id <id> [--flow <id>]... [--json]   run the feature map's command flows, list its browser flows for the agent, record each flow as evidence and file one follow-up per critical flow (exit 0 map read, 1 map invalid or absent, 2 usage)
   recover              Classify a verification failure and plan the bounded retry (--error)
   trace                Trajectory of the current or most recent workflow (run ledger).
                        trace spans [<project>] the span view; trace analyze [<project>] its detectors (exit 1 on a finding);
@@ -628,7 +638,7 @@ Commands:
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   review-pack          Write the feature's review pack from its records: review-pack --task-id <slug> [--json]
   intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
-  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
+  followup             Record, list, take, settle, promote or report what a feature left unfinished, or propose a check for a repeat (--action add|list|take|settle|promote|report|propose|decide; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
   lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged; overview: [--view brief|full])
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
@@ -638,10 +648,11 @@ Commands:
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
                        rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person: asks y/N on the terminal) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
-  review               Validate a feature's review/findings.json (exit 0 valid, 1 invalid, 2 usage), start a review, or list possible duplicate seat findings (--action check|start|similar; similar: [--seats <file>]).
+  review               Validate a feature's review/findings.json (exit 0 valid, 1 invalid, 2 usage), start a review, list possible duplicate seat findings, or print what ran on the head (--action check|start|similar|input; similar: [--seats <file>]).
                        review --action check [--slug <name> | --path <findings.json>] [--json]
                        review --action start [--slug <name>] [--base <ref>] [--json] [--preset <id>]   verify precondition and review protocol; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
                        review --action similar [--slug <name>] [--seats <file>] [--out <file>] [--json]   advisory list of possible duplicate seat findings, written only once the model check is shown (exit 0, 1 bad seats or no feature, 2 usage)
+                       review --action input [--slug <name>] [--base <ref>] [--json]   what ran on the head commit (verify checks, feature-map flows), then the flows not run (exit 0 whenever git answers, 1 head or base unresolved, 2 usage; writes nothing)
   protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing).
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
@@ -734,9 +745,9 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve,
                        trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede|retire
-                       verify: report|contract · retrieval-plan: declare|report|attempt
+                       verify: report|contract|inner-loop|feature-map · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure|report|replay|flags · tools: see below
-                       followup: add|list|take|settle|promote|report
+                       followup: add|list|take|settle|promote|report|propose|decide
                        task-attempt: claim|finish|release|status|start|pause|cancel|resume|inspect|reopen|report-usage
                        worker: discover|probe|describe|select|run|status|cancel|evidence|start-session|start-options|conform|login-state|send|steer|stop
                        dispatch: start|step|run|submit|spawn|pause|inspect|cancel|takeover|resume
@@ -748,7 +759,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        slot: run|list|peek|release
                        worktree: cleanup
                        models: sync|list|describe|bind|unbind
-                       review: check|start|similar
+                       review: check|start|similar|input
                        protocol: list|resolve
                        primary: resolve|observed
                        fleet: projects|tree
@@ -778,6 +789,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
       --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
       --intent, --query, --check, --harness  route
+      --rules                               enforcement (the guidance rule ledger's counts; not with --harness, --policy or --profile)
       --statement, --claim-id,
       --evidence-id, --relation             claim
       --kind, --provenance, --provider,
@@ -822,6 +834,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --verification-input,
       --verification-phase,
       --baseline-ref                     verify
+      --flow <id>                        verify --action feature-map (repeatable; default every flow of the map)
       --owner, --tier, --harness, --tasks <id,...>,
       --heading-level 2|3                   brief-tools (--slug names the feature whose run gives the stage)
       --spec-file <json> | --part <key>=<file> (repeatable; --budget-lines <n>)
@@ -855,7 +868,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --points <point[:local],...>           package --action new (open points and optional local ids)
       --dir <path>                          package --action new (default: <project>/.doflow/package/<id>/)
       --repair                              package --action verify (rewrite an unreadable state.json; every grant line present is revoked, never widened)
-      --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
+      --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused), input (the base of the change; default the merge base with the integration branch)
       --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
       --prepared-run <file>                 config validate (check a prepared-run file instead of one key; exit 2 with a key, value or --layer)
       --layer user|project|local            config validate, set, unset (which settings file; project and local are the current project's .doflow/settings.json and settings.local.json)
@@ -863,6 +876,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote; --similar: list)
       --duplicate-of <FU-id>                followup --action settle --as dismissed (label the dismissed items as duplicates of that item)
+      --record                              followup --action propose (append check.proposed for each new proposal; without it nothing is written)
+      --proposal <CP-id>, --decision accept|decline|built,
+      --kind <type-or-api|static-check|test|advisory-hook|prose>, --alternative <text>, --reason <text>,
+      --check <path>                        followup --action decide (accept needs --kind and --alternative; decline needs --reason; built needs --check, a repository-relative file holding the accepted message)
       --file <path|->, --stdin, --text,
       --feature                             followup --action report (the body comes from exactly one; - is stdin)
       --take, --goal, --intent, --since,

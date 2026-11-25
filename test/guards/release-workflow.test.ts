@@ -22,9 +22,9 @@ function replaceOnce(text: any, before: any, after: any) {
   return text.slice(0, index) + after + text.slice(index + before.length);
 }
 
-test('G51: committed release workflow satisfies IC-004', () => {
+test('G51: committed release workflow satisfies IC-004 and IC-002', () => {
   assert.deepEqual(RELEASE_WORKFLOW_RULE_IDS, [
-    'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14',
+    'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'R8', 'R9', 'R10', 'R11', 'R12', 'R13', 'R14', 'R15',
   ]);
   assert.deepEqual(releaseWorkflowFindings(workflow), []);
 });
@@ -48,8 +48,8 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
     ) },
     { name: 'R3/R4 write-all', rules: ['R3', 'R4'], text: replaceOnce(
       workflow,
-      '    permissions:\n      contents: read\n\n  verify-artifact:',
-      '    permissions: write-all\n\n  verify-artifact:',
+      '    permissions:\n      contents: read\n\n  # The from-nothing rehearsal',
+      '    permissions: write-all\n\n  # The from-nothing rehearsal',
     ) },
     { name: 'R3 flow-map id-token', rules: ['R3'], text: replaceOnce(
       workflow,
@@ -148,8 +148,8 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
     ) },
     { name: 'R13 verify-artifact always()', rules: ['R13'], text: replaceOnce(
       workflow,
-      '  verify-artifact:\n    needs: [preflight, test]',
-      '  verify-artifact:\n    needs: [preflight, test]\n    if: always()',
+      '  verify-artifact:\n    needs: [preflight, test, rehearse]',
+      '  verify-artifact:\n    needs: [preflight, test, rehearse]\n    if: always()',
     ) },
     { name: 'R13 draft-release !cancelled()', rules: ['R13'], text: replaceOnce(
       workflow,
@@ -180,6 +180,31 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
       workflow,
       '--tag-pushed',
       '--tag-pushed --allow-stable',
+    ) },
+    { name: 'R15 verify-artifact does not need rehearse', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '  verify-artifact:\n    needs: [preflight, test, rehearse]',
+      '  verify-artifact:\n    needs: [preflight, test]',
+    ) },
+    { name: 'R15 rehearse runs the wrong command', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse',
+      '      - run: npm run build:package',
+    ) },
+    { name: 'R15 rehearse job continues on error', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '  rehearse:\n    runs-on: ubuntu-latest\n',
+      '  rehearse:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n',
+    ) },
+    { name: 'R15 rehearsal step continues on error', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse',
+      '      - run: npm run release:rehearse\n        continue-on-error: true',
+    ) },
+    { name: 'R15 rehearse job removed', rules: ['R15'], text: replaceOnce(
+      replaceOnce(workflow, '  rehearse:\n', '  rehearse-renamed:\n'),
+      '  verify-artifact:\n    needs: [preflight, test, rehearse]',
+      '  verify-artifact:\n    needs: [preflight, test]',
     ) },
   ];
 

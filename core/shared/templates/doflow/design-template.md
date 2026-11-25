@@ -17,18 +17,20 @@
 **Decisions and blockers:**
 
 <!-- One row per decision this design makes, placed above the architectural prose. "Decision" names
-     what is being settled. "Shape chosen" is the answer this design gives it. "Owner" is the person
-     or role accountable for that answer. "Blocks approval?" says whether a reviewer can approve the
+     what is being settled. "Shape chosen" is the answer this design gives it. "Makes unwritable" holds
+     the IC-### ids of the Kind `constraint` contracts naming the mistakes this shape makes
+     impossible to write (an API shape, a module boundary, a banned import), or `none`. "Owner" is
+     the person or role accountable for that answer. "Blocks approval?" says whether a reviewer can approve the
      design while this decision stands as written, and names what has to happen first when it cannot.
      A reviewer who reads only this table knows what is being decided, who decided it, and what
      stands between the design and approval. Replace the table with "N/A: [why]" when the feature is
      too small to carry decisions worth tabling. With a decision register, end Shape chosen with its
      DEC-###: see ARTIFACT_FORMAT.md §12. -->
 
-| Decision | Shape chosen | Owner | Blocks approval? |
-|---|---|---|---|
-| [what is being settled] | [the shape this design gives it] | [person or role accountable] | no |
-| [what is being settled] | [the shape this design gives it] | [person or role accountable] | yes: [what must happen first] |
+| Decision | Shape chosen | Makes unwritable | Owner | Blocks approval? |
+|---|---|---|---|---|
+| [what is being settled] | [the shape this design gives it] | none | [person or role accountable] | no |
+| [what is being settled] | [the shape this design gives it] | [IC-### of a constraint contract] | [person or role accountable] | yes: [what must happen first] |
 
 <!-- Acts as the summary. In 2–4 sentences or bullets, in plain nouns with no component IDs or code
      names: who gains what and why, the goal of this phase, and where it plugs into the existing

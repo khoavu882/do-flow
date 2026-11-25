@@ -29,8 +29,8 @@
 
 | ID | Contract | Family | Kind | Status |
 |---|---|---|---|---|
-| IC-001 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format / ui-component / tool-schema | Live |
-| IC-002 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format / ui-component / tool-schema | Live |
+| IC-001 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format / ui-component / tool-schema / constraint | Live |
+| IC-002 | [one-line summary] | [family name] | endpoint / cli-verb / schema / file-format / ui-component / tool-schema / constraint | Live |
 
 **Detail**
 
@@ -44,7 +44,9 @@ repository/service interface (`interface` → `concrete` → `mock` pattern) or 
 signature (`[serviceMethod](params): ReturnType`); for a `file-format`: the file's key
 fields/shape; for a `ui-component`: component name, props with types and defaults, events and
 their payloads; for a `tool-schema`: the model tool or prompt name, its input schema and its output
-schema — every qualifier and exception intact].
+schema; for a `constraint`: the mistake it makes unwritable in one sentence, then a line
+`Check: <kind> at <path>; passes when <condition>` with `<kind>` one of `type-or-api`,
+`static-check`, `test`, `advisory-hook` — every qualifier and exception intact].
 
 #### IC-002: [one-line summary]
 

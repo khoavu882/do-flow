@@ -12,6 +12,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
+const { parsePlan } = require('./scaffold/artifacts.ts');
 
 type Finding = { rule: string; severity: 'fix' | 'refuses-exit' | 'advisory'; path: string; line: number; message: string; id?: string };
 
@@ -108,6 +109,67 @@ function coverageFindings(planText: string, planPath: string, requirementText: s
 function requirementBeside(planAbs: string): string | null {
   const dir = path.dirname(planAbs);
   const found = path.join(dir, 'intention', 'requirement.md');
+  return fs.existsSync(found) ? found : null;
+}
+
+// ── constraints (row 181 IC-023: a design's constraint contract needs a plan task building its check) ─
+
+const CHECK_KINDS = ['type-or-api', 'static-check', 'test', 'advisory-hook'];
+const CHECK_LINE = new RegExp(`\\bCheck:\\s*(${CHECK_KINDS.join('|')})\\s+at\\s+\`?([^\`;\\s]+)\`?\\s*;\\s*passes when\\s+\\S`);
+
+/** The live contracts of Kind `constraint` in a specs.md: id, the line a finding points at (the
+ * `#### IC-###` heading, else the index row) and the path of the `Check:` line in the contract's
+ * detail, null when it has none that parses. A contract with no index row is no contract, as in the
+ * specs template. */
+function constraintContracts(specsText: string): Array<{ id: string; line: number; check: string | null }> {
+  const lines = proseLines(specsText, { keepCode: true });
+  const indexed = new Map<string, number>();
+  for (let i = 0; i < lines.length; i += 1) {
+    const cells = /^\s*\|/.test(lines[i]) ? lines[i].trim().replace(/^\||\|$/g, '').split('|').map((c) => c.replace(/`/g, '').trim()) : [];
+    if (/^IC-\d+$/.test(cells[0] || '') && cells[3] === 'constraint' && !/^Superseded\b/.test(cells[4] || '') && !indexed.has(cells[0])) indexed.set(cells[0], i + 1);
+  }
+  const contracts: Array<{ id: string; line: number; check: string | null }> = [];
+  for (const [id, indexLine] of indexed) {
+    const start = lines.findIndex((l) => new RegExp(`^#{3,4}\\s+${id}\\b`).test(l));
+    let end = start === -1 ? -1 : lines.length;
+    for (let i = start + 1; start !== -1 && i < lines.length; i += 1) if (/^#{1,4}\s/.test(lines[i])) { end = i; break; }
+    const detail = start === -1 ? '' : lines.slice(start + 1, end).join(' ');
+    contracts.push({ id, line: start === -1 ? indexLine : start + 1, check: detail.match(CHECK_LINE)?.[2] ?? null });
+  }
+  return contracts;
+}
+
+/** The constraint contracts of `specsText` held against the plan's tasks: one needs a task citing it
+ * in `acceptance:` and listing its check path in `files:`. A contract with no parseable `Check:`
+ * line is `constraint-check-missing` and is not compared further, as there is no path to look for. */
+function constraintFindings({ planText, planPath, specsText, specsPath }: { planText: string; planPath: string; specsText: string; specsPath: string }): Finding[] {
+  const planLines = proseLines(planText, { keepCode: true });
+  const taskLine = (id: string) => planLines.findIndex((l) => new RegExp(`^-\\s*\\[[ xX]\\]\\s+${id.replace('.', '\\.')}\\s`).test(l)) + 1;
+  const tasks = parsePlan(planText).tasks as Array<{ id: string; acceptance: string[]; files: string[] }>;
+  const clean = (value: string) => value.replace(/^\.\//, '');
+  const findings: Finding[] = [];
+  for (const { id, line, check } of constraintContracts(specsText)) {
+    if (check === null) {
+      findings.push({ rule: 'constraint-check-missing', severity: 'fix', path: specsPath, line, id,
+        message: `${id} is a constraint with no \`Check: <kind> at <path>; passes when <condition>\` line (kind one of ${CHECK_KINDS.join(', ')}): name the check it needs` });
+      continue;
+    }
+    const citing = tasks.filter((t) => t.acceptance.includes(id));
+    if (!citing.length) {
+      findings.push({ rule: 'constraint-uncovered', severity: 'fix', path: specsPath, line, id,
+        message: `${id} is a constraint and no task cites it in \`acceptance:\`: add a task that builds ${check} and lists it in \`files:\`` });
+    }
+    for (const task of citing.filter((t) => !t.files.map(clean).includes(clean(check)))) {
+      findings.push({ rule: 'constraint-task-without-check', severity: 'fix', path: planPath, line: taskLine(task.id) || 1, id,
+        message: `${task.id} cites constraint ${id} but its \`files:\` does not list the check ${check}: list it, or drop ${id} from \`acceptance:\`` });
+    }
+  }
+  return findings;
+}
+
+/** The specs.md beside a plan's design, found the way the requirement is: under `design/`. */
+function specsBeside(planAbs: string): string | null {
+  const found = path.join(path.dirname(planAbs), 'design', 'specs.md');
   return fs.existsSync(found) ? found : null;
 }
 
@@ -289,6 +351,12 @@ function planFindings({ planAbs, text, displayPath, cwd }: { planAbs: string; te
     try { requirementText = fs.readFileSync(requirement, 'utf8'); } catch { /* unreadable: no coverage claim either way */ }
     if (requirementText !== null) findings.push(...coverageFindings(text, displayPath, requirementText, path.relative(cwd, requirement)));
   }
+  const specs = specsBeside(planAbs);
+  if (specs) {
+    let specsText = null;
+    try { specsText = fs.readFileSync(specs, 'utf8'); } catch { /* unreadable: no constraint claim either way */ }
+    if (specsText !== null) findings.push(...constraintFindings({ planText: text, planPath: displayPath, specsText, specsPath: path.relative(cwd, specs) }));
+  }
   findings.push(...constitutionCheck({ planText: text, planPath: displayPath, checkoutRoot: checkoutOf(planAbs, cwd) }));
   return findings;
 }
@@ -314,6 +382,6 @@ function planStageExit({ roots, slug }: { roots: string[]; slug: string | null }
 }
 
 module.exports = {
-  placeholderFindings, coverageFindings, requirementIds, planFindings, proseLines,
+  placeholderFindings, coverageFindings, constraintFindings, requirementIds, planFindings, proseLines,
   parsePrinciples, loadConstitution, constitutionFindings, planStageExit, CONSTITUTION_BASE, constitutionBaseFile,
 };

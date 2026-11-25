@@ -480,3 +480,73 @@ test('forged events with escapes and bidi marks print clean in list, overview an
   assert.match(run(repo.dir, ['goal', '--action', 'list']).stdout, /evidence x\uFFFD/);
   assert.deepEqual(files.map((f: any) => fs.readFileSync(f, 'utf8')), before, 'the stored files are not changed');
 });
+
+// ── check proposals through the CLI (181 G.4, IC-014, IC-015) ──────────────────────────────────
+
+const UPLOAD = ['The upload client retry loop ignores the server timeout header', 'Upload client retry loop ignores a timeout header from the server proxy'];
+const addStatement = (repo: any, statement: string) => run(repo.dir, ['followup', '--action', 'add', '--source', 'manual', '--statement', statement, '--json']);
+
+test('followup add points at propose only when the rule flags a similar item, and stays rule-only', () => {
+  const { repo } = newRepo();
+  const first = addStatement(repo, UPLOAD[0]);
+  assert.deepEqual(first.json.next, [], 'no similar item, no hint');
+  const second = addStatement(repo, UPLOAD[1]);
+  assert.equal(second.json.created[0].similar.length, 1);
+  assert.equal(second.json.next.length, 1);
+  assert.match(second.json.next[0], /followup --action propose/);
+});
+
+test('followup propose and decide answer through the CLI with the IC-014 and IC-015 exit codes', () => {
+  const { repo } = newRepo();
+  const none = run(repo.dir, ['followup', '--action', 'propose', '--json']);
+  assert.deepEqual([none.status, none.json.status, none.json.proposals], [0, 'no-recurrence', []]);
+  const ids = UPLOAD.map((s) => addStatement(repo, s).json.created[0].id);
+  addStatement(repo, 'Rename the changelog heading to match the release tag format');
+
+  const text = run(repo.dir, ['followup', '--action', 'propose']);
+  assert.equal(text.status, 0);
+  assert.match(text.stdout, /CP-[0-9a-f]{6}  new  members FU-/);
+  assert.match(text.stdout, /\n  offered: /);
+  const before = tree(repo.dir);
+  const preview = run(repo.dir, ['followup', '--action', 'propose', '--json']);
+  assert.equal(tree(repo.dir), before, 'propose without --record writes nothing');
+  const [proposal] = preview.json.proposals;
+  assert.deepEqual(proposal.members, [...ids].sort());
+
+  const unflagged = run(repo.dir, ['followup', '--action', 'propose', '--ids', ids[0] + ',' + run(repo.dir, ['followup', '--action', 'list', '--json']).json.items.find((i: any) => /changelog/.test(i.statement)).id, '--json']);
+  assert.deepEqual([unflagged.status, unflagged.json.finding], [1, 'no-flagged-pair']);
+
+  const recorded = run(repo.dir, ['followup', '--action', 'propose', '--record', '--json']);
+  assert.deepEqual([recorded.status, recorded.json.status, recorded.json.events.length], [0, 'proposed', 1]);
+  assert.deepEqual(run(repo.dir, ['followup', '--action', 'propose', '--record', '--json']).json.status, 'already-proposed');
+
+  // decide: usage 2, refusal 1, recorded 0
+  const id = proposal.id;
+  assert.equal(run(repo.dir, ['followup', '--action', 'decide', '--proposal', id, '--decision', 'accept', '--json']).status, 2, 'accept needs --kind and --alternative');
+  const noReason = run(repo.dir, ['followup', '--action', 'decide', '--proposal', id, '--decision', 'decline', '--json']);
+  assert.deepEqual([noReason.status, noReason.json.finding], [1, 'reason-missing']);
+  const accepted = run(repo.dir, ['followup', '--action', 'decide', '--proposal', id, '--decision', 'accept', '--kind', proposal.offered, '--alternative', 'the shared retry helper', '--json']);
+  assert.equal(accepted.status, 0, accepted.stdout);
+  const message = `${UPLOAD[1]}. Use the shared retry helper instead.`;
+  assert.equal(accepted.json.message, message);
+  const again = run(repo.dir, ['followup', '--action', 'decide', '--proposal', id, '--decision', 'accept', '--kind', proposal.offered, '--alternative', 'x', '--json']);
+  assert.deepEqual([again.status, again.json.finding], [1, 'illegal-transition']);
+
+  const early = run(repo.dir, ['followup', '--action', 'decide', '--proposal', id, '--decision', 'built', '--check', 'missing.txt', '--json']);
+  assert.deepEqual([early.status, early.json.finding], [1, 'message-missing']);
+  fs.writeFileSync(path.join(repo.dir, 'check.txt'), `fail('${message}')\n`);
+  const built = run(repo.dir, ['followup', '--action', 'decide', '--proposal', id, '--decision', 'built', '--check', 'check.txt']);
+  assert.equal(built.status, 0, built.stderr);
+  assert.match(built.stdout, new RegExp(`${id} built\\n  check: check.txt\\n  settled fix: `));
+  for (const member of ids) assert.ok(built.stdout.includes(member), `${member} is settled fix`);
+});
+
+test('the check-proposal flags are refused on the other followup actions, with exit 2', () => {
+  const { repo } = newRepo();
+  for (const flags of [['--record'], ['--proposal', 'CP-aaaaaa'], ['--decision', 'accept'], ['--alternative', 'x'], ['--check', 'a.txt']]) {
+    const r = run(repo.dir, ['followup', '--action', 'list', ...flags, '--json']);
+    assert.equal(r.status, 2, flags.join(' '));
+    assert.match(r.json.summary, /applies to --action (propose|decide) only/);
+  }
+  assert.equal(run(repo.dir, ['followup', '--action', 'decide', '--proposal', 'bogus', '--decision', 'accept', '--json']).status, 2);
+});

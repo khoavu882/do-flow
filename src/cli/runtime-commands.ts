@@ -25,6 +25,7 @@ const {
 } = require('../runtime/cli.ts');
 const { loadRegistry } = require('../registry/index.ts');
 const { enforcementFor, UnknownEnforcementTarget } = require('../lifecycle/coverage.ts');
+const { ruleReport, renderRuleReport } = require('../runtime/guidance/rule-ledger.ts');
 // `doctor` comes from the health module rather than src/runtime/cli.ts: the health-probe report
 // (FR-013) supersedes the presence-check version, and one verb must have one implementation.
 const { handleDoctorCommand } = require('../runtime/health.ts');
@@ -427,7 +428,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'intake': return handleIntakeCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { runId: o.runId, stdin: o.stdin, file: o.file, stage: o.stage } });
     // Feature 046: the project's follow-up store lives at the repository root (never `-g`, which
     // the handlers refuse), so the working directory is the starting point, not a scope switch.
-    case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, view: o.view, cursor: o.cursor, limit: o.limit, similar: o.similar, as: o.as, reason: o.reason, evidence: o.evidence, duplicateOf: o.duplicateOf, title: o.title, file: o.file, stdin: o.stdin, text: o.text, feature: o.feature, tag: o.tag, confirm: o.confirm, exclude: o.exclude } });
+    case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, view: o.view, cursor: o.cursor, limit: o.limit, similar: o.similar, as: o.as, reason: o.reason, evidence: o.evidence, duplicateOf: o.duplicateOf, title: o.title, file: o.file, stdin: o.stdin, text: o.text, feature: o.feature, tag: o.tag, confirm: o.confirm, exclude: o.exclude, record: o.record, proposal: o.proposal, decision: o.decision, kind: o.kind, alternative: o.alternative, check: o.checkPath } });
     case 'lifecycle': return handleLifecycleCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { view: o.view, take: o.take, intent: o.intent, goal: o.goal, maintain: o.maintain, since: o.since, tag: o.tag, confirm: o.confirm, feature: o.feature, exclude: o.exclude, reason: o.reason, channel: o.channel } });
     case 'goal': return handleGoalCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { goal: o.goal, statement: o.statement, item: o.item, text: o.text, evidence: o.evidence, unmet: o.unmet, replace: o.replace, reason: o.reason, channel: o.channel } });
     // The failure store is per machine, so `-g` changes nothing and the working directory only matters
@@ -466,7 +467,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'context-grant': return handleContextGrantCommand({ summary: o.summary, toRun: o.toRun, toLineage: o.toLineage, fromWorktree: o.fromWorktree, fromRun: o.fromRun, fromLineage: o.fromLineage, maxBytes: o.maxBytes, json: o.json });
     case 'retrieval-plan': return handleRetrievalPlanCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, need: o.need, stage: o.stage, provider: o.provider, attemptStatus: o.attemptStatus, reason: o.reason, note: o.note, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o) });
     case 'outcome': return handleOutcomeCommand({ slug: storeSlug, taskId: requireTaskId(o), action: o.action, state: o.state, taskClass: o.taskClass, stage: o.stage, readiness: o.readiness, verification: o.verification, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot });
-    case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, risk: o.risk, planPath: o.planPath, scope: o.scope, verificationInput: o.verificationInput, verificationPhase: o.verificationPhase, baselineRef: o.baselineRef, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'verify': return handleVerifyCommand({ slug: o.slug, taskId: requireTaskId(o), action: o.action, flow: o.flow, risk: o.risk, planPath: o.planPath, scope: o.scope, verificationInput: o.verificationInput, verificationPhase: o.verificationPhase, baselineRef: o.baselineRef, json: o.json, projectRoot: evidenceRoot(o) });
     case 'leak-scan': return handleLeakScanCommand({ paths: o.paths, exclude: o.exclude, json: o.json, repoRoot: evidenceRoot(o) });
     case 'recover': return handleRecoverCommand({ errorMessage: o.errorMessage, failedChecks: o.failedChecks, iteration: o.iteration, agent: o.agent, json: o.json });
     case 'roadmap': return handleRoadmapVerbCommand(o);
@@ -509,6 +510,15 @@ function handleEnforcementCommand(o: any): number {
     process.exitCode = 2;
     return 2;
   };
+  if (o.rules) {
+    if (o.harness != null || o.policy != null || o.profile != null) return fail('usage', '--rules cannot be combined with --harness, --policy or --profile');
+    let report: any;
+    try { report = ruleReport(REPO_ROOT); } catch (error: any) { return fail('rules-unreadable', error.message); }
+    if (o.json) console.log(JSON.stringify({ ok: report.neither === 0, rules: report }));
+    else for (const line of renderRuleReport(report)) console.log(line);
+    process.exitCode = report.neither === 0 ? 0 : 1;
+    return process.exitCode;
+  }
   if (typeof o.harness !== 'string' || !o.harness || typeof o.policy !== 'string' || !o.policy || (o.profile !== undefined && typeof o.profile !== 'string')) return fail('usage', 'requires --harness <id> --policy <id> [--profile <id>]');
   try {
     const registry = loadRegistry({ repoRoot: REPO_ROOT });

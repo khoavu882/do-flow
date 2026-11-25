@@ -181,6 +181,121 @@ test('linter output reaches the caller on stderr, so a Codex Stop prints only {}
   assert.match(r.stderr, /expected declaration/);
 });
 
+// 181 IC-017: the async fixers' output is kept in the project's lint-last.log and the next Stop prints what is left.
+const LINT_HEADER = 'doflow: lint problems left by the last fix (advisory):';
+let projectSeq = 0;
+/** A project folder with the project-local `node_modules/.bin` and, unless `state` is false, the runtime's `.doflow/state`. */
+function lintProject({ state = true }: any = {}) {
+  const dir = path.join(scratch.dir, `lint-project-${projectSeq++}`);
+  fs.mkdirSync(path.join(dir, 'node_modules', '.bin'), { recursive: true });
+  if (state) fs.mkdirSync(path.join(dir, '.doflow', 'state'), { recursive: true });
+  return { dir, log: path.join(dir, '.doflow', 'state', 'hooks', 'lint-last.log') };
+}
+function fakeEslint(file: any, body: string) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+}
+/** One Stop in `dir` after editing `files`; `path` is the PATH the hook sees. */
+function stopIn(dir: any, files: string[], pathValue = process.env.PATH, extra: any = {}) {
+  const session = sid();
+  const queueDir = path.join(scratch.xdg, 'doflow', 'session-env', 'sessions', session);
+  fs.mkdirSync(queueDir, { recursive: true });
+  if (files.length) fs.writeFileSync(path.join(queueDir, 'edited-files.txt'), `${files.join('\n')}\n`);
+  const r = spawnSync(bashPath(), [path.join(mirror, '.claude', 'hooks', 'stop-check.sh')], {
+    input: JSON.stringify({ session_id: session, ...extra }), cwd: dir, env: scratch.env({ PATH: pathValue }), encoding: 'utf8',
+  });
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+/** Waits (at most 10 s) for `ready()`; the fixers run after the hook has exited. */
+function waitFor(ready: () => boolean) {
+  const end = Date.now() + 10000;
+  while (!ready() && Date.now() < end) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  assert.ok(ready(), 'the async fixer did not finish in time');
+}
+const sizeOf = (file: string) => { try { return fs.statSync(file).size; } catch { return -1; } };
+/** Waits until the file exists and its size has stopped changing. */
+function settled(file: string) {
+  let last = -2;
+  waitFor(() => { const now = sizeOf(file); const done = now > 0 && now === last; last = now; return done; });
+}
+
+test('the project-local eslint runs before one on PATH, and its output is kept in lint-last.log', () => {
+  const { dir, log } = lintProject();
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error no-fetch: Do not call fetch. Use the http client instead. [local]"');
+  const onPath = path.join(scratch.dir, 'eslint-on-path');
+  fakeEslint(path.join(onPath, 'eslint'), 'echo "[path eslint]"');
+  const r = stopIn(dir, ['a.js'], `${onPath}${path.delimiter}${process.env.PATH}`);
+  assert.equal(r.code, 0);
+  assert.equal(r.stderr, '', 'nothing is printed by the Stop that started the fixer');
+  settled(log);
+  const kept = fs.readFileSync(log, 'utf8');
+  assert.match(kept, /Do not call fetch\. Use the http client instead\. \[local\]/);
+  assert.doesNotMatch(kept, /path eslint/);
+});
+
+test('eslint on PATH runs when the project has none', () => {
+  const { dir, log } = lintProject();
+  const onPath = path.join(scratch.dir, 'eslint-on-path-only');
+  fakeEslint(path.join(onPath, 'eslint'), 'echo "[path eslint] b.js:2:1 error"');
+  assert.equal(stopIn(dir, ['b.js'], `${onPath}${path.delimiter}${process.env.PATH}`).code, 0);
+  settled(log);
+  assert.match(fs.readFileSync(log, 'utf8'), /\[path eslint\] b\.js:2:1 error/);
+});
+
+test('the next Stop prints the kept lines under the advisory header, then removes the log; the Stop after prints nothing', () => {
+  const { dir, log } = lintProject();
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error left behind"');
+  stopIn(dir, ['a.js']);
+  settled(log);
+  const next = stopIn(dir, []);
+  assert.equal(next.code, 0);
+  assert.equal(next.stderr, `${LINT_HEADER}\na.js:1:1 error left behind\n`);
+  assert.equal(fs.existsSync(log), false);
+  assert.equal(stopIn(dir, []).stderr, '');
+});
+
+test('at most 20 lines are printed and the log is capped at 64 KiB', () => {
+  const { dir, log } = lintProject();
+  fs.mkdirSync(path.dirname(log), { recursive: true });
+  fs.writeFileSync(log, Array.from({ length: 30 }, (_, i) => `problem ${i + 1}`).join('\n') + '\n');
+  const lines = stopIn(dir, []).stderr.trimEnd().split('\n');
+  assert.deepEqual([lines.length, lines[0], lines[1], lines[20]], [21, LINT_HEADER, 'problem 1', 'problem 20']);
+
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'yes "x: a long lint message that fills the log" | head -c 200000');
+  stopIn(dir, ['c.js']);
+  settled(log);
+  assert.equal(sizeOf(log), 65536);
+});
+
+test('without the runtime state folder nothing is written into the project', () => {
+  const { dir } = lintProject({ state: false });
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error"');
+  const r = stopIn(dir, ['a.js']);
+  assert.equal(r.code, 0);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+  assert.equal(fs.existsSync(path.join(dir, '.doflow')), false);
+});
+
+test('the Stop that prints lint problems still advises only: exit 0 and no deny decision', () => {
+  const { dir, log } = lintProject();
+  fs.mkdirSync(path.dirname(log), { recursive: true });
+  fs.writeFileSync(log, 'a.js:1:1 error\n');
+  const r = stopIn(dir, []);
+  assert.equal(r.code, 0);
+  assert.doesNotMatch(r.stdout, /"decision"\s*:\s*"(block|deny)"|permissionDecision/);
+});
+
+test('a directory at lint-last.log is left alone: exit 0, no advisory deny, and the stub check still runs', () => {
+  const { dir, log } = lintProject();
+  fs.mkdirSync(log, { recursive: true });
+  const r = stopIn(dir, [], process.env.PATH, { last_assistant_message: '// TODO: finish' });
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /"decision"\s*:\s*"(block|deny)"|permissionDecision/);
+  assert.equal(flagged(r), true, r.stdout);
+  assert.doesNotMatch(r.stderr, new RegExp(LINT_HEADER));
+  assert.ok(fs.statSync(log).isDirectory());
+});
+
 // Text that only resembles a marker is not an unfinished-work comment.
 for (const text of [
   'See http://todo-app.example.com for the demo.',
