@@ -20,6 +20,7 @@
  */
 
 const path = require('node:path');
+const { maskBody } = require('../mask.ts');
 const os = require('node:os');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
@@ -1635,21 +1636,46 @@ function reusedCount(report: any): number {
   return count;
 }
 
+/** 181 IC-005: one `{ tier, role, command, status, exitCode, log }` per check the report lists, in
+ * report order. `role` is null unless it is one of the registry's command roles (a requirement check
+ * has none); `command` is masked like other record text; `exitCode` is null when nothing ran; `log` is
+ * the check's log path relative to the project root, or null when none was kept or it lies outside it. */
+function recordChecks(report: any, commandRoles: string[], projectRoot: string): any[] {
+  const out: any[] = [];
+  for (const tier of Array.isArray(report?.tiers) ? report.tiers : []) {
+    for (const check of Array.isArray(tier?.checks) ? tier.checks : []) {
+      if (!check || typeof check !== 'object') continue;
+      const log = typeof check.logPath === 'string' && check.logPath !== '' ? path.relative(projectRoot, check.logPath) : '';
+      out.push({
+        tier: check.tier ?? tier.id,
+        role: commandRoles.includes(check.role) ? check.role : null,
+        command: typeof check.command === 'string' && check.command !== '' ? maskBody(check.command).text : null,
+        status: check.status,
+        exitCode: Number.isInteger(check.exitCode) ? check.exitCode : null,
+        log: log !== '' && !log.startsWith('..') && !path.isAbsolute(log) ? log.split(path.sep).join('/') : null,
+      });
+    }
+  }
+  return out;
+}
+
 /** Persist the already printed report as one JSONL line; state I/O never changes its answer.
+ * 181 IC-005: schema 2 adds `checks` right after `risk`; a schema 1 line reads as `checks: []`.
  * 089 IC-006: with reuse on for the run, `reused` (the count) precedes `reportSha256`; with reuse
  * off the record has no `reused` key. 095b IC-004: `risk` (the report's risk level) follows `verdict`;
  * readers default a missing one, and `verifyRecordReasons` ignores it. */
-function appendVerificationRunRecord({ taskId, report, gitState, reuse = false, fsImpl = nodeFs }: any): void {
+function appendVerificationRunRecord({ taskId, report, gitState, reuse = false, commandRoles = [], fsImpl = nodeFs }: any): void {
   if (!gitState) return;
   try {
     const reportJson = JSON.stringify(report, null, 2);
     const record = {
-      schema: 1,
+      schema: 2,
       taskId,
       head: gitState.head,
       clean: gitState.clean,
       verdict: report.status,
       risk: report.riskLevel,
+      checks: recordChecks(report, commandRoles, gitState.projectRoot),
       at: new Date().toISOString(),
       ...(reuse === true ? { reused: reusedCount(report) } : {}),
       reportSha256: `sha256:${nodeCrypto.createHash('sha256').update(reportJson, 'utf8').digest('hex')}`,
@@ -1860,7 +1886,7 @@ function handleVerifyCommand({ taskId, action = 'report', risk, planPath, json =
   // PASS is the only status that answers "verified". FAIL and INCONCLUSIVE are both findings, and
   // collapsing INCONCLUSIVE into success would report a verdict over zero evidence as a pass.
   const exitCode = report.status === 'PASS' ? 0 : 1;
-  if (action === 'report') appendVerificationRunRecord({ taskId, report, gitState: runGitState, reuse, fsImpl });
+  if (action === 'report') appendVerificationRunRecord({ taskId, report, gitState: runGitState, reuse, commandRoles: engine.policy.commandRoles || [], fsImpl });
   // After the report is printed; never throws and changes nothing printed (088 C.1, IC-006).
   emitVerifyTelemetry({ report, metrics: engine.runner.metrics, ctx: { source: 'verb', taskId, risk: report.riskLevel, exitCode, v0: v0 ? 'on' : 'off' }, start: state.projectRoot || cwd, env, fsImpl });
   upkeepAfterVerify({ projectRoot: state.projectRoot });

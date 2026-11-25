@@ -146,7 +146,7 @@ test('verification ignores dirty, stale-head, and other-task records and uses ap
     assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ verification: lines })).reasons, ['verify-missing']);
   }
   assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ verification: [{ taskId: '113-goal-order', head: HEAD, clean: true }] })).reasons, ['verify-not-pass']);
-  assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ verification: [{ schema: 2, taskId: '113-goal-order', head: HEAD, clean: true, verdict: 'PASS' }] })).reasons, ['verify-not-pass']);
+  assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ verification: [{ schema: 3, taskId: '113-goal-order', head: HEAD, clean: true, verdict: 'PASS' }] })).reasons, ['verify-not-pass']);
 });
 
 test('verify-flaky needs a FAIL followed by a PASS on the head; a single FAIL or INCONCLUSIVE is only verify-not-pass (D12)', () => {
@@ -307,7 +307,7 @@ const mutations: any = [
   { name: 'unreadable source', module: 'facts', from: "unreadable.length ? `unreadable:${unreadable.join(',')}` : undefined", to: 'undefined', pattern: 'unreadable git facts never become' },
   { name: 'dependency merge integrity', module: 'facts', from: "integrity.offendingRowIds.includes(id) ? 'not-started' : statuses.rowStatus[id]", to: 'statuses.rowStatus[id]', pattern: 'needs use first-parent merge integrity' },
   { name: 'readability changes digest', module: 'facts', from: 'unreadable ? sha256Digest(JSON.stringify({ unreadable, contentDigest })) : contentDigest', to: 'contentDigest', pattern: 'unreadable empty artifacts have a different input digest' },
-  { name: 'verification schema', from: 'runs.some((run: any) => run.schema !== 1)', to: 'false', pattern: 'verification ignores dirty, stale-head' },
+  { name: 'verification schema', from: 'runs.some((run: any) => run.schema !== 1 && run.schema !== 2)', to: 'false', pattern: 'verification ignores dirty, stale-head' },
   { name: 'sameFamily option', from: "sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn',", to: '', pattern: 'D.3: gate-b findings-valid applies' },
   { name: 'preset option', from: "preset: reviewPreset(get('review-settings')),", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
   { name: 'authors option', from: "authors: get('authoring-identities'),", to: '', pattern: 'D.4: gate-b findings-valid applies the authoring-identities fact' },
@@ -451,7 +451,7 @@ test('C20: one verify-record rule serves gate-b and the post-merge check (task, 
   assert.deepEqual(verifyRecordReasons([run({ clean: false }), run({ head: PARENT })], HEAD, '113-goal-order'), ['verify-missing']);
   assert.deepEqual(verifyRecordReasons([run({ verdict: 'FAIL' }), run()], HEAD, '113-goal-order'), ['verify-flaky']);
   assert.deepEqual(verifyRecordReasons([run(), run({ verdict: 'FAIL' })], HEAD, '113-goal-order'), ['verify-not-pass']);
-  assert.deepEqual(verifyRecordReasons([run({ schema: 2 })], HEAD, '113-goal-order'), ['verify-not-pass']);
+  assert.deepEqual(verifyRecordReasons([run({ schema: 3 })], HEAD, '113-goal-order'), ['verify-not-pass']);
   assert.deepEqual(verifyRecordReasons([null, 'x', run()], HEAD, '113-goal-order'), []);
   assert.deepEqual(verifyRecordReasons([run()], 'not-a-head', '113-goal-order'), ['verify-missing']);
   // gate-b's predicate gives the same answer as the shared rule.

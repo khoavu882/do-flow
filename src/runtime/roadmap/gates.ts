@@ -104,7 +104,7 @@ function loadPolicy(baseBytes: string | Buffer | null | undefined, overrideBytes
 /**
  * C20: the one verify-record rule (IC-007, D12), shared by gate-b's verify-pass-on-head and the loop's
  * post-merge check. Only lines for `taskId` on `head` from a clean tree count: none is verify-missing;
- * the last must be a PASS and every one schema 1 (else verify-not-pass); a FAIL that a later PASS
+ * the last must be a PASS and every one schema 1 or 2 (else verify-not-pass); a FAIL that a later PASS
  * would hide is verify-flaky. An empty list passes.
  */
 function verifyRecordReasons(records: any, head: any, taskId: any): string[] {
@@ -112,7 +112,7 @@ function verifyRecordReasons(records: any, head: any, taskId: any): string[] {
     ? records.filter((run: any) => object(run) && run.head === head && run.taskId === taskId && run.clean === true) : [];
   if (runs.length === 0) return ['verify-missing'];
   const found: string[] = [];
-  if (runs[runs.length - 1].verdict !== 'PASS' || runs.some((run: any) => run.schema !== 1)) found.push('verify-not-pass');
+  if (runs[runs.length - 1].verdict !== 'PASS' || runs.some((run: any) => run.schema !== 1 && run.schema !== 2)) found.push('verify-not-pass');
   if (runs.some((run: any, i: number) => run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS'))) found.push('verify-flaky');
   return found;
 }

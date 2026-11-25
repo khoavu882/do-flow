@@ -100,8 +100,8 @@ test('verify report appends one head-bound record per run without changing JSON 
   assert.equal(records.length, 2, 'two reports append two JSONL lines');
   const head = git(p.root, 'rev-parse', 'HEAD');
   for (const record of records) {
-    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'risk', 'at', 'reportSha256']);
-    assert.equal(record.schema, 1);
+    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'risk', 'checks', 'at', 'reportSha256']);
+    assert.equal(record.schema, 2);
     assert.equal(record.taskId, 'T-1');
     assert.equal(record.head, head);
     assert.match(record.head, /^[0-9a-f]{40}$/);
@@ -140,8 +140,8 @@ test('with verify.reuse on the record carries the reused count before reportSha2
   const records = readRecords(p.root);
   assert.equal(records.length, 2);
   for (const [record, out] of [[records[0], first.stdout], [records[1], second.stdout]]) {
-    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'risk', 'at', 'reused', 'reportSha256']);
-    assert.equal(record.schema, 1);
+    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'risk', 'checks', 'at', 'reused', 'reportSha256']);
+    assert.equal(record.schema, 2);
     assert.equal(record.verdict, 'PASS');
     assert.equal(record.reused, carrying(out));
     assert.equal(record.reportSha256, recordHash(out));
@@ -216,4 +216,51 @@ test('verifyRecordReasons ignores risk: develop-era lines without it give the sa
     assert.deepEqual(verifyRecordReasons(old, HEAD, 'T-1'), expected[i]);
     assert.deepEqual(verifyRecordReasons(next, HEAD, 'T-1'), expected[i]);
   });
+});
+
+// 181 IC-005: schema 2 carries one `{ tier, role, command, status, exitCode, log }` per report check, in report order.
+test('a report run writes its checks in report order after risk', (t) => {
+  const p = project(t);
+  const result: any = verify(p, [fixedClock(t)]);
+  assert.equal(result.status, 0, result.stderr);
+  const reported = JSON.parse(result.stdout).tiers.flatMap((tier: any) => tier.checks.map((c: any) => ({ tier: tier.id, ...c })));
+  const [record] = readRecords(p.root);
+  assert.ok(reported.length > 0, 'the fixture runs commands');
+  assert.deepEqual(record.checks.map((c: any) => c.command), reported.map((c: any) => c.command));
+  assert.deepEqual(record.checks.map((c: any) => c.tier), reported.map((c: any) => c.tier));
+  for (const check of record.checks) {
+    assert.deepEqual(Object.keys(check), ['tier', 'role', 'command', 'status', 'exitCode', 'log']);
+    assert.equal(check.status, 'PASS');
+    assert.equal(check.exitCode, 0);
+    assert.equal(check.log, null, 'a passing check keeps no log');
+  }
+  assert.ok(record.checks.some((c: any) => c.role === 'build' && c.command === 'node -e 0'));
+  const keys = Object.keys(record);
+  assert.equal(keys[keys.indexOf('risk') + 1], 'checks');
+});
+
+test('a failing check records its exit code, a project-relative log and a masked command', (t) => {
+  const p = project(t);
+  const override: any = { parse: null, build: 'node -e "console.error(7); process.exit(3)" -- --token=abcdef0123456789abcdef0123456789',
+    typecheck: null, lint: null, test: 'node -e 0', testTargeted: 'node -e 0 {pattern}' };
+  fs.writeFileSync(p.plan, '# Plan\n\n```doflow-verification\n' + JSON.stringify(override) + '\n```\n');
+  const result: any = verify(p, [fixedClock(t)]);
+  assert.equal(JSON.parse(result.stdout).status, 'FAIL');
+  const [record] = readRecords(p.root);
+  const failed = record.checks.find((c: any) => c.status === 'FAIL');
+  assert.ok(failed, 'the failing build is recorded');
+  assert.equal(failed.exitCode, 3);
+  assert.equal(failed.role, 'build');
+  assert.ok(!failed.command.includes('abcdef0123456789abcdef0123456789'), `the secret is masked: ${failed.command}`);
+  assert.match(failed.log, /^\.doflow\/state\/verification\/logs\/.+\.log$/);
+  assert.ok(fs.existsSync(path.join(p.root, failed.log)), 'the log locator points at a file under the project');
+});
+
+// 181 IC-005: schema 1 lines stay valid for the gate that reads records; they carry no checks.
+test('verifyRecordReasons accepts a schema 2 record exactly as a schema 1 record', () => {
+  const HEAD = 'b'.repeat(40);
+  const line = (extra: any = {}) => ({ schema: 1, taskId: 'T-1', head: HEAD, clean: true, verdict: 'PASS', at: '2026-11-25T00:00:00.000Z', reportSha256: 'sha256:x', ...extra });
+  assert.deepEqual(verifyRecordReasons([line()], HEAD, 'T-1'), []);
+  assert.deepEqual(verifyRecordReasons([line({ schema: 2, checks: [] })], HEAD, 'T-1'), []);
+  assert.deepEqual(verifyRecordReasons([line({ schema: 3 })], HEAD, 'T-1'), ['verify-not-pass']);
 });
