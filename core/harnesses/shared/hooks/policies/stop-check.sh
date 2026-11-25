@@ -22,8 +22,10 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 #   3. Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain
 #      artifact names) reaching files that ship. Warns, never blocks.
 #
-# Multi-session safe: reads/writes only from sessions/{session_id}/.
-# Async lint uses </dev/null >/dev/null to avoid holding stdin fd.
+# Multi-session safe: reads/writes only from sessions/{session_id}/ (and the project's
+# own .doflow/state/hooks/lint-last.log for the async fixers' output, below).
+# Async lint uses </dev/null >/dev/null to avoid holding stdin fd; the fixers' own output goes to
+# lint-last.log instead of away, and the next Stop prints what they left (181 IC-017, advisory only).
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here)
@@ -111,6 +113,37 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
   # go to a fresh edited-files.txt, not the file we're about to process.
   mv "$EDITED_FILES" "$PROC_FILE" 2>/dev/null || true
 
+  # What the async fixers of an earlier Stop left (181 IC-017): printed once, at most 20 lines, then removed.
+  # The log lives in the project's own state folder, which only exists once DoFlow's runtime has used the
+  # project; elsewhere the fixers' output is still discarded, as before. Builtins only: this runs on every Stop.
+  LINT_LOG=.doflow/state/hooks/lint-last.log
+  LINT_LOG_CAP=65536
+  if [ -e "$LINT_LOG" ]; then
+    if [ -s "$LINT_LOG" ]; then
+      printf 'doflow: lint problems left by the last fix (advisory):\n' >&2
+      lint_lines=0
+      while { IFS= read -r lint_line || [ -n "$lint_line" ]; } && [ "$lint_lines" -lt 20 ]; do
+        printf '%s\n' "${lint_line:0:500}" >&2
+        lint_lines=$((lint_lines + 1))
+      done < "$LINT_LOG"
+    fi
+    rm -f "$LINT_LOG"
+  fi
+  # The target of an async fixer's output: the log when the state folder exists, else nowhere.
+  lint_target() {
+    if [ -d .doflow/state ] && mkdir -p .doflow/state/hooks 2>/dev/null; then LINT_OUT=$LINT_LOG; else LINT_OUT=/dev/null; fi
+  }
+  # Runs the rest of its arguments as an async fixer with its output kept in $LINT_OUT, capped at LINT_LOG_CAP.
+  lint_async() {
+    lint_target
+    (
+      nohup "$@" >>"$LINT_OUT" 2>&1
+      if [ "$LINT_OUT" != /dev/null ] && [ "$(wc -c < "$LINT_OUT")" -gt "$LINT_LOG_CAP" ]; then
+        head -c "$LINT_LOG_CAP" "$LINT_OUT" > "$LINT_OUT.tmp" && mv "$LINT_OUT.tmp" "$LINT_OUT"
+      fi
+    ) </dev/null >/dev/null 2>&1 3>&- 5>&- &
+  }
+
   if [ -f "$PROC_FILE" ] && [ -s "$PROC_FILE" ]; then
     # Partition paths by extension
     py_files=()
@@ -157,10 +190,13 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
       fi
     fi
 
-    # JS/TS: async fix only (eslint --fix rarely needs the caller's immediate attention)
+    # JS/TS: async fix only (eslint --fix rarely needs the caller's immediate attention). The project's own
+    # node_modules/.bin/eslint wins over one on PATH; what it leaves is kept in lint-last.log for the next Stop.
     if [ ${#js_files[@]} -gt 0 ]; then
-      if command -v eslint &>/dev/null; then
-        nohup eslint --fix "${js_files[@]}" </dev/null >/dev/null 2>&1 3>&- 5>&- &
+      if [ -x ./node_modules/.bin/eslint ]; then
+        lint_async ./node_modules/.bin/eslint --fix "${js_files[@]}"
+      elif command -v eslint &>/dev/null; then
+        lint_async eslint --fix "${js_files[@]}"
       fi
     fi
 
@@ -174,7 +210,7 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
     # Java: async spotlessApply (slow — only if gradlew exists in cwd)
     if [ "$java_has_files" = "true" ]; then
       if [ -x "./gradlew" ]; then
-        nohup ./gradlew spotlessApply </dev/null >/dev/null 2>&1 3>&- 5>&- &
+        lint_async ./gradlew spotlessApply
       fi
     fi
 
