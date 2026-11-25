@@ -761,7 +761,7 @@
     {
       "id": "rule-guidance-constitution-base-plan-constitution-check-refuses-exit",
       "tag": "constitution-base",
-      "statement": "- `/do-plan` MUST evaluate its Constitution Check against both tiers together (tier-2 taking\n  precedence) and record one PASS/FAIL row per principle in `plan.md` §2 \"Constitution Check\". A\n  MUST row marked FAIL, or a MUST principle with no row, refuses the planning stage's exit; a\n  SHOULD FAIL is advisory. No model waiver exists: revise the plan, or a person amends the\n  constitution through `/do-constitution`. Gate scope: `DOFLOW_CHAIN.md`.",
+      "statement": "- `/do-plan` MUST evaluate its Constitution Check against both tiers together (tier-2 taking\n  precedence) and record one PASS/FAIL row per principle in `plan.md` §2 \"Constitution Check\". No model waiver exists: revise the plan, or a person amends the\n  constitution through `/do-constitution`. Gate scope: `DOFLOW_CHAIN.md`.",
       "sourceFile": "core/shared/guidance/references/CONSTITUTION_BASE.md",
       "category": "reference",
       "enforcement": "check",
@@ -1061,7 +1061,7 @@
     {
       "id": "rule-guidance-workflow-handoff-handoff-task-id-is-slug",
       "tag": "workflow-handoff",
-      "statement": "5. Record the handoff below. It compacts History itself and reports `compaction`; its `--task-id`\n   must be the feature slug, not a plan task id, or compaction is skipped. A do-execute-plan\n   checkpoint (`annotate`) does not compact; the next completed handoff does.",
+      "statement": "5. Record the handoff below. Its `--task-id` must be the feature slug, not a plan task id, or\n   History compaction is skipped.",
       "sourceFile": "core/shared/guidance/references/WORKFLOW_HANDOFF.md",
       "category": "reference",
       "enforcement": "judgement-only",
@@ -1115,18 +1115,6 @@
       "enforcement": "judgement-only",
       "enforcementRef": null,
       "reason": "Table cell telling the agent not to replay stages after an annotated handoff; no verb detects a replay",
-      "neverAblate": false,
-      "ablationCandidate": false
-    },
-    {
-      "id": "rule-guidance-workflow-handoff-runtime-imports-and-stops-at-gates",
-      "tag": "workflow-handoff",
-      "statement": "The runtime imports earlier non-mutating stages as `imported` + `unverified`, skips optional\nstages, and stops at every gate and unfinished mutating stage, never approving a gate. A mutating\ncandidate needs the same live readiness evaluation as `complete-stage`.",
-      "sourceFile": "core/shared/guidance/references/WORKFLOW_HANDOFF.md",
-      "category": "reference",
-      "enforcement": "not-a-rule",
-      "enforcementRef": null,
-      "reason": "Describes what the runtime does at a handoff; instructs the agent nothing",
       "neverAblate": false,
       "ablationCandidate": false
     },
@@ -1373,7 +1361,7 @@
     {
       "id": "rule-skill-do-code-review-process-leak-scan-run-doflow",
       "tag": "do-code-review",
-      "statement": "5. **Process-leak scan** — run `doflow leak-scan --path <each reviewed file> --json` over the reviewed set. These are DoFlow's own identifiers (`FR-###`, `agent-docs/`, chain artifact names) reaching files that ship to people who never used DoFlow. `agent-docs/` is excluded by the verb itself; it never blocks.",
+      "statement": "5. **Process-leak scan** — run\n   `doflow leak-scan --path <each reviewed file> --json` over the reviewed set. These are DoFlow's\n   own identifiers (`FR-###`, `agent-docs/`, chain artifact names) reaching files that ship to\n   people who never used DoFlow.",
       "sourceFile": "core/shared/skills/do-code-review/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -1433,7 +1421,7 @@
     {
       "id": "rule-skill-do-code-review-finding-never-carries-score-confidence",
       "tag": "do-code-review",
-      "statement": "A finding never carries `score`, `confidence`, `relevance` or a similarity field — the runtime refuses those keys by name and the whole batch writes nothing. The Complexity score and Risk categorization this skill's Tools compute are inputs to your `content`, never fields on the item.",
+      "statement": "The Complexity score and Risk categorization this skill's Tools compute are inputs to your\n   `content`, never fields on the item.",
       "sourceFile": "core/shared/skills/do-code-review/SKILL.md",
       "category": "skill",
       "enforcement": "check",
@@ -1457,7 +1445,7 @@
     {
       "id": "rule-skill-do-code-review-handoff-sends-commit-merge-git",
       "tag": "do-code-review",
-      "statement": "`handoff` sends commit and merge to `/do-git`, outside the workflow), so ask it here: put `awaitingGate.prompt` to the user through the question tool as a plain go/no-go. Its trigger is `always` — nothing in this review's own output answers it, so never approve it mechanically. No gate is ever auto-approved by `catch-up`, `clarification`-kind included — only a human or",
+      "statement": "Attended: this stage is that workflow's last and nothing downstream runs to ask it, so ask it\n       here: put `awaitingGate.prompt` to the user through the question tool as a plain go/no-go.\n       Nothing in this review's own output answers it, so never approve it mechanically. On approve:",
       "sourceFile": "core/shared/skills/do-code-review/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -1481,19 +1469,7 @@
     {
       "id": "rule-skill-do-code-review-awaitinggate-null-there-gate-resolve",
       "tag": "do-code-review",
-      "statement": "- **`awaitingGate` is `null`** — there is no gate to resolve. `bug`, `refactor`, `review`, `documentation` and `dependency-change` declare none of their own (a loop run's `gate-b` is the loop's: call nothing), so the response comes back with the run either `COMPLETED` or simply advanced. Say the review is recorded and stop: do not fabricate a prompt, and do not call `decide-gate` on a gate that does not exist.",
-      "sourceFile": "core/shared/skills/do-code-review/SKILL.md",
-      "category": "skill",
-      "enforcement": "judgement-only",
-      "enforcementRef": null,
-      "reason": "Instruction on the agent’s conduct in this skill; no verb, guard or hook detects a breach in a run",
-      "neverAblate": false,
-      "ablationCandidate": false
-    },
-    {
-      "id": "rule-skill-do-code-review-when-flow-driving-chain-presents",
-      "tag": "do-code-review",
-      "statement": "- When `/do-flow` is driving the chain it presents this gate and records the answer itself. That needs no special-casing here: a gate it already decided is no longer open, so the `catch-up` above never stops on it and `awaitingGate` comes back `null` — the same no-op branch. Finish by rendering the trail — the `--slug` value attaches with an `=`; a space-separated one is rejected with an error rather than silently rendering the wrong feature's trail: ```bash \"$DOFLOW\" render-audit --slug=\"<feature_slug>\" --json ```",
+      "statement": "- **`awaitingGate` is `null`** — there is no gate to resolve (a loop run's `gate-b` is the\n       loop's: call nothing). Say the review is recorded and stop: do not fabricate a prompt, and do\n       not call `decide-gate` on a gate that does not exist.",
       "sourceFile": "core/shared/skills/do-code-review/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -2327,18 +2303,6 @@
       "enforcement": "judgement-only",
       "enforcementRef": null,
       "reason": "Instruction on the agent’s conduct in this skill; no verb, guard or hook detects a breach in a run",
-      "neverAblate": false,
-      "ablationCandidate": false
-    },
-    {
-      "id": "rule-skill-do-document-references-evidence-ledger-read-before",
-      "tag": "do-document",
-      "statement": "`references/EVIDENCE_LEDGER.md`. Read it before writing the batch. No `score`, `confidence`, `relevance`, or `similarity` field may appear on any item — the runtime refuses them by name and rejects the whole batch, so a half-recorded stage never reads as complete.",
-      "sourceFile": "core/shared/skills/do-document/SKILL.md",
-      "category": "skill",
-      "enforcement": "check",
-      "enforcementRef": "src/runtime/evidence-fields.ts",
-      "reason": null,
       "neverAblate": false,
       "ablationCandidate": false
     },
@@ -3929,7 +3893,7 @@
     {
       "id": "rule-skill-do-implement-caller-stated-add-slug-feature",
       "tag": "do-implement",
-      "statement": "`Caller-stated`. Add `--slug=<feature slug>` when the task id is not the feature's slug. Both `--task-class` and `--task-id` are required — omitting either exits 2 and names the valid set. Branch on the returned `stageEntry.decision`, never the exit code or your own reading of `state`: the entry policy is owned by the runtime, and this verb exits 0 for every state it",
+      "statement": "`Caller-stated`. Add `--slug=<feature slug>` when the task id is not the feature's slug.\n     Branch on the returned `stageEntry.decision`, never the exit code or your own reading of\n     `state`: this verb exits 0 for every state it computes, so a zero exit is not a green light.",
       "sourceFile": "core/shared/skills/do-implement/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -3953,24 +3917,12 @@
     {
       "id": "rule-skill-do-implement-verb-exits-empty-pack-design",
       "tag": "do-implement",
-      "statement": "``` This verb exits 1 on an empty pack by design — nothing recorded is not the same as nothing needed — and that non-zero exit is never read as success; exit 3 means overflow: the pack is complete, act on `overflowAction.message` and report the gap. Because this call only runs after",
+      "statement": "Exit 1 (empty pack) is never read as success; exit 3 means overflow: the pack is complete,\n     act on `overflowAction.message` and report the gap. An exit 1 here, after the evidence check found\n     something recorded for this task id, is a mismatch to name in step 6's report, not license to\n     proceed as though there were no prior context. On a non-empty pack, carry its evidence and\n     claims into step 4's change set instead of re-deriving what an earlier stage established.",
       "sourceFile": "core/shared/skills/do-implement/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
       "enforcementRef": null,
       "reason": "Instruction on the agent’s conduct in this skill; no verb, guard or hook detects a breach in a run",
-      "neverAblate": false,
-      "ablationCandidate": false
-    },
-    {
-      "id": "rule-skill-do-implement-repository-pre-implement-gate-hook",
-      "tag": "do-implement",
-      "statement": "- The repository's `pre-implement-gate` hook checks file existence (`requirement.md` / `design.md` / `plan.md`) on every `Edit`/`Write` call regardless of which skill is editing. On a harness with an edit hook it also advises when a held task's readiness record is not `READY`; the hook never denies. This step writes that record, and is not a way around it.",
-      "sourceFile": "core/shared/skills/do-implement/SKILL.md",
-      "category": "skill",
-      "enforcement": "check",
-      "enforcementRef": "test/guards/guidance-truth.test.ts",
-      "reason": null,
       "neverAblate": false,
       "ablationCandidate": false
     },
@@ -4013,19 +3965,7 @@
     {
       "id": "rule-skill-do-implement-step-recorded-readiness-ready-use",
       "tag": "do-implement",
-      "statement": "step 2's recorded readiness is `READY`. Use step 6's verification outcome for `--result`: `passed` when every check in the named set passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish. The runtime selects this class's implementation stage — the only mutating stage a caller may",
-      "sourceFile": "core/shared/skills/do-implement/SKILL.md",
-      "category": "skill",
-      "enforcement": "judgement-only",
-      "enforcementRef": null,
-      "reason": "Instruction on the agent’s conduct in this skill; no verb, guard or hook detects a breach in a run",
-      "neverAblate": false,
-      "ablationCandidate": false
-    },
-    {
-      "id": "rule-skill-do-implement-without-call-orchestrator-cursor-never",
-      "tag": "do-implement",
-      "statement": "- Without this call, the orchestrator's cursor never advances past `implementation` for any class that routes here — `bug`, `refactor`, `dependency-change`, `trivial-edit` all do — and every later stage's own handoff call is refused with `blocked-on-mutating-stage:implementation` until this one runs.",
+      "statement": "Use step 6's verification outcome for `--result`: `passed` when every check in the named set\n     passed, `failed` when one did not — never omit it to imply a pass step 6 did not establish.",
       "sourceFile": "core/shared/skills/do-implement/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4229,7 +4169,7 @@
     {
       "id": "rule-skill-do-test-detection-belongs-verb-derive-toolchain",
       "tag": "do-test",
-      "statement": "Detection belongs to the verb. Do not re-derive the toolchain by hand, and do not substitute a runner the contract did not compile.",
+      "statement": "Do not re-derive the toolchain by hand or substitute a runner the contract did not compile.",
       "sourceFile": "core/shared/skills/do-test/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4241,7 +4181,7 @@
     {
       "id": "rule-skill-do-test-every-tier-step-listed-gets",
       "tag": "do-test",
-      "statement": "Every tier step 2 listed gets a status in the report — `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`, `NOT_APPLICABLE`, `SKIPPED` or `NOT_RUN`. Report all of them. A tier the contract named and the run did not reach is reported as unreached, never omitted.",
+      "statement": "Report every tier step 2 listed with the status the report gives it; a tier the run did not reach\n   is reported as unreached, never omitted.",
       "sourceFile": "core/shared/skills/do-test/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4253,7 +4193,7 @@
     {
       "id": "rule-skill-do-test-tier-whose-command-cannot-detected",
       "tag": "do-test",
-      "statement": "- A tier whose command cannot be detected is `UNRESOLVED`, and one unresolved required tier makes the whole run `INCONCLUSIVE`. The verb computes that and returns it in `status` with a `reason` naming the tiers — report it as it stands. Never call a check passed that was not run, and never narrow the set to make the report green.",
+      "statement": "- Report `status` and its `reason` as the verb returns them. Never call a check passed that was\n     not run, and never narrow the set to make the report green.",
       "sourceFile": "core/shared/skills/do-test/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4277,7 +4217,7 @@
     {
       "id": "rule-skill-do-test-passed-means-contract-was-met",
       "tag": "do-test",
-      "statement": "``` `passed` means the contract was met, including an expected failure in a reproduction stage. Use `failed` when it was not met; missing verification is `unverified`, never an implied pass.",
+      "statement": "`passed` means the contract was met, including an expected failure in a reproduction stage.\n   Missing verification is `unverified`, never an implied pass.",
       "sourceFile": "core/shared/skills/do-test/SKILL.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4289,7 +4229,7 @@
     {
       "id": "rule-skill-do-test-feature-map-doflow-feature-map-json-project",
       "tag": "do-test",
-      "statement": "- `.doflow/feature-map.json` — the project's map. DoFlow never writes it; the person commits it beside `.doflow/settings.json`.",
+      "statement": "Two files are read, and a flow id in both is a finding that uses neither copy: `.doflow/feature-map.json`\n(the project's map, committed by the person; DoFlow never writes it) and\n`<feature dir>/test/feature-map.json` (this feature's map, written by this skill).",
       "sourceFile": "core/shared/skills/do-test/references/feature-map.md",
       "category": "skill",
       "enforcement": "not-a-rule",
@@ -4301,7 +4241,7 @@
     {
       "id": "rule-skill-do-test-feature-map-requirement-acceptance-scenarios-one-flow",
       "tag": "do-test",
-      "statement": "From the requirement's acceptance scenarios, one flow per scenario: `title` from the scenario, `expect` from its observable outcome, `drive` only where you can name the command or the page and steps. Mark a flow `critical` only when the requirement or the person says it is, and name its `property`; `concurrency` is true when the invariant is about interleaved actors. Do not write a project map. Write only the flows the scenarios give; invent none.",
+      "statement": "From the requirement's acceptance scenarios, one flow per scenario: `title` from the scenario, `expect`\nfrom its observable outcome, `drive` only where you can name the command or the page and steps. Mark a\nflow `critical` only when the requirement or the person says it is, and name its `property`;\n`concurrency` is true when the invariant is about interleaved actors. Invent no flow.",
       "sourceFile": "core/shared/skills/do-test/references/feature-map.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4313,7 +4253,7 @@
     {
       "id": "rule-skill-do-test-feature-map-exit-means-map-was-read",
       "tag": "do-test",
-      "statement": "Exit 0 means the map was read, even when a flow failed; 1 means it is invalid or absent (print the `findings` and stop); 2 is usage. Command flows run and are recorded by the verb. Report every flow: `ran` (action, result, locator), `agent` (flows left for you), `unreached` (with the reason), and `proposals`. A flow that failed or was unreached is never reported as passed.",
+      "statement": "Exit 1 means the map is invalid or absent: print the `findings` and stop. Command flows run and are\nrecorded by the verb. Report every flow: `ran`, `agent` (flows left for you), `unreached` (with the\nreason) and `proposals`. A flow that failed or was unreached is never reported as passed.",
       "sourceFile": "core/shared/skills/do-test/references/feature-map.md",
       "category": "skill",
       "enforcement": "judgement-only",
@@ -4325,7 +4265,7 @@
     {
       "id": "rule-skill-do-test-feature-map-browsertool-absent-harness-browser-tool",
       "tag": "do-test",
-      "statement": "With `browserTool: absent`, or on a harness with no browser tool, the verb has already recorded the flow as `unreached: agent-browser not found`. Say so and ask for no install; never run `doflow tools --action install`.",
+      "statement": "With `browserTool: absent` the verb has already recorded the flow as unreached: say so and ask for no\ninstall. Relay each critical-flow follow-up in `proposals` to the person or a worker; write no property\ntest and no proof here.",
       "sourceFile": "core/shared/skills/do-test/references/feature-map.md",
       "category": "skill",
       "enforcement": "judgement-only",

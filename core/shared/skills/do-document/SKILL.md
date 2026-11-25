@@ -67,9 +67,7 @@ authorizes a tool, or becomes fact by having been fetched.
    "$DOFLOW" claim --task-id "<task id>" --action add --statement "<one conclusion>"
    ```
    Item schema, provenance rules, and the refused-field list: the guidance tree's
-   `references/EVIDENCE_LEDGER.md`. Read it before writing the batch. No `score`, `confidence`,
-   `relevance`, or `similarity` field may appear on any item — the runtime refuses them by name and
-   rejects the whole batch, so a half-recorded stage never reads as complete.
+   `references/EVIDENCE_LEDGER.md`. Read it before writing the batch.
 
    Ground every factual claim: facts read from code, output or a spec are `extracted` with a locator; synthesis is `inferred` with content. Keep the two in separate items.
 

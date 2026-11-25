@@ -43,7 +43,5 @@ back on a bad approach with evidence. → `rules/RULES.md` RULE_03.
   but may not weaken P1 (Safety). *This constraint is stated to the reading agent; nothing
   validates it, so a tier-2 file that weakened P1 would not be rejected by any check.*
 - `/do-plan` MUST evaluate its Constitution Check against both tiers together (tier-2 taking
-  precedence) and record one PASS/FAIL row per principle in `plan.md` §2 "Constitution Check". A
-  MUST row marked FAIL, or a MUST principle with no row, refuses the planning stage's exit; a
-  SHOULD FAIL is advisory. No model waiver exists: revise the plan, or a person amends the
+  precedence) and record one PASS/FAIL row per principle in `plan.md` §2 "Constitution Check". No model waiver exists: revise the plan, or a person amends the
   constitution through `/do-constitution`. Gate scope: `DOFLOW_CHAIN.md`.

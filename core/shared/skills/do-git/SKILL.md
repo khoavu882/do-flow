@@ -31,14 +31,7 @@ confirmation.
 
 ### Raw Operation Passthrough
 
-Any unrecognized first token falls through to today's raw git operation behavior:
-```text
-/do-git status      # Today's raw git status (no prompt)  
-/do-git log --oneline
-/do-git diff HEAD~10
-```
-
-Existing `/do-git [operation]` invocations keep working.
+Any unrecognized first token falls through to today's raw git operation behavior (`/do-git log --oneline`).
 
 ## Behavioral Flow
 
@@ -105,15 +98,3 @@ This skill loads the following reference files on demand (not parsed at runtime)
 - `references/lifecycle-policy.md` - default policy + override shape + forge mapping
 - `references/release-ritual.md` - release sequence, manifest rewrite, CHANGELOG drafting
 - `references/hotfix-ritual.md` - hotfix propagation rules and halt-on-conflict behavior
-
-## Examples
-
-```
-/do-git status                    # Report current lifecycle position
-/do-git start                     # Prepare for a new task (feature/fix branch)
-/do-git save                      # Stage and commit with intelligent message
-/do-git ship                      # Merge feature to integration
-/do-git release                   # Run full release ritual
-/do-git hotfix 12345              # Create hotfix from fix #12345
-/do-git log --oneline             # Raw git passthrough
-```

@@ -12,9 +12,8 @@ can predate the register) and, when it reports `has_decisions: true`:
    user typed as prompts, "Decide for me" defaults, agent resolutions) in one
    `"$DOFLOW" decision --action add --batch <file>.json --json` call. Drop an item that only
    rewords a live decision (such as a gate answer do-flow registered); it neither registers nor
-   supersedes. Each item needs `topic` (kebab-case), `statement` (one line), `channel`
-   (`question|gate|prompt|default|resolution`), `stage` (the ownership-table stage name) and
-   `rationale`; `supersedes`, `refs` and `source` are optional. Skip the call when there are none.
+   supersedes. Each item needs `topic`, `statement`, `channel`, `stage` (the ownership-table
+   stage name) and `rationale`; the verb names a bad value. Skip the call when there are none.
    On exit 1 `topic-conflict`, drop a reword of the named live decision, else add `supersedes` for it,
    and retry; on `register-locked`, retry once; on exit 2, fix the named item and retry. Hand off with the stage's decisions registered, or say which are not.
 3. Write each returned `DEC-###` into the lines of this stage's own artifacts that apply it
@@ -24,9 +23,8 @@ can predate the register) and, when it reports `has_decisions: true`:
 4. Run `"$DOFLOW" validate`. Fix each `stale` or `unknown` finding in an artifact this stage
    owns, changing only the flagged line (an `unknown` one takes the right identifier from the live
    list); report findings in other artifacts, unedited.
-5. Record the handoff below. It compacts History itself and reports `compaction`; its `--task-id`
-   must be the feature slug, not a plan task id, or compaction is skipped. A do-execute-plan
-   checkpoint (`annotate`) does not compact; the next completed handoff does.
+5. Record the handoff below. Its `--task-id` must be the feature slug, not a plan task id, or
+   History compaction is skipped.
 
 | Stage | Owns |
 |---|---|
@@ -68,12 +66,9 @@ After a skill finishes its work, call the resolved runtime seam:
 ```
 
 Pass `--mcp-outcome <server>=used|nothing-usable|skipped:<reason>|unavailable` once per MCP server
-your step names; a server left without one prints a warning, not a block.
+your step names;.
 
 Pass `--task-class` only when a classifying skill has accepted that class and may start a run.
-With no run and no class the result is `standalone` and no state is created. A run supplies its own
-class (a conflicting one is refused); its program gives stage ownership, including each occurrence
-of a repeated skill.
 
 | `disposition` | Meaning | Caller action |
 |---|---|---|
@@ -82,19 +77,13 @@ of a repeated skill.
 | `annotated` | All occurrences were already recorded; the latest received a rerun note | Report the amendment; do not replay stages |
 | `deferred` | A prior gate, unfinished mutating stage or rejected run prevented the handoff | Report `reason`; leave the transition to its owner |
 
-The runtime imports earlier non-mutating stages as `imported` + `unverified`, skips optional
-stages, and stops at every gate and unfinished mutating stage, never approving a gate. A mutating
-candidate needs the same live readiness evaluation as `complete-stage`.
-
 Use `--result passed|failed|unverified` to record the stage's outcome. Omission records `unverified`.
 For bug reproduction, observing the expected failure can satisfy the stage contract; the command's
-nonzero exit alone is not the stage verdict. Reruns append a note and preserve the original outcome.
+nonzero exit alone is not the stage verdict.
 
 Only handle an `awaitingGate` if the skill owns that gate and the handoff just completed its anchor;
 unattended, never handle one (§ Unattended stage).
-Follow the owning skill's decision rules; this API supplies no authorization. A deferral is not a
-rejection. The lower-level `decide-gate` action remains explicit.
+Follow the owning skill's decision rules; this API supplies no authorization.
 
 After recording work, regenerate the feature trail with `render-audit --slug="<task>" --json`.
-Report a recording failure; it changes no finding or artifact verdict. A deferred transition stays
-deferred even when the artifact is valid. Read the JSON fields, not exit zero, for completed work.
+Report a recording failure; it changes no finding or artifact verdict. Read the JSON fields, not exit zero, for completed work.
