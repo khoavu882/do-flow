@@ -1,7 +1,8 @@
 'use strict';
 
-// The tracked local gate: `npm run gate`. Exports HEAD of the repository this is run in to a fresh
-// temp directory and runs, there and in order, the checks a release leans on: install, typecheck,
+// The tracked local gate: `npm run gate`. Clones the repository this is run in (`git clone --shared`,
+// so the history is there for the tests that read it) into a fresh temp directory, checks out HEAD's
+// commit detached and runs, there and in order, the checks a release leans on: install, typecheck,
 // the suite, the Console suite, `bash -n` over the shell scripts and a conflict-marker scan. It
 // refuses to run on any Node but the one release.yml pins, so a pass here cannot be a pass that CI
 // would not repeat. It never edits the working tree. Contract: IC-003 of row 181.
@@ -37,6 +38,19 @@ function findConflictMarkers(dir: string, files: string[]): string[] {
     }
     return !content.includes(0) && CONFLICT_MARKER.test(content.toString('utf8'));
   });
+}
+
+/**
+ * Builds in `dir` (an empty directory) a shared clone of the repository at `root` with HEAD's commit
+ * checked out detached. The clone reads the source's objects through alternates and never touches the
+ * source's refs, index or worktree. `root` may be a linked worktree.
+ */
+function exportHead(root: string, dir: string): boolean {
+  const run = (args: string[], cwd?: string) => spawnSync('git', args, { cwd, stdio: 'inherit' }).status === 0;
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  if (head.status !== 0) return false;
+  return run(['clone', '--shared', '--no-checkout', '--quiet', root, dir])
+    && run(['checkout', '--quiet', '--detach', head.stdout.trim()], dir);
 }
 
 type Step = { name: string, run: () => boolean };
@@ -75,8 +89,7 @@ function main(argv: string[]): number {
     spawnSync(command, args, { cwd, stdio: 'inherit' }).status === 0;
   const tracked = (): string[] => git(['ls-tree', '-r', '-z', '--name-only', 'HEAD'], root).stdout.split('\0').filter(Boolean);
   const steps: Step[] = [
-    { name: 'export HEAD', run: () => sh('git', ['-C', root, 'archive', '--format=tar', '-o', path.join(dir, '.head.tar'), 'HEAD'])
-      && sh('tar', ['-xf', '.head.tar']) && (fs.rmSync(path.join(dir, '.head.tar')), true) },
+    { name: 'export HEAD', run: () => exportHead(root, dir) },
     { name: 'npm install', run: () => sh('npm', ['install']) },
     { name: 'npm run typecheck', run: () => sh('npm', ['run', 'typecheck']) },
     { name: 'npm test', run: () => sh('npm', ['test']) },
@@ -111,4 +124,4 @@ function main(argv: string[]): number {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { parseArgs, nodeRefusal, findConflictMarkers };
+module.exports = { parseArgs, nodeRefusal, findConflictMarkers, exportHead };

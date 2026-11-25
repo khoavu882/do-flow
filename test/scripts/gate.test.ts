@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { parseArgs, nodeRefusal, findConflictMarkers } = require('../../scripts/gate.ts');
+const { parseArgs, nodeRefusal, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
 
 const SCRIPT = path.join(REPO_ROOT, 'scripts', 'gate.ts');
 
@@ -83,4 +83,30 @@ test('gate: the conflict-marker scan finds git markers and ignores rules, binari
   fs.writeFileSync(path.join(dir, 'blob.bin'), Buffer.from('<<<<<<< x\n\0\n'));
   fs.symlinkSync(path.join(dir, 'missing'), path.join(dir, 'dangling'));
   assert.deepEqual(findConflictMarkers(dir, ['bad.md', 'tail.txt', 'rule.md', 'blob.bin', 'dangling']), ['bad.md', 'tail.txt']);
+});
+
+test('gate: the export step is a shared clone at HEAD that still holds the history', (t) => {
+  const repo = tempDir(t, 'doflow-gate-src-');
+  const git = (args: string[], cwd: string) => {
+    const result = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  git(['init', '-q'], repo);
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'one\n');
+  git(['add', 'a.txt'], repo);
+  git(['commit', '-q', '-m', 'first'], repo);
+  const older = git(['rev-parse', 'HEAD'], repo);
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'two\n');
+  git(['commit', '-q', '-am', 'second'], repo);
+  const head = git(['rev-parse', 'HEAD'], repo);
+  const before = git(['status', '--porcelain=v1', '--branch'], repo);
+
+  const clone = tempDir(t, 'doflow-gate-clone-');
+  assert.equal(exportHead(repo, clone), true);
+  assert.equal(git(['log', '-1', '--format=%H'], clone), head);
+  git(['cat-file', '-e', older], clone);
+  assert.equal(fs.readFileSync(path.join(clone, 'a.txt'), 'utf8'), 'two\n');
+  assert.match(fs.readFileSync(path.join(clone, '.git', 'objects', 'info', 'alternates'), 'utf8'), /\.git[\\/]objects/);
+  assert.equal(git(['status', '--porcelain=v1', '--branch'], repo), before, 'the source repository is untouched');
 });
