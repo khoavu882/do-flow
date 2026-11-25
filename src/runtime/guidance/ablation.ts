@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
-export type RuleCategory = 'safety' | 'workflow' | 'quality' | 'questions' | 'principles';
+export type RuleCategory = 'safety' | 'workflow' | 'quality' | 'questions' | 'principles' | 'skill' | 'reference' | 'mcp' | 'mode';
 export type EnforcementType = 'check' | 'judgement-only' | 'not-a-rule';
 
 export interface RuleEntry {

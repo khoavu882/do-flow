@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared.ts');
 const { coverRuleLines, ruleSourceFiles } = require('../../src/runtime/guidance/rule-ledger.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 const RULES_REGISTRY_FILE = path.join(REPO, 'core', 'registry', 'rules.json');
 const RULES_DIR = path.join(GUIDANCE, 'rules');
@@ -245,26 +246,24 @@ describe('Guard G71 coverage: every rule line lies in exactly one ledger row', (
     assert.deepEqual(coverFindings(ledger), []);
   });
 
-  test('control: a rule line planted in a temp copy of a skill is reported at its path:line, and removing its row elsewhere is too', () => {
-    const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'g71-cover-'));
-    try {
-      for (const rel of ruleSourceFiles(REPO)) {
-        fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
-        fs.copyFileSync(path.join(REPO, rel), path.join(tmp, rel));
-      }
-      const ledger = JSON.parse(fs.readFileSync(RULES_REGISTRY_FILE, 'utf8'));
-      assert.deepEqual(coverFindings(ledger, tmp), [], 'the unplanted copy is clean');
-      const target = 'core/shared/skills/do-test/SKILL.md';
-      const before = fs.readFileSync(path.join(tmp, target), 'utf8');
-      fs.writeFileSync(path.join(tmp, target), `${before.trimEnd()}\n\nNever plant an unmarked rule in a skill.\n`);
-      const line = fs.readFileSync(path.join(tmp, target), 'utf8').split('\n').findIndex((l: string) => l.startsWith('Never plant')) + 1;
-      assert.deepEqual(coverFindings(ledger, tmp), [`${target}:${line} uncovered`]);
+  test('control: a rule line planted in a temp copy of a skill is reported at its path:line, and removing its row elsewhere is too', (t: any) => {
+    const tmp = tempDir(t, 'doflow-g71-cover-');
+    for (const rel of ruleSourceFiles(REPO)) {
+      fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
+      fs.copyFileSync(path.join(REPO, rel), path.join(tmp, rel));
+    }
+    const ledger = JSON.parse(fs.readFileSync(RULES_REGISTRY_FILE, 'utf8'));
+    assert.deepEqual(coverFindings(ledger, tmp), [], 'the unplanted copy is clean');
+    const target = 'core/shared/skills/do-test/SKILL.md';
+    const before = fs.readFileSync(path.join(tmp, target), 'utf8');
+    fs.writeFileSync(path.join(tmp, target), `${before.trimEnd()}\n\nNever plant an unmarked rule in a skill.\n`);
+    const line = fs.readFileSync(path.join(tmp, target), 'utf8').split('\n').findIndex((l: string) => l.startsWith('Never plant')) + 1;
+    assert.deepEqual(coverFindings(ledger, tmp), [`${target}:${line} uncovered`]);
 
-      // A row dropped from the ledger leaves its own line uncovered, named by path:line.
-      const dropped = ledger.rules.find((r: any) => r.id === 'rule-safety-temporal-awareness');
-      const fewer = { ...ledger, rules: ledger.rules.filter((r: any) => r.id !== dropped.id) };
-      assert.ok(coverFindings(fewer, REPO).some((f: string) => f.startsWith('core/shared/guidance/rules/RULES.md:')), 'a dropped row is reported');
-    } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+    // A row dropped from the ledger leaves its own line uncovered, named by path:line.
+    const dropped = ledger.rules.find((r: any) => r.id === 'rule-safety-temporal-awareness');
+    const fewer = { ...ledger, rules: ledger.rules.filter((r: any) => r.id !== dropped.id) };
+    assert.ok(coverFindings(fewer, REPO).some((f: string) => f.startsWith('core/shared/guidance/rules/RULES.md:')), 'a dropped row is reported');
   });
 
   test('control: a planted row with neither a valid check nor a reason is reported naming its rule id', () => {
