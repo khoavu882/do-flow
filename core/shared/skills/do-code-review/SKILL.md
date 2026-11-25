@@ -74,6 +74,8 @@ State this before producing a single finding, and report against it when the rev
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
+Before reading the diff, run `"$DOFLOW" review --action input --json` and present its What ran, Not run and workaround copies first.
+
 ## Tools
 
 Read `references/tools.md` before running an analyzer or reporting what it found.
