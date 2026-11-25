@@ -11,6 +11,7 @@ const { addFollowups } = require('../../src/runtime/lifecycle/followup.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../../src/runtime/lifecycle/root.ts');
 const { writeReviewPack, buildRoadmapReport, handleRoadmapReportCommand, handleReviewPackCommand, renderPack, gatherFacts } = require('../../src/runtime/review-pack.ts');
 const { RUN_ID } = require('../../src/runtime/roadmap/loop.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 
 const SLUG = '001-alpha';
 const OTHER = '002-beta';
@@ -82,14 +83,14 @@ const section = (text: string, n: number): string => {
   return text.slice(start, next === -1 ? undefined : next);
 };
 
-test('the pack has the seven sections in order, each built from records', (t) => {
+test('the pack has the eight sections in order, each built from records', (t) => {
   const { root, featureDir } = fixture(t);
   const result = writeReviewPack({ cwd: root, slug: SLUG, now: NOW });
   assert.equal(result.ok, true);
   assert.equal(result.path, path.join(featureDir, 'review-pack.md'));
   const text = fs.readFileSync(result.path, 'utf8');
   const titles = [...text.matchAll(/^## (\d)\. (.+)$/gm)].map((m) => `${m[1]} ${m[2]}`);
-  assert.deepEqual(titles, ['1 Result', '2 Decisions taken for you', '3 Gates', '4 Verification', '5 Review', '6 Open items', '7 Not verified']);
+  assert.deepEqual(titles, ['1 Result', '2 What ran', '3 Decisions taken for you', '4 Gates', '5 Verification', '6 Review', '7 Open items', '8 Not verified']);
   assert.match(text, /^Generated at: 2026-11-14T12:00:00.000Z$/m);
 
   const one = section(text, 1);
@@ -100,7 +101,7 @@ test('the pack has the seven sections in order, each built from records', (t) =>
   assert.match(one, /Run state: AWAITING_GATE, at gate gate-b \(5 of 6 steps done\)/);
   assert.match(one, /Stage reached: implementation/);
 
-  const two = section(text, 2);
+  const two = section(text, 3);
   assert.match(two, /DEC-001 · design · wire-id · by agent/);
   assert.match(two, /Decision: The wire carries the UUID\./);
   assert.match(two, /Reason: unattended:recommended-option/);
@@ -110,7 +111,7 @@ test('the pack has the seven sections in order, each built from records', (t) =>
   assert.doesNotMatch(two, /DEC-002/);
   assert.match(two, /Decisions by the user: 1/);
 
-  const three = section(text, 3);
+  const three = section(text, 4);
   assert.match(three, /gate-0: approve not by policy \(actor not recorded\) at 2026-11-14T10:00:00.000Z; note: looks fine/);
   assert.match(three, /gate-a: approve by policy at 2026-11-14T10:05:00.000Z; policy gate-a@sha256:0123456789abcdef0123; 3 inputs; inputs digest sha256:abc123def456/);
   assert.match(three, /gate-b: no decision recorded/);
@@ -119,15 +120,17 @@ test('the pack has the seven sections in order, each built from records', (t) =>
 test('verification names the commit each run ran on and says when the latest is not on the head', (t) => {
   const { root } = fixture(t);
   const text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
-  const four = section(text, 4);
+  const four = section(text, 5);
   assert.match(four, /2026-11-14T09:00:00.000Z · PASS · risk MEDIUM · commit aaaaaaaa · tree clean · report eeeeeeee/);
   assert.match(four, /The latest run is not on the head commit: it ran on aaaaaaaa, the head is [0-9a-f]{8}\./);
-  assert.match(section(text, 7), /keeps the verdict, risk, commit, tree state and a digest of the report, not the commands/);
+  assert.match(section(text, 8), /The verify record predates check details; its commands are not shown\./);
+  assert.doesNotMatch(text, /not the commands or contract that ran/);
+  assert.match(section(text, 8), /The latest verify run is not on the head commit; its checks are not shown as evidence for this head\./);
 });
 
 test('review shows seats, rounds, findings by severity and what was accepted without a fix', (t) => {
   const { root } = fixture(t);
-  const five = section(fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8'), 5);
+  const five = section(fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8'), 6);
   assert.match(five, /Seats: 2 \(seat-a, seat-b\)/);
   assert.match(five, /Rounds: 2/);
   assert.match(five, /Seat findings: 2 \(blocker 0, should-fix 1, note 1\)/);
@@ -137,7 +140,7 @@ test('review shows seats, rounds, findings by severity and what was accepted wit
 
 test('open items list the follow-up filed for the feature and the unresolved marker, not the one in code', (t) => {
   const { root } = fixture(t);
-  const six = section(fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8'), 6);
+  const six = section(fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8'), 7);
   assert.match(six, /FU-[A-Za-z0-9]{6} · open · review · Rename the helper later\./);
   assert.match(six, /Holds: none recorded/);
   assert.match(six, /requirement\.md: 1/);
@@ -148,17 +151,17 @@ test('a flat requirement.md or design.md carries no marker into the open items',
   const featureDir = path.join(root, 'agent-docs', 'doflow', SLUG);
   write(path.join(featureDir, 'requirement.md'), '[NEEDS CLARIFICATION: flat]\n');
   write(path.join(featureDir, 'design.md'), '[NEEDS CLARIFICATION: flat]\n');
-  const six = section(fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8'), 6);
+  const six = section(fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8'), 7);
   assert.match(six, /markers: none recorded/);
 });
 
 test('a feature with no records gets "none recorded" in every section and a Not verified list', (t) => {
   const { root } = fixture(t, { full: false });
   const text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
-  for (const n of [2, 3, 4, 5]) assert.match(section(text, n), /none recorded/, `section ${n}`);
+  for (const n of [2, 3, 4, 5, 6]) assert.match(section(text, n), /none recorded/, `section ${n}`);
   assert.match(section(text, 1), /Stage reached: none recorded/);
-  assert.match(section(text, 6), /Follow-ups: none recorded[\s\S]*Holds: none recorded[\s\S]*markers: none recorded/);
-  const seven = section(text, 7);
+  assert.match(section(text, 7), /Follow-ups: none recorded[\s\S]*Holds: none recorded[\s\S]*markers: none recorded/);
+  const seven = section(text, 8);
   assert.match(seven, /No decision register/);
   assert.match(seven, /No orchestration run on record/);
   assert.match(seven, /No verify run on record/);
@@ -250,22 +253,22 @@ test('the run id pattern is the loop\'s: a lower-case id is accepted, an upper-c
   assert.equal(RUN_ID.test('rl-20261114-ABCD'), false);
 });
 
-test('a hold of the newest run that has the row shows in section 6, a paused one says paused, the older run is not used', (t) => {
+test('a hold of the newest run that has the row shows in section 7, a paused one says paused, the older run is not used', (t) => {
   const { root } = fixture(t);
   writeRun(root, 'rl-20261113-aaaa', { createdAt: '2026-11-13T08:00:00.000Z', rows: { '001': { held: { kind: 'gate', reason: 'old reason' } } } });
   writeRun(root, 'rl-20261114-bbbb', { rows: { '001': { paused: { reason: 'waiting for the person' } } } });
-  const six = section(packOf(root), 6);
+  const six = section(packOf(root), 7);
   assert.match(six, /paused in rl-20261114-bbbb: waiting for the person/);
   assert.doesNotMatch(six, /old reason/);
   writeRun(root, 'rl-20261114-cccc', { createdAt: '2026-11-14T09:00:00.000Z', rows: { '001': { held: { kind: 'gate', reason: 'markers-nonzero' } } } });
-  assert.match(section(packOf(root), 6), /held \(gate\) in rl-20261114-cccc: markers-nonzero/);
+  assert.match(section(packOf(root), 7), /held \(gate\) in rl-20261114-cccc: markers-nonzero/);
 });
 
 test('a rejected run shows as a hold', (t) => {
   const { root } = fixture(t);
   const file = path.join(root, '.doflow/state/orchestration', `${SLUG}.json`);
   write(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), state: 'REJECTED' }));
-  assert.match(section(packOf(root), 6), /rejected: the run journal records a rejected gate/);
+  assert.match(section(packOf(root), 7), /rejected: the run journal records a rejected gate/);
 });
 
 test('section 1 takes the run record\'s branch first, then a current branch ending /<slug>, then feat/<slug>; none says not determined', (t) => {
@@ -287,52 +290,52 @@ test('section 1 takes the run record\'s branch first, then a current branch endi
   write(runFile, JSON.stringify(run));
   const text = packOf(root);
   assert.match(section(text, 1), /Branch: not determined\n- Head commit: not determined/);
-  assert.match(section(text, 7), /No branch was determined/);
+  assert.match(section(text, 8), /No branch was determined/);
   assert.doesNotMatch(section(text, 1), /no branch/i);
 });
 
-test('section 2 says what a decision was superseded by; section 3 marks a forced gate and does not call every actor a policy', (t) => {
+test('section 3 says what a decision was superseded by; section 4 marks a forced gate and does not call every actor a policy', (t) => {
   const { root, featureDir } = fixture(t);
   addDecisions({ featureDir, slug: SLUG, now: NOW, items: [item({ topic: 'wire-id', statement: 'Use the long id.', channel: 'default', rationale: 'simplest', supersedes: ['DEC-001'] })] });
-  assert.match(section(packOf(root), 2), /DEC-001 · design · wire-id · by agent · superseded by DEC-005/);
+  assert.match(section(packOf(root), 3), /DEC-001 · design · wire-id · by agent · superseded by DEC-005/);
   const file = path.join(root, '.doflow/state/orchestration', `${SLUG}.json`);
   const run = JSON.parse(fs.readFileSync(file, 'utf8'));
   run.history[0].forced = true;
   write(file, JSON.stringify(run));
-  const three = section(packOf(root), 3);
+  const three = section(packOf(root), 4);
   assert.match(three, /gate-0: approve not by policy \(actor not recorded\) \(forced\) at /);
   assert.doesNotMatch(three, /gate-0: approve by policy/);
   assert.doesNotMatch(three.split('\n').find((l) => l.startsWith('- gate-a')) as string, /forced/);
   assert.doesNotMatch(three, /by person/);
 });
 
-test('section 3 names an actor the journal records and treats only autopilot as the policy', (t) => {
+test('section 4 names an actor the journal records and treats only autopilot as the policy', (t) => {
   const { root } = fixture(t);
   const file = path.join(root, '.doflow/state/orchestration', `${SLUG}.json`);
   const run = JSON.parse(fs.readFileSync(file, 'utf8'));
   run.history[0].by = 'alice';
   write(file, JSON.stringify(run));
-  const three = section(packOf(root), 3);
+  const three = section(packOf(root), 4);
   assert.match(three, /gate-0: approve by alice at /);
   assert.doesNotMatch(three, /gate-0: approve by policy|actor not recorded\) at 2026-11-14T10:00/);
 });
 
-test('section 4 compares the LAST run with the head, and counts an unreadable line', (t) => {
+test('section 5 compares the LAST run with the head, and counts an unreadable line', (t) => {
   const { root } = fixture(t);
   const head = git(root, 'rev-parse', `feat/${SLUG}`);
   const line = (h: string, at: string) => JSON.stringify({ schema: 1, taskId: SLUG, head: h, clean: false, verdict: 'FAIL', risk: 'HIGH', at, reportSha256: 'f'.repeat(64) });
   write(path.join(root, '.doflow/state/verification/runs', `${SLUG}.jsonl`), `${line(head, '2026-11-14T08:00:00.000Z')}\n{ torn\n${line(HEAD_OLD, '2026-11-14T09:00:00.000Z')}\n`);
   const text = packOf(root);
-  const four = section(text, 4);
+  const four = section(text, 5);
   assert.match(four, /The latest run is not on the head commit: it ran on aaaaaaaa/);
   assert.match(four, /tree dirty/);
   assert.match(four, /1 verify record line\(s\) could not be read/);
-  assert.match(section(text, 7), /1 line\(s\) of the verify record could not be read/);
+  assert.match(section(text, 8), /1 line\(s\) of the verify record could not be read/);
   write(path.join(root, '.doflow/state/verification/runs', `${SLUG}.jsonl`), `${line(HEAD_OLD, '2026-11-14T08:00:00.000Z')}\n${line(head, '2026-11-14T09:00:00.000Z')}\n`);
-  assert.match(section(packOf(root), 4), /The latest run is on the head commit/);
+  assert.match(section(packOf(root), 5), /The latest run is on the head commit/);
 });
 
-test('section 5 counts blockers, refuted and open findings from a valid record', (t) => {
+test('section 6 counts blockers, refuted and open findings from a valid record', (t) => {
   const { root, featureDir } = fixture(t);
   write(path.join(featureDir, 'review/findings.json'), JSON.stringify({
     schema: 1, row: '001', slug: SLUG, reviewedHead: 'c'.repeat(40), rounds: 3,
@@ -343,18 +346,18 @@ test('section 5 counts blockers, refuted and open findings from a valid record',
       { id: 'C-3', from: ['a-3'], severity: 'note', locator: 'z.ts:3', summary: 'three', status: 'open' },
     ],
   }));
-  const five = section(packOf(root), 5);
+  const five = section(packOf(root), 6);
   assert.match(five, /Seat findings: 3 \(blocker 2, should-fix 0, note 1\)/);
   assert.match(five, /Converged findings: 3 \(blocker 2, should-fix 0, note 1\); fixed 0, refuted 1, user-accepted 0, open 2/);
 });
 
-test('section 7 names a register, findings or verify record that exists and cannot be read, with its file', (t) => {
+test('section 8 names a register, findings or verify record that exists and cannot be read, with its file', (t) => {
   const { root, featureDir } = fixture(t);
   write(path.join(featureDir, 'decisions/register.json'), '{ "version": 1, "decisions": [');
   write(path.join(featureDir, 'review/findings.json'), '{ "seats": [');
   fs.rmSync(path.join(root, '.doflow/state/verification/runs', `${SLUG}.jsonl`));
   fs.mkdirSync(path.join(root, '.doflow/state/verification/runs', `${SLUG}.jsonl`));
-  const seven = section(packOf(root), 7);
+  const seven = section(packOf(root), 8);
   assert.match(seven, /The decision register could not be read: [^\n]*register\.json is not valid JSON/);
   assert.match(seven, /The review record could not be read: findings\.json is not valid JSON/);
   assert.match(seven, /The verify record could not be read: [^\n]*\.jsonl/);
@@ -362,23 +365,23 @@ test('section 7 names a register, findings or verify record that exists and cann
   // an invalid (well-formed JSON, wrong shape) review record is named as invalid, never shown
   write(path.join(featureDir, 'review/findings.json'), JSON.stringify({ schema: 1, seats: [] }));
   const text = packOf(root);
-  assert.match(section(text, 7), /review\/findings\.json is not a valid review record \(/);
-  assert.match(section(text, 5), /none recorded/);
+  assert.match(section(text, 8), /review\/findings\.json is not a valid review record \(/);
+  assert.match(section(text, 6), /none recorded/);
 });
 
-test('section 7 says when the follow-up store cannot be read', (t) => {
+test('section 8 says when the follow-up store cannot be read', (t) => {
   const { root } = fixture(t);
   const lifecycle = path.join(root, '.doflow', 'state', 'lifecycle');
   const broken: any = { ...fs, readdirSync: (p: any, ...rest: any[]) => { if (String(p).startsWith(lifecycle)) throw Object.assign(new Error('EACCES: denied'), { code: 'EACCES' }); return (fs as any).readdirSync(p, ...rest); } };
   const feature = { featureRoot: root, featureFolder: path.join(root, 'agent-docs/doflow', SLUG) };
   const text = renderPack(gatherFacts({ cwd: root, slug: SLUG, feature, fsImpl: broken }), NOW);
-  assert.match(section(text, 7), /The follow-up store could not be read: [^\n]*denied; follow-ups are not shown/);
+  assert.match(section(text, 8), /The follow-up store could not be read: [^\n]*denied; follow-ups are not shown/);
 });
 
-test('a run record that cannot be read is named in section 7 and in the report', (t) => {
+test('a run record that cannot be read is named in section 8 and in the report', (t) => {
   const { root } = fixture(t);
   write(path.join(root, RUNS_DIR, 'rl-20261114-dddd.json'), '{ torn');
-  assert.match(section(packOf(root), 7), /Roadmap run record\(s\) could not be read: rl-20261114-dddd\.json/);
+  assert.match(section(packOf(root), 8), /Roadmap run record\(s\) could not be read: rl-20261114-dddd\.json/);
   writeRun(root, 'rl-20261114-abcd');
   assert.match(buildRoadmapReport({ cwd: root, now: NOW }).text, /Run record\(s\) that could not be read: rl-20261114-dddd\.json/);
 });
@@ -398,7 +401,7 @@ test('every string a record holds is one line in the pack: no heading, no commen
   };
   const control = new Set(['decidedBy', 'status', 'channel', 'state', 'decided', 'type', 'action', 'node', 'kind']);
   const verdict = (text: string) => {
-    assert.equal((text.match(/^## /gm) || []).length, 7, 'seven headings');
+    assert.equal((text.match(/^## /gm) || []).length, 8, 'eight headings');
     assert.equal((text.match(/^# /gm) || []).length, 1);
     assert.doesNotMatch(text, /^\s*<!--/m);
     assert.doesNotMatch(text, /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029]/);
@@ -430,7 +433,7 @@ test('every string a record holds is one line in the pack: no heading, no commen
   write(path.join(featureDir, 'review/findings.json'), JSON.stringify(findings));
   const invalid = packOf(root);
   verdict(invalid);
-  assert.match(section(invalid, 7), /is not a valid review record/);
+  assert.match(section(invalid, 8), /is not a valid review record/);
 });
 
 test('a backslash before "<" cannot cancel the escape', (t) => {
@@ -456,7 +459,7 @@ test('the pack is read from and written to the one feature root, even from a lin
   assert.equal(result.ok, true);
   assert.equal(fs.realpathSync(result.path), fs.realpathSync(path.join(featureDir, 'review-pack.md')));
   assert.equal(fs.existsSync(path.join(linked, 'agent-docs/doflow', SLUG, 'review-pack.md')), false);
-  assert.match(section(fs.readFileSync(result.path, 'utf8'), 2), /DEC-001/);
+  assert.match(section(fs.readFileSync(result.path, 'utf8'), 3), /DEC-001/);
 });
 
 test('a feature folder that is a link to outside the checkout is refused and nothing is written', (t) => {
@@ -555,4 +558,89 @@ test('roadmap --action report refuses a positional argument, so "promote 001 --a
   try { execFileSync(bin, ['roadmap', 'promote', '001', '--action', 'report'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], cwd: tempDir({ after() {} }, 'doflow-rp-cli-') }); } catch (e: any) { code = e.status; err = String(e.stderr); }
   assert.equal(code, 2);
   assert.match(err, /takes no positional argument/);
+});
+
+// 181 D.3 (IC-010): "What ran" is section 2, before decisions, gates, verification and review.
+function runEvidence(root: string, { flows = true, checks = true, items = [] as any[] } = {}) {
+  const head = git(root, 'rev-parse', `feat/${SLUG}`);
+  if (flows) write(path.join(root, '.doflow/feature-map.json'), JSON.stringify({ version: 1, flows: [
+    { id: 'login', title: 'A user logs in', expect: 'the dashboard shows' }, { id: 'export', title: 'A user exports', expect: 'a file is written' }, { id: 'reset', title: 'A user resets', expect: 'a mail is sent' } ] }));
+  if (checks) write(path.join(root, '.doflow/state/verification/runs', `${SLUG}.jsonl`), `${JSON.stringify({ schema: 2, taskId: SLUG, head, clean: true, verdict: 'PASS', risk: 'MEDIUM',
+    checks: [{ tier: 'build', role: 'build', command: 'npm run build', status: 'PASS', exitCode: 0, log: null }, { tier: 'targeted-tests', role: 'testTargeted', command: 'npm test -- a', status: 'FAIL', exitCode: 1, log: '.doflow/state/verification/logs/a.log' }],
+    at: '2026-11-14T09:00:00.000Z', reportSha256: `sha256:${'e'.repeat(64)}` })}\n`);
+  const ledger = new EvidenceLedger({ repoRoot: root, slug: SLUG });
+  for (const [id, over] of items) ledger.addEvidence({ taskId: SLUG, kind: 'runtime-observation', provenance: 'extracted', source: { provider: 'doflow', capability: 'feature-map' },
+    locator: { path: `.doflow/state/verification/logs/${id}.log` }, content: `${id} ran`, establishes: [`flow:${id}`], observation: { command: `node ${id}.js`, exitCode: 0 }, freshness: { gitCommit: head }, ...over });
+  ledger.save(SLUG);
+  return head;
+}
+
+test('What ran is section 2, ahead of decisions, gates, verification and review', (t) => {
+  const { root } = fixture(t);
+  const head = runEvidence(root);
+  const text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
+  assert.ok(text.indexOf('## 2. What ran') > text.indexOf('## 1. Result'));
+  for (const later of ['Decisions taken for you', 'Gates', 'Verification', 'Review', 'Open items']) {
+    assert.ok(text.indexOf('## 2. What ran') < text.indexOf(`. ${later}\n`), later);
+  }
+  const two = section(text, 2);
+  const short = head.slice(0, 8);
+  assert.match(two, new RegExp(`- build · npm run build · PASS · exit 0 · commit ${short}\\n`));
+  assert.match(two, new RegExp(`- targeted-tests · npm test -- a · FAIL · exit 1 · commit ${short}`));
+});
+
+test('a flow with no run on the head is listed as not run and the result line does not call it verified', (t) => {
+  const { root } = fixture(t);
+  const head = runEvidence(root, { items: [['login', {}]] });
+  const text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
+  const short = head.slice(0, 8);
+  assert.match(section(text, 1), /- User-facing flows run on head: 1 passed, 0 failed, 0 unreached, 2 not run \(of 3\)/);
+  assert.match(section(text, 2), new RegExp(`- flow login · node login\\.js · passed · login ran · \\.doflow/state/verification/logs/login\\.log · commit ${short}`));
+  const notVerified = section(text, 8);
+  assert.match(notVerified, new RegExp(`- Flow export \\(A user exports\\): not run on ${short}`));
+  assert.match(notVerified, new RegExp(`- Flow reset \\(A user resets\\): not run on ${short}`));
+  assert.doesNotMatch(notVerified, /Flow login/);
+  assert.doesNotMatch(notVerified, /predates check details|not the commands/);
+});
+
+test('an unreached flow and a failed flow show their outcome and are not counted as passed', (t) => {
+  const { root } = fixture(t);
+  runEvidence(root, { items: [
+    ['login', { observation: { command: 'node login.js', exitCode: 2 } }],
+    ['export', { provenance: 'asserted', content: 'unreached: agent-browser not found', observation: undefined, locator: undefined }],
+  ] });
+  const text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
+  assert.match(section(text, 1), /0 passed, 1 failed, 1 unreached, 1 not run \(of 3\)/);
+  assert.match(section(text, 2), /- flow login · node login\.js · failed · /);
+  assert.match(section(text, 2), /- flow export · none recorded · unreached · unreached: agent-browser not found · none recorded · commit /);
+});
+
+test('no feature map is said in the result and under Not verified', (t) => {
+  const { root } = fixture(t);
+  runEvidence(root, { flows: false });
+  const text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
+  assert.match(section(text, 1), /- User-facing flows: no feature map/);
+  assert.match(section(text, 8), /- No feature map: no user-facing flow is shown as run\./);
+  assert.doesNotMatch(section(text, 1), /run on head/);
+});
+
+test('a verify run on another head or a dirty tree shows no checks and says so', (t) => {
+  const { root } = fixture(t);
+  const head = runEvidence(root, { flows: false });
+  const file = path.join(root, '.doflow/state/verification/runs', `${SLUG}.jsonl`);
+  const line = JSON.parse(fs.readFileSync(file, 'utf8'));
+  write(file, `${JSON.stringify({ ...line, head: HEAD_OLD })}\n`);
+  let text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
+  assert.doesNotMatch(section(text, 2), /npm run build/);
+  assert.match(section(text, 8), /The latest verify run is not on the head commit; its checks are not shown as evidence for this head\./);
+  write(file, `${JSON.stringify({ ...line, head, clean: false })}\n`);
+  text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
+  assert.doesNotMatch(section(text, 2), /npm run build/);
+  assert.match(section(text, 8), /uncommitted changes; its checks are not shown as evidence for this head/);
+});
+
+test('nothing recorded gives "none recorded" under What ran', (t) => {
+  const { root } = fixture(t, { full: false });
+  const text = fs.readFileSync(writeReviewPack({ cwd: root, slug: SLUG, now: NOW }).path, 'utf8');
+  assert.equal(section(text, 2).trim().split('\n').slice(-1)[0], '- none recorded');
 });

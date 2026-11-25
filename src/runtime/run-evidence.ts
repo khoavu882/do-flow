@@ -122,7 +122,7 @@ function classify(item: any): any {
 function newestFlowItem(items: any[], id: string, head: string): any {
   let best: any = null;
   for (const item of items) {
-    if (item.status === 'superseded' || item.freshness?.gitCommit !== head) continue;
+    if (!head || item.status === 'superseded' || item.freshness?.gitCommit !== head) continue;
     if (!Array.isArray(item.establishes) || !item.establishes.includes(`flow:${id}`)) continue;
     const outcome = classify(item);
     if (!outcome) continue;
