@@ -2,16 +2,24 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
+const path = require('node:path');
+const { spawn, spawnSync } = require('node:child_process');
 const { processRunning } = require('./process-running.ts');
 
-// A zombie that stays one: the shell starts `true` in the background, prints its pid and becomes `sleep`, which never
-// collects the exit status of the child it inherited.
+// A zombie that stays one, with no timing in it: the shell starts a long `sleep` in the background, prints its pid and becomes a
+// second `sleep`, which never collects the exit status of the child it inherited. The test kills the child only once the shell
+// has exec'd (its command is `sleep`), so the shell can never have reaped it first (macOS CI: `kill ESRCH` when it had).
 test('a running process is running; a zombie and a pid that is gone are not', { skip: process.platform === 'win32' && 'POSIX processes and ps' }, async (t) => {
-  const holder = spawn('sh', ['-c', 'true & echo $!; exec sleep 5'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  const holder = spawn('sh', ['-c', 'sleep 300 & echo $!; exec sleep 5'], { stdio: ['ignore', 'pipe', 'ignore'] });
   t.after(() => { try { holder.kill('SIGKILL'); } catch { /* already gone */ } });
   const zombie = Number(await new Promise((resolve) => holder.stdout.once('data', (chunk: Buffer) => resolve(String(chunk).trim()))));
   assert.ok(zombie > 1, 'the shell printed its child\'s pid');
+  t.after(() => { try { process.kill(zombie, 'SIGKILL'); } catch { /* already gone */ } });
+  // Wait until the shell has become `sleep`, then end the child it can no longer reap.
+  const command = () => path.basename(String(spawnSync('ps', ['-o', 'comm=', '-p', String(holder.pid)], { encoding: 'utf8' }).stdout).trim());
+  for (let i = 0; i < 500 && command() !== 'sleep'; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(command(), 'sleep', 'the shell has exec\'d into sleep');
+  process.kill(zombie, 'SIGKILL');
   for (let i = 0; i < 100 && processRunning(zombie); i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.doesNotThrow(() => process.kill(zombie, 0), 'kill(pid, 0) still answers for the zombie');
   assert.equal(processRunning(zombie), false, 'the zombie runs nothing');

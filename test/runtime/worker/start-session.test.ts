@@ -686,8 +686,44 @@ test('A-1: the CLI dies after spawning the supervisor and before recording its p
   assert.equal(Object.keys(readRuns(f.store)).length, 1, 'nothing was inserted');
 });
 
+/**
+ * A process table that holds only the processes this test started, plus one synthetic entry of this user that answers EACCES
+ * for its environ (a capability superset, such as `systemd --user` on a CI runner) and names no harness. The Linux scan of
+ * `readProcessTexts` reads it through its `fsImpl`, so the answer does not depend on what else runs on the host: the real
+ * listing differs per runner image, and an entry the kernel hides from us made the reading unknown (CI run 45589845673).
+ * Its `/proc/<pid>` directory is ours (that is what selects it), but its environ and `Uid:` line carry a uid that is neither
+ * 0 nor ours, so the old non-dumpable rule (root-owned environ, real uid ours) cannot skip it whoever runs the test, root
+ * included. `reads()` counts the reads of its environ: a test asserts it is at least 1, so a call site that stops going through
+ * this table cannot fall back to the host's silently. darwin lists with `ps`, which has no such entry, so it is left as it is.
+ */
+function scopedProcessTable(t: any, pids: () => number[]) {
+  const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
+  const real = tree.readProcessTexts;
+  const synthetic = '2147483000';
+  const other = process.getuid!() === 4242 ? 4243 : 4242;
+  let reads = 0;
+  const mine = (file: string) => file.startsWith(`/proc/${synthetic}`);
+  const denied = () => { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; };
+  const fsImpl = {
+    readdirSync: (dir: string) => (dir === '/proc' ? [...pids().map(String), synthetic] : fs.readdirSync(dir)),
+    statSync: (file: string) => (mine(file) ? { uid: file.endsWith('/environ') ? other : process.getuid!() } : fs.statSync(file)),
+    readFileSync: (file: string, ...rest: any[]) => {
+      if (!mine(file)) return fs.readFileSync(file, ...rest);
+      if (file.endsWith('/cmdline')) return Buffer.from('/usr/lib/systemd/systemd\0--user\0');
+      if (file.endsWith('/stat')) return Buffer.from(`${synthetic} (systemd) S 1 1 1`);
+      if (file.endsWith('/status')) return Buffer.from(`Name:\tsystemd\nUid:\t${other}\t${other}\t${other}\t${other}\nThreads:\t1\n`);
+      if (file.endsWith('/environ')) reads += 1;
+      return denied();
+    },
+  };
+  tree.readProcessTexts = (options: any = {}) => (options.platform === 'linux' ? real({ ...options, fsImpl }) : real(options));
+  t.after(() => { tree.readProcessTexts = real; });
+  return { reads: () => reads };
+}
+
 test('A-1: a run with neither pid recorded, past the launch window, is open while a process names it and dead once none does', POSIX, async (t: any) => {
   const f = fixture(t);
+  const table = scopedProcessTable(t, () => children.map((child: any) => child.pid).filter(Boolean));
   const runId = unsupervisedRun(f);
   // A process whose environment names the run, as a started harness's does.
   const named = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', env: { ...f.env, DOFLOW_STARTED_RUN: runId } });
@@ -695,10 +731,13 @@ test('A-1: a run with neither pid recorded, past the launch window, is open whil
   await new Promise((r) => named.once('spawn', r));
   const held = await start(f, { harness: 'codex' });
   assert.deepEqual([held.exit, held.body.code, held.body.current], [1, 'checkout-busy', { runId }], JSON.stringify(held.body));
+  const readsHeld = table.reads();
+  if (process.platform === 'linux') assert.ok(readsHeld >= 1, 'the scan went through the scoped table and read the synthetic entry');
   named.kill('SIGKILL');
   await new Promise((r) => named.once('exit', r));
   const free = await start(f, { harness: 'codex' });
   assert.equal(free.exit, 0, JSON.stringify(free.body));
+  if (process.platform === 'linux') assert.ok(table.reads() > readsHeld, 'the second start read the scoped table again');
   await ended(f, free.body.run.runId);
 });
 
@@ -1003,7 +1042,12 @@ test('A-2: a harness with a supported channel starts through it: the record says
   assert.equal(fs.readFileSync(f.channelLog, 'utf8'), `${JSON.stringify({ type: 'prompt', message: sent, streamingBehavior: 'followUp', id: 'd-1' })}\n`);
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, by: 'test', reason: 'done with it', env: f.env, cwd: f.main, descriptors: WITH_CHANNEL });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
-  const done = await ended(f, runId);
+  await ended(f, runId);
+  // The cancel writes `ended` once the tree is gone; the live supervisor, which sees the harness exit on its own clock, writes
+  // the channel closed after that (its update accepts an ended run). Wait for that write, bounded, instead of reading once.
+  const closedBy = Date.now() + 10000;
+  while (readRuns(f.store)[runId]?.channel?.state !== 'closed' && Date.now() < closedBy) await new Promise((r) => setTimeout(r, 20));
+  const done = readRuns(f.store)[runId];
   assert.deepEqual([done.channel.state, done.channel.closedReason], ['closed', 'cancelled']);
   // The live supervisor removes the spool once the harness streams are drained, after the cancel's end is written.
   const spoolDir = path.join(f.main, '.doflow', 'state', 'channel-spool', runId);
