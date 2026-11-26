@@ -131,7 +131,16 @@ function bigSection(headings: number, entries: number, firstLine = 700): string 
 test('a section under the cap is returned unchanged, byte for byte', () => {
   const section = '### Fixed\n- the one fix\n  with a continuation\n\n### Added\n- another';
   assert.equal(body(section), section);
-  assert.equal(body(section, section.length), section);
+  assert.equal(body(section, section.length + 1), section);
+});
+
+test('the cap counts the newline the CLI prints after the body: a section one under it is kept, one at it is shortened', () => {
+  const entries = (n: number) => `### A\n${'- filler line\n'.repeat(n)}`.trim();
+  const section = entries(20);
+  assert.equal(body(section, section.length + 1), section);
+  const shortened = body(section, section.length);
+  assert.notEqual(shortened, section);
+  assert.ok(shortened.length + 1 <= section.length, `${shortened.length}`);
 });
 
 test('a section over the cap keeps every heading and every entry first line, with the link, under the cap', () => {
@@ -170,6 +179,40 @@ test('a cut never lands inside a link or a code span', () => {
   }
 });
 
+test('a link or code span right after the bullet is kept whole, so the entry keeps visible text', () => {
+  const spans = [
+    `[${'link text '.repeat(40)}](https://example.com/a)`,
+    `\`${'code '.repeat(80)}\``,
+    `**[${'link text '.repeat(40)}](https://example.com/a)**`,
+  ];
+  for (const span of spans) {
+    for (const tail of [' and more words', '', ' ' + 'tail '.repeat(40)]) {
+      const line = `- ${span}${tail}`;
+      const out = body(`### A\n${line}\n${'- filler\n'.repeat(20000)}`.trim());
+      const kept = out.split('\n')[1];
+      assert.notEqual(kept, '-…');
+      assert.ok(kept.startsWith('- ') && kept.includes(span.replace(/^\*\*/, '').replace(/\*\*$/, '')), kept.slice(0, 40));
+      assert.ok(kept.endsWith('…') || kept === line, kept.slice(-40));
+      assert.equal((kept.match(/`/g) || []).length % 2, 0);
+      assert.equal((kept.match(/\*\*/g) || []).length % 2, 0);
+    }
+  }
+  // A short link at the start with room to spare is not cut at the space before it.
+  const short = body(`### A\n- [a](https://e.com) ${'word '.repeat(100)}\n${'- filler\n'.repeat(20000)}`.trim());
+  assert.match(short.split('\n')[1], /^- \[a\]\(https:\/\/e\.com\) word/);
+});
+
+test('a bold title cut mid-way is closed, and a code span with ** inside does not count', () => {
+  const cut = (line: string) => body(`### A\n${line}\n${'- filler\n'.repeat(20000)}`.trim()).split('\n')[1];
+  const open = cut(`- **${'bold title '.repeat(40)}**: the rest`);
+  assert.match(open, /^- \*\*bold title .*\*\*…$/);
+  assert.equal((open.match(/\*\*/g) || []).length % 2, 0);
+  const whole = cut(`- **short title:** ${'word '.repeat(80)}`);
+  assert.match(whole, /^- \*\*short title:\*\* word .*[a-z]…$/);
+  const withSpan = cut(`- **a \`**\` ${'bold title '.repeat(40)}**: the rest`);
+  assert.match(withSpan, /^- \*\*a `\*\*` bold title .*\*\*…$/);
+});
+
 test('a fenced block and its stray heading lines are dropped, so no fence is left open', () => {
   const out = body(`### A\n\`\`\`\n### not a heading\n\`\`\`\n- kept\n${'- filler line\n'.repeat(20000)}`.trim(), 5000);
   assert.ok(!out.includes('not a heading') && !out.includes('```'));
@@ -192,8 +235,22 @@ test('an extreme section drops entries from the end of the longest headings and 
   assert.ok(out.endsWith(`\n\n${LINK}`));
 });
 
-test('a cap too small for any entry leaves the link alone', () => {
+test('a cap too small for any entry keeps the headings and says the entries were omitted', () => {
+  const out = body(bigSection(2, 5), 140);
+  assert.equal(out, `### Heading 0\n### Heading 1\n\n(entries omitted)\n\n${LINK}`);
+  assert.ok(out.length + 1 <= 140);
+  assert.ok(!/- /.test(out.replace(LINK, '')), 'no entry survives');
+});
+
+test('a cap too small for the headings too leaves the link alone', () => {
   assert.equal(body(bigSection(2, 5), 100), LINK);
+});
+
+test('the link is built from the package.json of the given repoRoot', (t) => {
+  const root = tempDir(t, 'doflow-clsec-root-');
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ repository: { url: 'git+https://github.com/other/place.git' } }));
+  const out = releaseNotesBody(bigSection(1, 400), 'v3.0.0', { repoRoot: root });
+  assert.ok(out.endsWith('\n\nFull notes: https://github.com/other/place/blob/v3.0.0/CHANGELOG.md'), out.slice(-120));
 });
 
 test('the link is built from the package.json repository when none is given, and a missing v is added', () => {

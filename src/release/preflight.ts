@@ -353,7 +353,8 @@ function runPreflight({
     addCheck(checks, 'release-notes-size', true, 'skipped (no non-empty changelog section to size)', true);
   } else {
     try {
-      const length = String(releaseNotesBodyImpl(section, tag || `v${version}`)).length;
+      // Measured as the CLI prints it: the body and its trailing newline (changelog-section.ts).
+      const length = `${releaseNotesBodyImpl(section, tag || `v${version}`, { repoRoot })}\n`.length;
       addCheck(checks, 'release-notes-size', length <= NOTES_CAP,
         length <= NOTES_CAP ? `release notes are ${length} characters (cap ${NOTES_CAP})`
           : `release notes are ${length} characters, over the cap of ${NOTES_CAP}`);
