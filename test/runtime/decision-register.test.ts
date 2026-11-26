@@ -1582,3 +1582,30 @@ test('IC-005: a register written before this feature still loads, lists and link
   assert.equal(readRegister(r.featureDir).version, 1);
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).decisions[0].retired, undefined);
 });
+
+// ── a register whose optional lifecycle fields have the wrong shape is refused per decision ────
+
+test('readRegister refuses a bad retired, narrows or reopens, naming the file, the decision and the field', () => {
+  const good = { date: '2026-10-03', at: '2026-10-03T00:00:00.000Z', reason: 'r' };
+  const cases: Array<[string, any]> = [
+    ['retired', 'yes'], ['retired', null], ['retired', []], ['retired', { ...good, reason: 7 }], ['retired', { date: good.date, at: good.at }],
+    ['narrows', 'DEC-001'], ['narrows', ['nope']], ['narrows', [1]],
+    ['reopens', {}], ['reopens', ['DEC-1']], ['reopens', [null]],
+  ];
+  for (const [field, value] of cases) {
+    const r = seeded(2);
+    const file = registerFile(r.featureDir);
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    data.decisions[1][field] = value;
+    fs.writeFileSync(file, JSON.stringify(data));
+    assert.throws(() => readRegister(r.featureDir), (e: any) => e.message.includes(file) && e.message.includes('decision DEC-002') && e.message.includes(`'${field}'`), `${field}=${JSON.stringify(value)}`);
+  }
+});
+
+test('readRegister accepts well-formed retired, narrows and reopens', () => {
+  const r = seeded(3);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-002', 'reopens').exitCode, 0);
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  assert.equal(readRegister(r.featureDir).decisions.length, 3);
+});

@@ -86,6 +86,18 @@ function readRegister(featureDir: string, fsImpl: any = nodeFs): any {
   if (!data || data.version !== REGISTER_VERSION || !Array.isArray(data.decisions) || !Number.isInteger(data.nextId)) {
     throw new DecisionUsageError(`${file} is not a version ${REGISTER_VERSION} decision register; refusing to guess at its shape.`);
   }
+  for (const d of data.decisions) {
+    const bad = (field: string, want: string): never => {
+      throw new DecisionUsageError(`${file}: decision ${d && d.id} has a bad '${field}' (${want}); refusing to guess at the register's shape.`);
+    };
+    if (d && d.retired !== undefined) {
+      const r = d.retired;
+      if (!r || typeof r !== 'object' || Array.isArray(r) || ['date', 'at', 'reason'].some((k) => typeof r[k] !== 'string')) bad('retired', 'an object with string date, at and reason');
+    }
+    for (const field of ['narrows', 'reopens']) {
+      if (d && d[field] !== undefined && (!Array.isArray(d[field]) || d[field].some((id: any) => typeof id !== 'string' || !DEC_RE.test(id)))) bad(field, 'an array of DEC-### ids');
+    }
+  }
   return data;
 }
 
