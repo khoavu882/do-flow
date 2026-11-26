@@ -493,6 +493,8 @@ function linkDecisions({ featureDir, slug, from, to, kind, fsImpl = nodeFs }: an
         cycle,
       };
     }
+    if (source.status === 'superseded') throw new DecisionUsageError(`--from ${fromId} is not live (it was superseded by ${source.supersededBy})`);
+    if (source.retired) throw new DecisionUsageError(`--from ${fromId} is retired (in force, out of the live view); only a live decision can supersede or reopen another`);
     let replaced: string | null = null;
     source[linkKind] = [...(source[linkKind] || []), toId];
     const superseded: any[] = [];

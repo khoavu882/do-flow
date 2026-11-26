@@ -856,17 +856,29 @@ test('IC-001: the ids are trimmed before they are checked and used', () => {
   assert.deepEqual(dec(r, 'DEC-002').supersedes, ['DEC-001']);
 });
 
-test('IC-001: a link across topics is fine and leaves topics alone; a source that is itself superseded can backfill a supersedes link', () => {
+test('IC-001: a link across topics is fine and leaves topics alone; a source that is itself superseded is refused for every kind', () => {
   const r = seeded();
   assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
   assert.equal(dec(r, 'DEC-001').topic, 't1');
   assert.equal(dec(r, 'DEC-002').topic, 't2');
-  // DEC-001 is now superseded; it may still be recorded as replacing DEC-003.
-  const backfill = link(r, 'DEC-001', 'DEC-003', 'supersedes');
-  assert.equal(backfill.exitCode, 0, JSON.stringify(backfill));
-  assert.deepEqual(dec(r, 'DEC-001').supersedes, ['DEC-003']);
-  assert.equal(dec(r, 'DEC-003').status, 'superseded');
-  assert.equal(dec(r, 'DEC-003').supersededBy, 'DEC-001');
+  // DEC-001 is now superseded: it may no longer be recorded as replacing, reopening or narrowing anything.
+  const before = snapshot(r.featureDir);
+  for (const kind of ['supersedes', 'reopens']) {
+    assertUsage(r, link(r, 'DEC-001', 'DEC-003', kind), '--from DEC-001 is not live (it was superseded by DEC-002)', before);
+  }
+  assertUsage(r, link(r, 'DEC-001', 'DEC-003', 'narrows'), 'DEC-001 was superseded by DEC-002', before);
+  assert.deepEqual(dec(r, 'DEC-001').supersedes, []);
+  assert.equal(dec(r, 'DEC-003').status, 'live');
+});
+
+test('IC-001: a retired --from is refused for supersedes and reopens, naming the retirement', () => {
+  const r = seeded();
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  const before = snapshot(r.featureDir);
+  for (const kind of ['supersedes', 'reopens']) {
+    assertUsage(r, link(r, 'DEC-001', 'DEC-003', kind), '--from DEC-001 is retired', before);
+  }
+  assert.equal(dec(r, 'DEC-003').status, 'live');
 });
 
 test('IC-001: a repeat of a recorded link, of every kind, is changed: false and writes no file', () => {
@@ -1017,7 +1029,7 @@ test('IC-001 row 12: narrows needs both ends in the live view, the source checke
   assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'narrows'), '--kind narrows needs both decisions in the live view; DEC-002 is retired');
 });
 
-test('IC-001: a retired decision can still be the source or target of supersedes and reopens, and stays retired', () => {
+test('IC-001: a retired decision can still be the target of supersedes and reopens, and stays retired', () => {
   const r = seeded();
   assert.equal(retire(r, 'DEC-001').exitCode, 0);
   assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
