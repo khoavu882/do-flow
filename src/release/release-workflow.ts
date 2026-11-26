@@ -319,6 +319,17 @@ function shellTokens(text: string): ShellToken[] {
       const end = source[index + 1] === '(' ? closing(index + 1, '(', ')') : closing(index + 1, '{', '}');
       word = (word ?? '') + source.slice(index, end + 1);
       index = end;
+    } else if (character === '&' && source[index + 1] === '>') {
+      // `&>` and `&>>` redirect both streams; they do not background anything.
+      flush();
+      const end = source[index + 2] === '>' ? index + 2 : index + 1;
+      tokens.push({ op: source.slice(index, end + 1) });
+      index = end;
+    } else if (character === '|' && source[index + 1] === '&') {
+      // `|&` is a pipe carrying stderr too.
+      flush();
+      tokens.push({ op: '|' });
+      index++;
     } else if (character === '|' || character === '&') {
       flush();
       if (source[index + 1] === character) {
@@ -360,7 +371,9 @@ function shellTokens(text: string): ShellToken[] {
  * shell: a heredoc body or dead code (`if false; then ...; fi`, `exit 0` before the command) that
  * holds the command text still passes; a `{ }`, `time` or `if` wrapper before the command is
  * rejected, not followed, so a legitimate wrapper has to be spelled as a plain command; and a
- * `||` branch that re-raises the failure (`|| exit 1`) is flagged with the other `||` forms.
+ * `||` branch that re-raises the failure (`|| exit 1`) is flagged with the other `||` forms. A
+ * backgrounded command that is then waited for (`... & wait $!`) is flagged too, although `wait`
+ * returns the job's status: the reader stays conservative and does not follow `wait`.
  */
 function rehearseStepViolations(job: WorkflowJob): string[] {
   const { parseArgs } = require('./rehearse.ts');
