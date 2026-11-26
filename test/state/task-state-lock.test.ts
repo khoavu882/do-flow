@@ -14,6 +14,8 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { acquireLock, tryAcquireLock, boundedAcquire, updateTaskState, readTaskState } = require('../../src/runtime/task-state.ts');
 const legacy = require('../helper/legacy-lock.ts');
+const { spawn, spawnSync } = require('node:child_process');
+const { hostTag } = require('../../src/helper/host-tag.ts');
 
 const STALE_AGE_MS = 60_000;
 const PAUSE_MS = 11_000; // past LOCK_STALE_MS (10 s)
@@ -32,6 +34,18 @@ const entries = (file: any) => (fs.existsSync(lockOf(file)) ? fs.readdirSync(loc
 const owners = (file: any) => (entries(file) || []).filter((name: any) => name.startsWith('owner-'));
 const siblings = (file: any) => fs.readdirSync(path.dirname(file)).filter((name: any) => name.startsWith(`${path.basename(file)}.`));
 const DEAD = 'owner-999999-dead00000000';
+let planted = 0;
+/** An entry as the current runtime names it. */
+function ownerEntry(pid: number, { host = hostTag() } = {}) {
+  planted += 1;
+  return `owner-${pid}-${host}-${String(planted).padStart(12, '0')}`;
+}
+/** A young lock holding `names`, as a holder that died (or lives) leaves it. */
+function plant(file: string, names: string[]) {
+  fs.mkdirSync(lockOf(file), { recursive: true });
+  for (const name of names) fs.mkdirSync(path.join(lockOf(file), name));
+}
+const deadPid = () => spawnSync(process.execPath, ['-e', '0']).pid;
 /** Makes the legacy acquireLock's 5 s wall-clock wait pass in a few real milliseconds. */
 function fastClock(t: any) {
   let now = Date.now();
@@ -222,6 +236,9 @@ const SEEDS = {
   'reclaim: B paused at every step of reclaiming a dead new holder\'s stale lock': (file: any) => {
     fs.mkdirSync(path.join(lockOf(file), DEAD), { recursive: true });
     age(file);
+  },
+  'reclaim (FU-128npa): B paused at every step of reclaiming a dead owner\'s young lock': (file: any) => {
+    fs.mkdirSync(path.join(lockOf(file), ownerEntry(deadPid())), { recursive: true });
   },
   'reclaim: B paused at every step of reclaiming a crashed older runtime\'s empty stale lock': (file: any) => {
     legacy.acquireLock(fs, file);
@@ -620,4 +637,137 @@ test('C-6: context-pack delivery names an exhausted lock-lost lock-lost, not an 
   assert.equal(thrown?.code, 'lock-lost');
   assert.equal(classifyStoreFailure(thrown), 'lock-lost');
   assert.equal(fs.existsSync(file), false, 'nothing was written');
+});
+
+// ── the dead-owner rule (FU-128npa) ─────────────────────────────────────────────────────────────────
+//
+// An entry names its owner (`owner-<pid>-<host tag>-<12 hex>`), and a lock whose every entry's owner is
+// provably gone on this host (ESRCH) is reclaimed at any age; anything the rule cannot judge keeps the age
+// rule.
+
+
+const TASK_STATE = path.join(__dirname, '..', '..', 'src', 'runtime', 'task-state.ts');
+const POSIX = { skip: process.platform === 'win32' ? 'POSIX signals and ps' : false };
+function liveChild(t: any) {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  t.after(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } });
+  return child;
+}
+/** A child process that takes the store's lock with the product code, says so, and keeps it. */
+function holder(t: any, file: string): Promise<any> {
+  const script = "require(process.argv[1]).acquireLock(require('node:fs'), process.argv[2]); process.stdout.write('held\\n'); setInterval(() => {}, 1000);";
+  const child = spawn(process.execPath, ['-e', script, TASK_STATE, file], { stdio: ['ignore', 'pipe', 'inherit'] });
+  t.after(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } });
+  return new Promise((resolve, reject) => {
+    child.stdout.on('data', (data: any) => { if (String(data).includes('held')) resolve(child); });
+    child.on('exit', (code: any) => reject(new Error(`the holder exited (${code}) before it held`)));
+  });
+}
+const exited = (child: any) => new Promise((resolve) => (child.exitCode !== null || child.signalCode !== null ? resolve(null) : child.once('exit', resolve)));
+/** Takes the lock and returns how long that took. */
+function timedAcquire(file: string) {
+  const started = performance.now();
+  const release = acquireLock(fs, file);
+  return { release, ms: performance.now() - started };
+}
+
+test('dead-owner rule: a holder SIGKILLed inside its lock leaves a young lock the next writer takes at once', POSIX, async (t) => {
+  const file = storeFile(t);
+  const child = await holder(t, file);
+  const [entry] = owners(file);
+  assert.match(entry, new RegExp(`^owner-${child.pid}-${hostTag()}-[0-9a-f]{12}$`), 'the entry names its owner');
+  assert.equal(tryAcquireLock(fs, file), null, 'a live holder keeps its young lock');
+  process.kill(child.pid, 'SIGKILL');
+  await exited(child);
+  const { release, ms } = timedAcquire(file);
+  assert.ok(ms < 1000, `taken at once, not after the 10 s age: ${ms} ms`);
+  assert.equal(owners(file).length, 1);
+  assert.ok(!owners(file).includes(entry), 'the dead holder\'s entry is gone');
+  release();
+  assert.equal(fs.existsSync(lockOf(file)), false);
+});
+
+test('dead-owner rule: a live owner\'s young lock is not reclaimed, nor one where any owner lives; both are once stale', POSIX, (t) => {
+  const child = liveChild(t);
+  const live = ownerEntry(child.pid);
+  for (const names of [[live], [live, ownerEntry(deadPid())]]) {
+    const file = storeFile(t);
+    plant(file, names);
+    assert.equal(tryAcquireLock(fs, file), null, `young: ${names.length} entries`);
+    assert.deepEqual(entries(file), [...names].sort(), 'the refused attempt changed nothing');
+    age(file);
+    const release = tryAcquireLock(fs, file);
+    assert.ok(release, 'stale: the age rule reclaims it, as before');
+    release();
+  }
+});
+
+test('dead-owner rule: an owner pid that answers EPERM (another user\'s process) counts as alive', POSIX, (t) => {
+  let code = null;
+  try { process.kill(1, 0); } catch (error: any) { code = error.code; }
+  if (code !== 'EPERM') { t.skip(`kill(1, 0) answers ${code ?? 'success'} here (run as root?)`); return; }
+  const file = storeFile(t);
+  plant(file, [ownerEntry(1)]);
+  assert.equal(tryAcquireLock(fs, file), null);
+  age(file);
+  const release = tryAcquireLock(fs, file);
+  assert.ok(release);
+  release();
+});
+
+test('dead-owner rule: another host\'s entry, and an entry of a runtime before the rule, keep the age rule', (t) => {
+  for (const name of [ownerEntry(deadPid(), { host: hostTag('another-host') }), `owner-${deadPid()}-dead00000000`]) {
+    const file = storeFile(t);
+    plant(file, [name]);
+    assert.equal(tryAcquireLock(fs, file), null, `young: ${name}`);
+    age(file);
+    const release = tryAcquireLock(fs, file);
+    assert.ok(release, `stale: ${name}`);
+    release();
+  }
+});
+
+// C-4 (a) again, for a young lock judged by its dead owner: two reclaimers, exactly one holds.
+test('dead-owner rule: two reclaimers of one young dead-owner lock; the one that finished first holds, B does not', (t) => {
+  const file = storeFile(t);
+  const dead = ownerEntry(deadPid());
+  plant(file, [dead]);
+  let other: any = null;
+  const fsB = {
+    ...fs,
+    mkdirSync: (target: any, ...rest: any[]) => {
+      if (!other && path.dirname(target) === lockOf(file)) other = tryAcquireLock(fs, file); // A: judge, enter, hold
+      return fs.mkdirSync(target, ...rest);
+    },
+  };
+  const mine = tryAcquireLock(fsB, file);
+  assert.ok(other && other.held(), 'A took the dead owner\'s lock');
+  assert.equal(mine, null, 'B saw A\'s entry and did not take the lock');
+  assert.equal(owners(file).length, 1, 'B left no entry');
+  assert.ok(!owners(file).includes(dead));
+  other();
+  assert.equal(fs.existsSync(lockOf(file)), false);
+});
+
+test('dead-owner rule: a queued attempt removes a contender that died, instead of waiting out its budget', (t) => {
+  const file = storeFile(t);
+  // A contender that entered just after us and died before leaving; its entry sorts after ours, so we queue.
+  const pid = 99_999_999; // above every platform's pid range: no such process, and it sorts after our pid
+  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  assert.ok(`owner-${process.pid}-` < `owner-${pid}-`);
+  const contender = ownerEntry(pid);
+  let made = false;
+  const fsB = {
+    ...fs,
+    mkdirSync: (target: any, ...rest: any[]) => {
+      const out = fs.mkdirSync(target, ...rest);
+      if (!made && path.dirname(target) === lockOf(file)) { made = true; fs.mkdirSync(path.join(lockOf(file), contender)); }
+      return out;
+    },
+  };
+  const mine = tryAcquireLock(fsB, file);
+  assert.ok(mine && mine.held(), 'held: the dead contender was removed');
+  assert.equal(owners(file).length, 1);
+  assert.ok(!owners(file).includes(contender));
+  mine();
 });

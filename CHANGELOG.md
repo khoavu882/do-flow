@@ -17,6 +17,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **A cancel right after a crash no longer fails on the crashed process's lock (FU-128npa):** the task-state lock (the run store, evidence, claims and the other per-file stores) is taken at once when every owner entry in it names a process id on this host that no longer exists, instead of only once it is 10 s old while a writer waits 5 s; so `doflow worker --action cancel` right after a supervisor was killed no longer fails with `Could not lock ... after 5s`. Owner entries now name the host and pid namespace; an owner whose process id still answers (`EPERM`, a zombie or a reused id included), another host's entry, an older runtime's entry and an empty lock keep the 10 s rule. See [What the locks assume](docs/reference.md#what-the-locks-assume).
+
 ## [2.5.0] - 2026-11-25
 
 ### Added

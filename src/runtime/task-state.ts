@@ -27,6 +27,7 @@
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
+const { hostTag } = require('../helper/host-tag.ts');
 
 /** Three-way merge against the reader's snapshot. Unchanged local records never overwrite a
  * newer disk version; concurrent edits to the same record must be retried after an explicit read. */
@@ -101,8 +102,23 @@ function sleep(ms: number): void {
 // Runtimes from before this protocol see a directory they did not create: they wait on a fresh one,
 // and on a stale one their rmdir fails (it is not empty), so they fail closed ("Could not lock",
 // `store-locked`) instead of taking it; their release of a lock reclaimed from them fails the same
-// way. Whatever a process leaves when it dies is reclaimed once LOCK_STALE_MS old.
+// way. Whatever a process leaves when it dies is reclaimed once LOCK_STALE_MS old, and at once when every
+// entry in the lock names an owner that is gone (below).
+//
+// The dead-owner rule (FU-128npa). An entry is `owner-<pid>-<host tag>-<12 hex>`; the host tag
+// (src/helper/host-tag.ts) names this host and pid namespace. A reclaim also goes ahead, at any age, when
+// the lock holds at least one entry and every entry's owner is provably gone (`ownerGone`): the entry names
+// this host tag and its pid answers `kill(pid, 0)` with ESRCH. A dead process never acts on its entry
+// again, and its tmp file is never renamed, so taking its lock at once loses nothing. It changes only which
+// locks are judged stale, never how a reclaim acts on one: the listing re-check, the pinned entry, removal
+// by name and the election are the same. An empty lock keeps the age rule (it is also what an acquire in
+// progress looks like: PUBLISH_BOUND_MS), and so does any entry this rule cannot judge: another host's, a
+// pid that answers (alive, EPERM under another user, a zombie, or a reused pid: no start time is recorded,
+// as reading one costs a `ps` per writing process), and the `owner-<pid>-<12 hex>` entries of runtimes
+// before it. Those runtimes judge every entry by age, so they never act on a lock this rule takes early;
+// the two meet only as two reclaimers.
 const OWNER_PREFIX = 'owner-';
+const OWNER_ENTRY = /^owner-(\d+)-([0-9a-f]{8})-[0-9a-f]{12}$/;
 // The longest a fresh acquire may take from its mkdir to its entry and still trust the directory is
 // its own: half the stale age, so a process that judged it stale cannot have done so before the
 // entry landed, with room for coarse file timestamps.
@@ -116,7 +132,8 @@ type LockStep = 'held' | 'busy' | 'again' | 'queued';
 /**
  * Optional lock settings (FU-31dyvs, for a store whose holders are identified by their entry): the
  * defaults are the protocol above, unchanged.
- *   - `stale` replaces the age rule of a reclaim. It is asked after the listing re-check, with the
+ *   - `stale` replaces the default rule of a reclaim (the age rule, or every entry's owner gone: see the
+ *     dead-owner rule above). It is asked after the listing re-check, with the
  *     entries listed and the lock's age, and the reclaim goes ahead only when it says true. It must
  *     treat an empty lock by age (an acquire in progress makes an empty lock first; see
  *     PUBLISH_BOUND_MS), and it may judge an entry by its owner: an entry whose owner is dead can be
@@ -206,16 +223,16 @@ function giveUp(fsImpl: any, lockDir: string, me: Entry, options: LockOptions = 
 /** Reclaims the lock at `lockDir` in place when it is stale. `again` means look again now. */
 function reclaimIfStale(fsImpl: any, lockDir: string, me: Entry, options: LockOptions = {}): LockStep {
   const missing = (error: any): LockStep => (error.code === 'ENOENT' ? 'again' : 'busy');
+  const stale = options.stale || ownerRule;
   let judged: any;
   let entries: string[];
   try {
     judged = fsImpl.statSync(lockDir);
-    if (!options.stale && Date.now() - judged.mtimeMs <= LOCK_STALE_MS) return 'busy';
     entries = fsImpl.readdirSync(lockDir);
     const listed = fsImpl.statSync(lockDir);
     if (!sameDir(judged, listed) || listed.mtimeMs !== judged.mtimeMs) return 'again';
   } catch (error: any) { return missing(error); }
-  if (options.stale && !options.stale({ lockDir, entries, ageMs: Date.now() - judged.mtimeMs })) return 'busy';
+  if (!stale({ lockDir, entries, ageMs: Date.now() - judged.mtimeMs })) return 'busy';
   try { fsImpl.mkdirSync(path.join(lockDir, me.name)); } catch (error: any) { return missing(error); }
   // Our entry pins the directory it landed in; it must be the one judged stale.
   let same = false;
@@ -238,13 +255,14 @@ function reclaimIfStale(fsImpl: any, lockDir: string, me: Entry, options: LockOp
 }
 
 /**
- * A queued attempt's next look, for a lock with a `stale` rule (FU-31dyvs C-5): the other entries are
- * judged as a reclaim judges them (listing re-check, `stale`, the directory still the one holding our
- * entry), and when they are stale they are removed by name, so a queued process does not wait out its
- * budget behind a holder that died. Without a `stale` rule this is `elect`, unchanged.
+ * A queued attempt's next look (FU-31dyvs C-5): the other entries are judged as a reclaim judges them
+ * (listing re-check, the stale rule, the directory still the one holding our entry), and when they are
+ * stale they are removed by name, so a queued process does not wait out its budget behind a holder that
+ * died. Without a `stale` option the rule is the dead-owner rule alone (FU-128npa): the age rule stays a
+ * reclaim's, as before.
  */
 function queuedStep(fsImpl: any, lockDir: string, me: Entry, options: LockOptions): LockStep {
-  if (!options.stale) return elect(fsImpl, lockDir, me, true, options);
+  const stale = options.stale || (({ entries }: { entries: string[] }) => entries.every(ownerGone));
   let judged: any;
   let others: string[];
   try {
@@ -254,7 +272,7 @@ function queuedStep(fsImpl: any, lockDir: string, me: Entry, options: LockOption
     if (!sameDir(judged, listed) || listed.mtimeMs !== judged.mtimeMs || !entries.includes(me.name)) return elect(fsImpl, lockDir, me, true, options);
     others = entries.filter((name: string) => name !== me.name);
   } catch { return elect(fsImpl, lockDir, me, true, options); }
-  if (others.length === 0 || !options.stale({ lockDir, entries: others, ageMs: Date.now() - judged.mtimeMs })) return elect(fsImpl, lockDir, me, true, options);
+  if (others.length === 0 || !stale({ lockDir, entries: others, ageMs: Date.now() - judged.mtimeMs })) return elect(fsImpl, lockDir, me, true, options);
   const pinned = pinnedDir(fsImpl, lockDir, me);
   if (!pinned || !sameDir(pinned, judged)) return elect(fsImpl, lockDir, me, true, options);
   for (const name of others) {
@@ -313,13 +331,35 @@ function ownedRelease(fsImpl: any, lockDir: string, me: Entry): any {
   return release;
 }
 
-const newToken = () => `${OWNER_PREFIX}${process.pid}-${randomBytes(6).toString('hex')}`;
+let host: string | null = null;
+/** This host's tag, read once. */
+const ownHost = (): string => (host ??= hostTag());
+
+const newToken = () => `${OWNER_PREFIX}${process.pid}-${ownHost()}-${randomBytes(6).toString('hex')}`;
+
+/**
+ * True only when the entry's owner is provably gone (the dead-owner rule above): the entry names this host
+ * tag and a pid other than this process's, and `kill(pid, 0)` answers ESRCH. Anything else is not gone.
+ */
+function ownerGone(name: string): boolean {
+  const match = OWNER_ENTRY.exec(name);
+  if (!match || match[2] !== ownHost()) return false;
+  const pid = Number(match[1]);
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false;
+  try { process.kill(pid, 0); } catch (error: any) { return error?.code === 'ESRCH'; }
+  return false;
+}
+
+/** The default stale rule of a reclaim: the age rule, or a lock with entries whose owners are all gone. */
+function ownerRule({ entries, ageMs }: { entries: string[]; ageMs: number }): boolean {
+  return ageMs > LOCK_STALE_MS || (entries.length > 0 && entries.every(ownerGone));
+}
 
 /**
  * Makes one attempt to take the cross-process lock for a state file, without waiting on a holder:
- * a lock older than LOCK_STALE_MS is reclaimed, a live holder is never waited on. It waits only when
- * another process reached the lock at the same moment, for at most CONTEND_MS (40 ms) for that
- * process to leave. Returns a release function or null.
+ * a lock older than LOCK_STALE_MS, or one whose owners are all gone, is reclaimed; a live holder is never
+ * waited on. It waits only when another process reached the lock at the same moment, for at most
+ * CONTEND_MS (40 ms) for that process to leave. Returns a release function or null.
  * @param {Object} fsImpl
  * @param {string} file
  * @param {LockOptions} [options] see LockOptions; the defaults are the protocol above
@@ -344,8 +384,8 @@ function tryAcquireLock(fsImpl: any, file: string, options: LockOptions = {}): (
 
 /**
  * Takes the cross-process lock for one state file, waiting up to LOCK_RETRIES * LOCK_WAIT_MS (5 s).
- * A lock older than LOCK_STALE_MS is reclaimed: its holder died or stalled, and the rename-based write
- * keeps the file whole.
+ * A lock older than LOCK_STALE_MS is reclaimed (its holder died or stalled, and the rename-based write
+ * keeps the file whole), and so is one whose owners are all gone, at any age.
  * @param {Object} fsImpl
  * @param {string} file
  * @param {LockOptions} [options] see LockOptions; the defaults are the protocol above
@@ -370,7 +410,8 @@ function acquireLock(fsImpl: any, file: string, options: LockOptions = {}): () =
   }
   if (step === 'queued' && giveUp(fsImpl, lockDir, me, options) === 'held') return ownedRelease(fsImpl, lockDir, me);
   throw new Error(`Could not lock '${file}' after ${(retries * LOCK_WAIT_MS) / 1000}s — another writer holds '${lockDir}'. `
-    + `If no other DoFlow process is running, the lock is left from a crash and is reclaimed once it is ${LOCK_STALE_MS / 1000}s old; retry then.`
+    + `If no other DoFlow process is running, the lock is left from a crash: it is reclaimed at once when its owner on this host is gone, `
+    + `else once it is ${LOCK_STALE_MS / 1000}s old; retry then.`
     + strayEntries(fsImpl, lockDir));
 }
 
