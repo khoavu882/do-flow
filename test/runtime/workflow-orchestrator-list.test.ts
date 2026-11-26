@@ -353,8 +353,8 @@ test('C-2: a shadowed flat copy is not a second run: one row, the copy status re
   // The upgrade path: a pre-115 flat journal of feature feat-a, then a write seeded the namespaced copy.
   writeJournal(root, 'run-x', { featureSlug: 'feat-a', revision: 1, updatedAt: '2026-10-20T03:00:00.000Z' });
   writeJournal(root, 'run-x', { featureSlug: 'feat-a', revision: 2, state: 'AWAITING_GATE', updatedAt: '2026-10-20T02:00:00.000Z' }, 'feat-a');
-  // A flat journal that names no feature is any feature's: feat-b reads its namespaced copy, every
-  // other feature still reads the flat one, so both are runs (S-1, the re-review's a4 shape).
+  // A flat journal that names no feature is no feature's (FU-e2khrt): feat-b reads its namespaced copy,
+  // only a call with no feature reads the flat one, so both are runs (S-1, the re-review's a4 shape).
   writeJournal(root, 'run-y', { revision: 1 });
   writeJournal(root, 'run-y', { featureSlug: 'feat-b', revision: 4 }, 'feat-b');
   // A flat journal of another feature is a different run and stays.
@@ -365,7 +365,7 @@ test('C-2: a shadowed flat copy is not a second run: one row, the copy status re
   assert.deepEqual(rows.filter(([, id]: any) => id === 'run-x'), [['feat-a', 'run-x', 2]]);
   assert.deepEqual(rows.filter(([, id]: any) => id === 'run-y'), [[null, 'run-y', 1], ['feat-b', 'run-y', 4]]);
   assert.deepEqual(rows.filter(([, id]: any) => id === 'run-z').sort(), [['feat-c', 'run-z', 1], ['feat-d', 'run-z', 5]]);
-  for (const [slug, taskId, revision] of [['feat-a', 'run-x', 2], ['feat-b', 'run-y', 4], ['feat-zz', 'run-y', 1]]) {
+  for (const [slug, taskId, revision] of [['feat-a', 'run-x', 2], ['feat-b', 'run-y', 4], [null, 'run-y', 1]]) {
     const status = orchestrate(root, { action: 'status', taskId, slug, recordSlug: slug, json: true });
     assert.equal(status.status, 0, status.stderr);
     assert.equal(JSON.parse(status.stdout).revision, revision, `${slug}/${taskId}: list and status disagree`);
@@ -393,7 +393,7 @@ test('S-1: a current flat copy status would read first shadows every other check
   const linked = `${main}-linked`;
   execFileSync('git', ['-C', main, 'worktree', 'add', '-q', '-b', 'list-test-s1', linked, 'HEAD'], { stdio: 'ignore' });
   const at = '2099-01-01T00:00:00.000Z';
-  // h: a current flat journal that names no feature, and a namespaced copy left in the worktree.
+  // h: a current flat journal that names no feature (no feature's, FU-e2khrt), and a namespaced copy left in the worktree.
   writeJournal(main, 'run-h', { revision: 1 });
   writeJournal(linked, 'run-h', { featureSlug: 'feat-a', revision: 2, updatedAt: at }, 'feat-a');
   // e3: the id is the slug, the current flat copy is corrupt, the worktree holds a stale flat copy.
@@ -411,7 +411,7 @@ test('S-1: a current flat copy status would read first shadows every other check
   const result = listed(main).data;
   const rows = result.runs.map((row: any) => [row.featureSlug, row.taskId, row.origin, row.revision]);
   const unreadable = result.unreadable.map((row: any) => [row.taskId, row.origin, row.reason]);
-  assert.deepEqual(rows.filter(([, id]: any) => id === 'run-h'), [[null, 'run-h', 'current', 1]]);
+  assert.deepEqual(rows.filter(([, id]: any) => id === 'run-h'), [['feat-a', 'run-h', 'other', 2], [null, 'run-h', 'current', 1]]);
   assert.deepEqual(rows.filter(([, id]: any) => id === 'feat-e'), []);
   assert.deepEqual(unreadable.filter(([id]: any) => id === 'feat-e'), [['feat-e', 'current', 'unparseable']]);
   assert.deepEqual(rows.filter(([, id]: any) => id === 'run-k'), [['feat-a', 'run-k', 'other', 3]]);
@@ -420,7 +420,7 @@ test('S-1: a current flat copy status would read first shadows every other check
     assert.deepEqual(unreadable.filter(([id]: any) => id === 'run-f'), [['run-f', 'current', 'io']]);
   }
   // The copies status reads are the ones list keeps.
-  for (const [taskId, slug, revision] of [['run-h', 'feat-a', 1], ['run-k', 'feat-a', 3]]) {
+  for (const [taskId, slug, revision] of [['run-h', null, 1], ['run-h', 'feat-a', 2], ['run-k', 'feat-a', 3]]) {
     const status = orchestrate(main, { action: 'status', taskId, slug, recordSlug: slug, json: true });
     assert.equal(status.status, 0, `${taskId}: ${status.stderr}`);
     assert.equal(JSON.parse(status.stdout).revision, revision, `${taskId}: list and status disagree`);

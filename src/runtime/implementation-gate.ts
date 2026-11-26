@@ -301,8 +301,8 @@ function orchestrationRuns({ stateRoot, exec }: any): any {
   return { ok: true, entries };
 }
 
-/** Whether a flat record names no feature (no `featureSlug`, no `slug`): such a run is any feature's
- * (`flatRecordIsOurs`), so a namespaced copy of the same id in the same store shadows it. */
+/** Whether a flat record names no feature (no `featureSlug`, no `slug`): such a run is no feature's
+ * (`flatRecordIsOurs`, FU-e2khrt) and is read only by a call with no feature. */
 function namesNoFeature(record: any): boolean {
   return Boolean(record) && typeof record === 'object'
     && ![record.featureSlug, record.slug].some((value) => typeof value === 'string' && value !== '');
@@ -314,9 +314,8 @@ function namesNoFeature(record: any): boolean {
  * names that feature (when the slug is the id, the flat file is the run's only path and wins).
  * A flat file that names no feature, or that cannot be read or is a link, is keyed as `findRunFile`
  * would first read it, the id as its slug, and stays its own entry. Across stores, the current
- * store's copy of a key wins over every other checkout's; a current flat file `status` reads for
- * any feature without a namespaced copy here (one naming no feature, or a link, which status refuses)
- * also shadows the other checkouts' copies of that id. With no current copy, each other checkout
+ * store's copy of a key wins over every other checkout's; a current flat file that is a link, which
+ * `status` stops at for any feature, also shadows the other checkouts' copies of that id. With no current copy, each other checkout
  * that holds one keeps its entry (more than one is the case `status` refuses as ambiguous). A
  * losing copy is dropped: `status` never reads it for this run.
  * @param {Array<Object>} entries `orchestrationRuns(...).entries`
@@ -343,9 +342,9 @@ function selectRunEntries(entries: any[]): any[] {
     if (ns === null) return named(entry) && entry.slug !== stem(entry) ? 1 : 0;
     return ns === stem(entry) ? 2 : 0;
   };
-  // Ids a current flat file answers for any feature: status reads it before any other checkout.
+  // Ids a current flat link answers for any feature: status stops at it before any other checkout.
   const wildcards = new Set(entries.filter((entry) => entry.origin === 'current' && namespaceOf(entry) === null
-    && ((entry.record && namesNoFeature(entry.record)) || linked(entry))).map(stem));
+    && linked(entry)).map(stem));
   const perRoot = new Map<string, any>();
   for (const entry of entries) {
     const local = `${entry.root}\0${keyOf(entry)}`;
