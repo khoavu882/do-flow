@@ -7,15 +7,19 @@ can predate the register) and, when it reports `has_decisions: true`:
 
 1. List the live decisions with `"$DOFLOW" decision --action list --json`. A decision that changes a
    live one reuses its topic and names it in `supersedes`; a new topic key is for a genuinely new
-   subject only. A replacement on another topic, or of part of one, is recorded after the add with `"$DOFLOW" decision --action link --from <new> --to <old> --kind supersedes|narrows|reopens`, and a settled decision leaves the live view with `decision --action retire`, not with prose.
+   subject only. A replacement on another topic is recorded after the add with
+   `"$DOFLOW" decision --action link --from <new> --to <old> --kind <kind>`: `supersedes` replaces
+   the old one, `reopens` replaces it by a reopened choice, `narrows` keeps both live. A settled
+   decision that stays in force but is noise leaves the live view with `decision --action retire`
+   (ids and a reason), not with prose.
 2. Register this stage's decisions (question answers, gate answers carrying a choice, decisions the
    user typed as prompts, "Decide for me" defaults, agent resolutions) in one
    `"$DOFLOW" decision --action add --batch <file>.json --json` call. Drop an item that only
    rewords a live decision (such as a gate answer do-flow registered); it neither registers nor
    supersedes. Each item needs `topic`, `statement`, `channel` (`question|gate|prompt|default|resolution`), `stage` (the ownership-table
    stage name) and `rationale`; the verb names a bad value. Skip the call when there are none.
-   On exit 1 `topic-conflict`, drop a reword of the named live decision, else add `supersedes` for it,
-   and retry; on `register-locked`, retry once; on exit 2, fix the named item and retry. Hand off with the stage's decisions registered, or say which are not.
+   On exit 1 `topic-conflict`, drop a reword of the named live decision, else add `supersedes` for it
+   (also when it is retired: it stays in force), and retry; on `register-locked`, retry once; on exit 2, fix the named item and retry. Hand off with the stage's decisions registered, or say which are not.
 3. Write each returned `DEC-###` into the lines of this stage's own artifacts that apply it
    (ARTIFACT_FORMAT.md §12). A stage that owns no artifact puts the FR/IC ids each
    decision applies to in the item's `refs` and names the returned `DEC-###` ids in the
