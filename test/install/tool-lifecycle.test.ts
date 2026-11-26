@@ -236,9 +236,16 @@ test('after a timeout nothing the probe started is left running', { skip: proces
   // No `exec`: the shell stays the direct child and `sleep` is its child, which the timeout alone would not reach.
   fs.writeFileSync(wrapper, `#!/bin/sh\nsleep 30 &\necho $! > '${pidFile}'\nwait\n`, { mode: 0o755 });
   const tool = { id: 'wrapped', officialEvidence: ['https://example.test/w'], status: { commands: [[wrapper, '--version']] } };
-  const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, platform: 'linux', timeoutMs: 500 });
-  assert.equal(plan.tools[0].state, 'inspection-timeout');
-  const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+  // The probe's timer starts at the spawn, so on a loaded machine it can fire before the shell has started its child and
+  // written the pid: that run proves nothing about the child, and it is run again with twice the timeout (500 ms up to 8 s).
+  let pid = NaN;
+  for (let timeoutMs = 500; ; timeoutMs *= 2) {
+    fs.rmSync(pidFile, { force: true });
+    const plan = await planToolLifecycle({ registry: { externalTools: [tool] }, platform: 'linux', timeoutMs });
+    assert.equal(plan.tools[0].state, 'inspection-timeout');
+    pid = fs.existsSync(pidFile) ? Number(fs.readFileSync(pidFile, 'utf8')) : NaN;
+    if (pid > 1 || timeoutMs >= 8000) break;
+  }
   assert.ok(pid > 1, 'the wrapper started its child');
   const alive = () => processRunning(pid);
   for (let i = 0; i < 40 && alive(); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -258,7 +265,8 @@ for (const [name, signal, toGroup] of [['SIGINT to the foreground group', 'SIGIN
     // Its own group, as a terminal job has: the group is what Ctrl-C signals.
     const node = spawn(process.execPath, ['-e', inner], { detached: true, stdio: 'ignore' });
     const exited = new Promise((resolve) => node.on('exit', (code: any, sig: any) => resolve({ code, sig })));
-    for (let i = 0; i < 100 && !fs.existsSync(pidFile); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    // Bounded by the probe's own 20 s timeout: two cold processes (node, then the shell) start before the pid is written.
+    for (const end = Date.now() + 20000; Date.now() < end && !(Number(fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8')) > 1);) await new Promise((resolve) => setTimeout(resolve, 50));
     const pid = Number(fs.readFileSync(pidFile, 'utf8'));
     assert.ok(pid > 1, 'the wrapper started its child');
     const alive = () => processRunning(pid);
