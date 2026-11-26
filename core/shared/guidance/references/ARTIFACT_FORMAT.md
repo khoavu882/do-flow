@@ -400,4 +400,4 @@ applies.
   `Earlier entries: [decisions/history/<artifact>.md](<relative link>).`, the link relative to the
   artifact's own directory, matching `^Earlier entries: \[decisions/history/[a-z-]+\.md\]`. Index
   rows and tombstones stay.
-- A settled Open Points bullet starts `- **Decided (<ref>):**` (or `- **Decided:**`), `- **Rejected:**` or `- **Round <n>:**`; `decision --action compact --mode closed-points` moves it to `decisions/history/<artifact>-closed.md` and leaves one pointer.
+- A settled Open Points bullet (a `- ` bullet, not `1.` or `*`) starts `- **Decided (<ref>):**` (or `- **Decided:**`), `- **Rejected:**` or `- **Round <n>:**`; `decision --action compact --mode closed-points` moves it to `decisions/history/<artifact>-closed.md` and leaves one pointer.
