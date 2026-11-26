@@ -644,7 +644,7 @@ function cancel({ file, fsImpl, roots, slug, task, token, by, reason, adoptUnown
 }
 
 /** Task ids that depend on `taskId`, directly or through another dependent: an explicit
- * `depends-on:` naming it, or no `depends-on:` and a later phase. */
+ * `depends-on:` naming it, or no `depends-on:` (and no `depends-on: none`) and a later phase. */
 function dependentsOf(graph: any, taskId: string) {
   const found = new Set<string>();
   const queue = [taskId];
@@ -653,7 +653,7 @@ function dependentsOf(graph: any, taskId: string) {
     const of = graph.tasks.find((t: any) => t.id === id);
     for (const t of graph.tasks) {
       if (found.has(t.id) || t.id === taskId) continue;
-      const waits = t.taskDeps.length ? t.taskDeps.includes(id) : t.phaseIndex > of.phaseIndex;
+      const waits = t.taskDeps.length ? t.taskDeps.includes(id) : !t.root && t.phaseIndex > of.phaseIndex;
       if (waits) { found.add(t.id); queue.push(t.id); }
     }
   }

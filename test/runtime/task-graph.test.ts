@@ -213,3 +213,15 @@ test('loadPlan returns the graph and warnings beside the legacy task list', (t) 
   assert.deepEqual(loaded.graph.order, ['A.1', 'A.2']);
   assert.deepEqual(loaded.warnings, [{ kind: 'near-miss-dependency', ids: ['A.2'], value: 'A.1 (after review)' }]);
 });
+
+test('FU-8a9r11: `depends-on: none` builds, adds no implicit phase edge, and combined with another value is a bad-dependency', () => {
+  const ok = build(['- [ ] A.1 one', '- [ ] D.1 root; depends-on: none'], GRAPH);
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.graph.tasks.find((t: any) => t.id === 'D.1').taskDeps, []);
+  // An implicit edge D.1 -> A.1 plus an explicit A.1 -> D.1 would be a cycle; the marker removes the implicit one.
+  assert.equal(build(['- [ ] A.1 one; depends-on: D.1', '- [ ] D.1 root; depends-on: none']).ok, true);
+  for (const header of [[], GRAPH]) {
+    const mixed = build(['- [ ] A.1 one', '- [ ] D.1 root; depends-on: none, A.1'], header);
+    assert.deepEqual(mixed, { ok: false, problems: [{ kind: 'bad-dependency', ids: ['D.1'], value: 'none, A.1' }], warnings: [] });
+  }
+});

@@ -304,7 +304,11 @@ function parsePlan(text: string): any {
     }
 
     const list = (value: string | undefined) => (value ? value.split(',').map((v) => v.replace(/`/g, '').trim()).filter(Boolean) : []);
-    const dependsOn = list(fields['depends-on']);
+    const declared = list(fields['depends-on']);
+    // `depends-on: none` marks a lane root: no implicit wait on earlier phases (FU-8a9r11). It is not a service, so it is
+    // dropped from `dependsOn`; any other value beside it stays in `dependsOn` and is refused by the graph check.
+    const root = declared.includes('none');
+    const dependsOn = root ? declared.filter((value) => value !== 'none') : declared;
     // A near-miss starts with a task id but carries more text (`A.1 (after review)`).
     const nearMiss = (value: string) => !TASK_ID.test(value) && TASK_ID.test(value.split(/[\s(]/)[0]);
 
@@ -319,6 +323,7 @@ function parsePlan(text: string): any {
       dependsOn,
       externalContract: fields['external-contract'] || null,
       parallel: /\[P\]/.test(head),
+      ...(root ? { root: true } : {}),
       taskDeps: dependsOn.filter((value) => TASK_ID.test(value)),
       nearMissDeps: dependsOn.filter(nearMiss),
       acceptance: list(fields.acceptance),

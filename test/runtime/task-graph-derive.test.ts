@@ -295,3 +295,19 @@ test('a legacy store from 8ce5ad7 gives today\'s derived for every task', () => 
     for (const r of recs) assert.deepEqual(r.budget, { limit: DEFAULT_TASK_ATTEMPTS, used: 0, source: 'default' });
   }
 });
+
+test('FU-8a9r11: `depends-on: none` makes a later-phase task a lane root, ready while an earlier phase is open, in any plan', () => {
+  for (const header of [[], GRAPH]) {
+    const { graph, hashes } = setup([
+      '- [ ] A.1 First',
+      '- [ ] D.1 Lane root; depends-on: none',
+      '- [ ] D.2 Next in the lane; depends-on: D.1',
+      '- [ ] E.1 Plain later phase',
+    ], header);
+    const byId = Object.fromEntries(deriveTasks(graph, { tasks: {} }, { hashes }).map((r: any) => [r.id, r]));
+    assert.equal(byId['D.1'].state, 'READY');
+    assert.equal(byId['D.1'].claimable, true);
+    assert.equal(byId['D.2'].reason, 'unmet-dependency');
+    assert.equal(byId['E.1'].reason, 'unmet-phase', 'a task with no marker keeps the implicit phase wait');
+  }
+});

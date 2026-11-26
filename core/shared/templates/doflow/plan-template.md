@@ -64,7 +64,8 @@
 > `/do-execute-plan` — keep the markers intact. `depends-on:` is optional — set it when a task
 > depends on an external service that has no owning task in this same plan (not a service also
 > touched by another task here); `/do-execute-plan --scaffold` reads it to know which services
-> need a code frame generated. `external-contract:` is also optional — set it alongside `depends-on:`
+> need a code frame generated. A task with no `depends-on:` waits on every task of an earlier phase; `depends-on: none` marks a lane root that
+> does not (alone only). `external-contract:` is also optional — set it alongside `depends-on:`
 > only when that dependency has no local repo (a vendor API, a SaaS integration) but *does* have a
 > documented contract; points to a doc built from `templates/doflow/external-contract-template.md`, and
 > tells `--scaffold` to generate a real frame from it instead of silently skipping a non-local
