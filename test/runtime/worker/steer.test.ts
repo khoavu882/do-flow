@@ -55,15 +55,22 @@ const rid = () => `r${crypto.randomBytes(16).toString('base64url').slice(1)}`;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const iso = (ms = Date.now()) => new Date(ms).toISOString();
 
-async function until<T>(read: () => T, what: string, ms = 10000): Promise<T> {
+async function until<T>(read: () => T, what: string, ms = 10000, every = 20): Promise<T> {
   const end = Date.now() + ms;
   for (;;) {
     const value = read();
     if (value) return value;
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await sleep(20);
+    await sleep(every);
   }
 }
+
+/**
+ * A wait on processes, as in supervisor-channel.test.ts: a liveness read runs `ps` (each bounded at 2 s), so it polls every
+ * 200 ms, and the 30 s ceiling is a bound for a loaded machine, not the expected time. Its `ms` also bounds a detached
+ * supervisor's start (two cold node processes before the first record).
+ */
+const PROCESS_WAIT = Object.freeze({ ms: 30000, every: 200 });
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
@@ -233,10 +240,10 @@ test('a killed supervisor reads channel-closed, supervisor-gone, naming the canc
   child.unref();
   const supervisor = { pid: child.pid, pgid: child.pid, start: tree.procStart(child.pid) };
   transition(f.file, runId, ['starting', 'running', 'cancelling'], (run: any) => { run.supervisor = supervisor; });
-  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'working', 'the channel open');
+  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'working', 'the channel open', PROCESS_WAIT.ms);
   const worker = runOf(f, runId).worker;
   process.kill(supervisor.pid, 'SIGKILL');
-  await until(() => tree.alive(supervisor) === false, 'the supervisor gone');
+  await until(() => tree.alive(supervisor) === false, 'the supervisor gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
 
   const lines = logLines(f).length;
   const refused = await verb(f, runId, 'send', { text: 'is anyone there' });
@@ -251,7 +258,7 @@ test('a killed supervisor reads channel-closed, supervisor-gone, naming the canc
   await untilLockReclaimable(f.file);
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'ended', env: f.env, cwd: f.root });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
-  await until(() => gone(worker), 'the harness group gone', 5000);
+  await until(() => gone(worker), 'the harness group gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
 });
 
 test('A-02: a retry dropped while the first write is stalled is written once; its answer is the first message\'s entry', POSIX, async (t: any) => {

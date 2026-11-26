@@ -134,7 +134,9 @@ async function until<T>(read: () => T, what: string, ms = 10000, every = 20): Pr
 
 /**
  * A wait on process liveness: each read runs `ps`, so it polls every 200 ms, and the 30 s ceiling is a bound for a loaded
- * machine, not the expected time (review B-04). The order of events is asserted by the caller, not the time.
+ * machine, not the expected time (review B-04). The order of events is asserted by the caller, not the time. Its `ms` also
+ * bounds a detached supervisor's start: two cold node processes (the supervisor, then the harness it spawns) before the
+ * first record, which is the slow step when the whole worker folder runs at once (test/guards/no-real-harness.test.ts).
  */
 const PROCESS_WAIT = Object.freeze({ ms: 30000, every: 200 });
 
@@ -435,7 +437,7 @@ test('R-9: a harness that ignores its closed stdin outlives the killed superviso
   const f = fixture(t);
   const runId = seed(f, 'stubborn first prompt');
   const supervisor = detachedSupervisor(f, runId, { ...f.env, FAKE_CHANNEL_MODE: 'ignore-eof' });
-  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'waiting', 'the turn waiting');
+  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'waiting', 'the turn waiting', PROCESS_WAIT.ms);
   const worker = runOf(f, runId).worker;
   process.kill(supervisor.pid, 'SIGKILL');
   await until(() => tree.alive(supervisor) === false, 'the supervisor gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
