@@ -13,7 +13,6 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
-const { untilLockReclaimable } = require('../../helper/killed-lock-holder.ts');
 
 const REPO = path.join(__dirname, '..', '..', '..');
 const SRC = path.join(REPO, 'src', 'runtime');
@@ -25,6 +24,7 @@ const { mainLaunchRecord, launchChannelSession } = require(path.join(SRC, 'worke
 const { executeWorkerCommand, handleWorkerCommand } = require(path.join(SRC, 'worker', 'command.ts'));
 const { CHANNEL_LIMITS } = require(path.join(SRC, 'worker', 'channel.ts'));
 const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
+const { hostTag } = require(path.join(REPO, 'src', 'helper', 'host-tag.ts'));
 const { cwdHash } = require(path.join(SRC, 'context', 'identity.ts'));
 const { listCheckouts } = require(path.join(SRC, 'checkouts.ts'));
 const { workerCatalogue } = require(path.join(SRC, 'worker', 'catalogue.ts'));
@@ -254,10 +254,13 @@ test('a killed supervisor reads channel-closed, supervisor-gone, naming the canc
   assert.equal(logLines(f).length, lines);
   const stop = await verb(f, runId, 'stop');
   assert.deepEqual([stop.body.code, stop.body.current.reason], ['channel-closed', 'supervisor-gone']);
-  // The kill can land inside a store write: the cancel's write then needs the dead supervisor's lock reclaimable.
-  await untilLockReclaimable(f.file);
+  // The kill can land inside a store write (by chance, under load); here it is made to: the supervisor's lock entry is
+  // left in the store's lock, named as its acquire names it. The cancel right after takes that lock at once (FU-128npa).
+  await until(() => { try { process.kill(supervisor.pid, 0); return false; } catch { return true; } }, 'the supervisor reaped', PROCESS_WAIT.ms, PROCESS_WAIT.every);
+  fs.mkdirSync(path.join(`${f.file}.lock`, `owner-${supervisor.pid}-${hostTag()}-${crypto.randomBytes(6).toString('hex')}`), { recursive: true });
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'ended', env: f.env, cwd: f.root });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
+  assert.equal(fs.existsSync(`${f.file}.lock`), false, 'the dead supervisor\'s lock was taken and released');
   await until(() => gone(worker), 'the harness group gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
 });
 
