@@ -342,7 +342,12 @@ function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = node
       }
       const unnamed = register.decisions.find((d: any) => d.status === 'live' && d.topic === item.topic && !item.supersedes.includes(d.id));
       if (unnamed && !conflict) {
-        conflict = { finding: 'topic-conflict', message: `topic '${item.topic}' already has live decision ${unnamed.id}; name it in supersedes to replace it. Nothing was written` };
+        conflict = {
+          finding: 'topic-conflict',
+          message: unnamed.retired
+            ? `topic '${item.topic}' is held by ${unnamed.id}, which is retired (in force, out of the live view); to replace it, name it in supersedes or run decision --action link --from <new id> --to ${unnamed.id} --kind supersedes. Nothing was written`
+            : `topic '${item.topic}' already has live decision ${unnamed.id}; name it in supersedes to replace it. Nothing was written`,
+        };
       }
       const id = formatId(nextId);
       nextId += 1;

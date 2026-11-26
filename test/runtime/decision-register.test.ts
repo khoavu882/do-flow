@@ -1227,6 +1227,19 @@ test('IC-002: a narrowing decision that is no longer live does not block the ret
   assert.equal(retire(r, 'DEC-001').exitCode, 0);
 });
 
+test('IC-002: the topic-conflict on a retired decision says it is retired and names both ways forward; a plain live one keeps the old message', () => {
+  const r = seeded(2);
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  const before = snapshot(r.featureDir);
+  const run = add(r, [item({ topic: 't1', statement: 'again' })]);
+  assert.equal(run.exitCode, 1);
+  assert.equal(run.result.finding, 'topic-conflict');
+  assert.equal(run.result.message, "topic 't1' is held by DEC-001, which is retired (in force, out of the live view); to replace it, name it in supersedes or run decision --action link --from <new id> --to DEC-001 --kind supersedes. Nothing was written");
+  assert.deepEqual(snapshot(r.featureDir), before);
+  const plain = add(r, [item({ topic: 't2', statement: 'again' })]);
+  assert.equal(plain.result.message, "topic 't2' already has live decision DEC-002; name it in supersedes to replace it. Nothing was written");
+});
+
 test('IC-002: a retired decision still holds its topic and can be superseded by add and by link', () => {
   const r = seeded();
   assert.equal(retire(r, 'DEC-001').exitCode, 0);
