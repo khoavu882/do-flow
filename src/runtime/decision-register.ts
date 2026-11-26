@@ -41,6 +41,11 @@ const ITEM_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale', 'super
 const UNATTENDED_RE = /^\s*unattended\s*:/i;
 const FORMAT_CHARS = /\p{Cf}/gu;
 const DECIDERS = ['user', 'agent', 'autopilot'];
+/** IC-005. How a link relates a newer decision to an older one; the states a decision is in; the compaction modes. */
+const LINK_KINDS = ['supersedes', 'narrows', 'reopens'] as const;
+const DECISION_STATES = ['live', 'superseded', 'retired'] as const;
+const COMPACT_MODES = ['history', 'closed-points'] as const;
+const RETIRE_REASON_MAX = 280;
 const REQUIRED_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale'];
 
 /** Line breaks Markdown renderers and editors treat as a break, not just \r and \n. */
@@ -105,7 +110,15 @@ function idNumber(id: string): number { return Number(id.slice(4)); }
 function formatId(n: number): string { return `DEC-${String(n).padStart(3, '0')}`; }
 function byId(a: any, b: any): number { return idNumber(a.id) - idNumber(b.id); }
 function byTopic(a: any, b: any): number { return a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : idNumber(a.id) - idNumber(b.id); }
-function liveOf(register: any): any[] { return register.decisions.filter((d: any) => d.status === 'live'); }
+
+/** IC-005: 'superseded' when status is 'superseded'; else 'retired' when d.retired is set; else 'live'. */
+function decisionState(d: any): 'live' | 'superseded' | 'retired' {
+  if (d.status === 'superseded') return 'superseded';
+  return d.retired ? 'retired' : 'live';
+}
+/** What decisions.md, the default list and stage context show. */
+function inLiveView(d: any): boolean { return decisionState(d) === 'live'; }
+function liveOf(register: any): any[] { return register.decisions.filter(inLiveView); }
 
 // ── renderers ──────────────────────────────────────────────────────────────────────────────────
 
@@ -136,11 +149,24 @@ function renderLiveView(register: any): string {
     '',
   ];
   if (live.length === 0) {
-    out.push('No live decisions yet.');
+    out.push(register.decisions.some((d: any) => d.retired) ? 'No decisions in the live view; retired ones are in `decisions/archive.md`.' : 'No live decisions yet.');
   } else {
     out.push('| ID | Topic | Decision | By | Stage | Date |', '|---|---|---|---|---|---|');
     for (const d of live) {
       out.push(`| ${d.id} | ${cell(d.topic)} | ${cell(d.statement)} | ${d.decidedBy} | ${d.stage} | ${d.date} |`);
+    }
+    // IC-006: a narrowed decision stays in the table; the note says it is qualified, by whom.
+    const inView = new Set(live.map((d: any) => d.id));
+    const narrowedBy = new Map<string, string[]>();
+    for (const from of [...live].sort(byId)) {
+      for (const to of from.narrows || []) {
+        if (!inView.has(to)) continue;
+        narrowedBy.set(to, [...(narrowedBy.get(to) || []), from.id]);
+      }
+    }
+    if (narrowedBy.size) {
+      out.push('', 'Narrowed in part:', '');
+      for (const to of [...narrowedBy.keys()].sort((a, b) => idNumber(a) - idNumber(b))) out.push(`- ${to} is narrowed by ${(narrowedBy.get(to) as string[]).join(', ')}.`);
     }
   }
   return `${out.join('\n')}\n`;
@@ -149,12 +175,23 @@ function renderLiveView(register: any): string {
 /** IC-008. One entry per decision, by id; superseded entries stay with their rationale. */
 function renderArchive(register: any): string {
   const out = [`# Decision archive: ${register.slug}`, '', `> ${GENERATED_NOTE}`];
-  for (const d of [...register.decisions].sort(byId)) {
+  const sorted = [...register.decisions].sort(byId);
+  for (const d of sorted) {
     out.push('', `### ${d.id}: ${d.topic}`, '');
-    out.push(`- **Status:** ${d.status === 'live' ? 'Live' : `Superseded → ${d.supersededBy}`}`);
+    if (d.status === 'live') {
+      out.push('- **Status:** Live');
+    } else {
+      const by = register.decisions.find((x: any) => x.id === d.supersededBy);
+      out.push(`- **Status:** Superseded → ${d.supersededBy}${by && (by.reopens || []).includes(d.id) ? ' (reopened)' : ''}`);
+    }
+    if (d.retired) out.push(`- **Retired:** ${d.retired.date} · ${plain(d.retired.reason)}`);
     out.push(`- **Decision:** ${plain(d.statement)}`);
     out.push(`- **By:** ${d.decidedBy} (${d.channel}) · **Stage:** ${d.stage} · **Date:** ${d.date}`);
     if (d.supersedes.length) out.push(`- **Supersedes:** ${d.supersedes.join(', ')}`);
+    if ((d.narrows || []).length) out.push(`- **Narrows:** ${d.narrows.join(', ')}`);
+    if ((d.reopens || []).length) out.push(`- **Reopens:** ${d.reopens.join(', ')}`);
+    const narrowers = sorted.filter((x: any) => (x.narrows || []).includes(d.id)).map((x: any) => x.id);
+    if (narrowers.length) out.push(`- **Narrowed by:** ${narrowers.join(', ')}`);
     if (d.refs.length) out.push(`- **Refs:** ${d.refs.join(', ')}`);
     if (d.source) out.push(`- **Source:** ${plain(d.source)}`);
     out.push(...rationaleLines(d.rationale));
@@ -344,29 +381,32 @@ function addDecisions({ featureDir, slug, items, now = new Date(), fsImpl = node
   }
 }
 
-/** IC-004. */
-function listDecisions({ featureDir, slug, all = false, by = null, fsImpl = nodeFs }: any): any {
+/** IC-004, IC-003 (lifecycle): `status` selects by decision state, by id; without it `all` or the live view. */
+function listDecisions({ featureDir, slug, all = false, by = null, status = null, fsImpl = nodeFs }: any): any {
   const base = summary({ action: 'list', slug, featureDir });
   const register = readRegister(featureDir, fsImpl);
   if (!register) return { ...base, finding: 'no-register', message: `${featureDir} has no decisions/register.json` };
-  let decisions = all ? [...register.decisions].sort(byId) : liveOf(register).sort(byTopic);
+  let decisions = status
+    ? register.decisions.filter((d: any) => status.includes(decisionState(d))).sort(byId)
+    : all ? [...register.decisions].sort(byId) : liveOf(register).sort(byTopic);
   if (by) decisions = decisions.filter((d: any) => by.includes(d.decidedBy));
   return { ...base, decisions };
 }
 
 /** IC-005: compaction plus the view re-render, under the register lock `compactHistory` itself lacks. */
-function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(), fsImpl = nodeFs }: any): any {
-  const base = summary({ action: 'compact', slug, featureDir });
+function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(), mode = 'history', fsImpl = nodeFs }: any): any {
+  const base = { ...summary({ action: 'compact', slug, featureDir }), mode };
   if (!fsImpl.existsSync(registerFile(featureDir))) {
     return { ...base, finding: 'no-register', message: `${featureDir} has no decisions/register.json; nothing was touched` };
   }
   const release = acquireLock(fsImpl, registerFile(featureDir));
   try {
     const register = readRegister(featureDir, fsImpl);
-    const result = compactHistory({ repoRoot, featureDir, paths, date: now.toISOString().slice(0, 10), fsImpl });
+    const result = compactHistory({ repoRoot, featureDir, paths, date: now.toISOString().slice(0, 10), mode, fsImpl });
     // The views are re-rendered when anything moved, including in a partial run: the artifacts
-    // that did compact are changed whatever happened to the others.
-    if (result.moved.length) renderViews(fsImpl, featureDir, register);
+    // that did compact are changed whatever happened to the others. Closed-points mode moves
+    // artifact text only; the register, and so the views, are untouched by it.
+    if (result.moved.length && mode === 'history') renderViews(fsImpl, featureDir, register);
     if (result.failed.length) {
       return {
         ...base, status: result.status, finding: 'compaction-failed',
@@ -380,9 +420,168 @@ function compactDecisions({ featureDir, slug, repoRoot, paths, now = new Date(),
   }
 }
 
+/** The ids a decision points at, over every link kind (IC-012). */
+function linkTargets(d: any): string[] { return [...(d.supersedes || []), ...(d.narrows || []), ...(d.reopens || [])]; }
+
+/** Shortest chain `start → … → goal` over link edges, or null (IC-012). */
+function linkPath(register: any, start: string, goal: string): string[] | null {
+  const byIdMap = new Map<string, any>(register.decisions.map((d: any) => [d.id, d]));
+  const prev = new Map<string, string | null>([[start, null]]);
+  const queue = [start];
+  for (let i = 0; i < queue.length; i += 1) {
+    const id = queue[i];
+    if (id === goal) {
+      const chain: string[] = [];
+      for (let at: string | null = id; at !== null; at = prev.get(at) as string | null) chain.unshift(at);
+      return chain;
+    }
+    for (const next of linkTargets(byIdMap.get(id) || {})) {
+      if (!prev.has(next)) { prev.set(next, id); queue.push(next); }
+    }
+  }
+  return null;
+}
+
+/**
+ * IC-001. Shape checks run before the register is read; every other check runs under the register
+ * lock, and nothing is written unless all pass.
+ */
+function linkDecisions({ featureDir, slug, from, to, kind, fsImpl = nodeFs }: any): any {
+  const given: Record<string, any> = { from, to, kind };
+  for (const flag of ['from', 'to', 'kind']) {
+    if (typeof given[flag] !== 'string' || given[flag].trim() === '') throw new DecisionUsageError(`--${flag} is required for --action link`);
+  }
+  const fromId = from.trim();
+  const toId = to.trim();
+  const linkKind = kind.trim();
+  for (const [flag, value] of [['from', fromId], ['to', toId]]) {
+    if (!DEC_RE.test(value)) throw new DecisionUsageError(`--${flag} '${value}' is not a DEC-### id`);
+  }
+  if (!(LINK_KINDS as readonly string[]).includes(linkKind)) throw new DecisionUsageError(`--kind '${linkKind}' must be one of ${LINK_KINDS.join(', ')}`);
+  if (fromId === toId) throw new DecisionUsageError(`--from and --to name the same decision ${fromId}`);
+  const base = { ...summary({ action: 'link', slug, featureDir }), from: fromId, to: toId, kind: linkKind };
+  if (!fsImpl.existsSync(registerFile(featureDir))) {
+    return { ...summary({ action: 'link', slug, featureDir }), finding: 'no-register', message: `${featureDir} has no decisions/register.json; run \`decision --action init\` when the feature is created` };
+  }
+  const release = acquireLock(fsImpl, registerFile(featureDir));
+  try {
+    const register = readRegister(featureDir, fsImpl);
+    const source = register.decisions.find((d: any) => d.id === fromId);
+    const target = register.decisions.find((d: any) => d.id === toId);
+    for (const [id, found] of [[fromId, source], [toId, target]]) {
+      if (!found) throw new DecisionUsageError(`${id} is not a decision in this register`);
+    }
+    if ((source[linkKind] || []).includes(toId)) return { ...base, changed: false, superseded: [], replaced: null };
+    if (target.status === 'superseded') throw new DecisionUsageError(`${toId} is not live (it was superseded by ${target.supersededBy})`);
+    if (linkKind === 'narrows') {
+      if (source.status === 'superseded') throw new DecisionUsageError(`--kind narrows needs a live --from; ${fromId} was superseded by ${source.supersededBy}`);
+      for (const d of [source, target]) {
+        if (d.retired) throw new DecisionUsageError(`--kind narrows needs both decisions in the live view; ${d.id} is retired`);
+      }
+    }
+    const cycle = linkPath(register, toId, fromId);
+    if (cycle) {
+      return {
+        ...summary({ action: 'link', slug, featureDir }),
+        finding: 'link-cycle',
+        message: `linking ${fromId} to ${toId} would close a cycle: ${cycle.join(' → ')} already exists. Nothing was written`,
+        cycle,
+      };
+    }
+    let replaced: string | null = null;
+    source[linkKind] = [...(source[linkKind] || []), toId];
+    const superseded: any[] = [];
+    if (linkKind !== 'narrows') {
+      target.status = 'superseded';
+      target.supersededBy = fromId;
+      superseded.push({ id: toId, by: fromId });
+      if ((source.narrows || []).includes(toId)) {
+        source.narrows = source.narrows.filter((id: string) => id !== toId);
+        if (source.narrows.length === 0) delete source.narrows;
+        replaced = 'narrows';
+      }
+    }
+    writeRegister(fsImpl, featureDir, register);
+    renderViews(fsImpl, featureDir, register);
+    return { ...base, changed: true, superseded, replaced };
+  } finally {
+    release();
+  }
+}
+
+/** IC-002. All-or-nothing: every id is checked before any is retired. */
+function retireDecisions({ featureDir, slug, ids, reason, now = new Date(), fsImpl = nodeFs }: any): any {
+  const list = ids === undefined || ids === null ? [] : toList(ids, 'ids', '--ids');
+  if (list.length === 0) throw new DecisionUsageError('--ids is required for --action retire');
+  for (const id of list) {
+    if (!DEC_RE.test(id)) throw new DecisionUsageError(`--ids entry '${id}' is not a DEC-### id`);
+  }
+  const dup = list.find((id: string, i: number) => list.indexOf(id) !== i);
+  if (dup) throw new DecisionUsageError(`--ids names ${dup} twice`);
+  if (typeof reason !== 'string' || reason.trim() === '') throw new DecisionUsageError('--reason is required for --action retire: one line saying why the decision leaves the live view');
+  if (LINE_BREAK.test(reason)) throw new DecisionUsageError('--reason must be one line');
+  const why = reason.trim();
+  if (why.length > RETIRE_REASON_MAX) throw new DecisionUsageError(`--reason is ${why.length} characters; the limit is ${RETIRE_REASON_MAX}`);
+  const base = summary({ action: 'retire', slug, featureDir });
+  if (!fsImpl.existsSync(registerFile(featureDir))) {
+    return { ...base, finding: 'no-register', message: `${featureDir} has no decisions/register.json; run \`decision --action init\` when the feature is created` };
+  }
+  const release = acquireLock(fsImpl, registerFile(featureDir));
+  try {
+    const register = readRegister(featureDir, fsImpl);
+    const found = new Map<string, any>();
+    for (const id of list) {
+      const d = register.decisions.find((x: any) => x.id === id);
+      if (!d) throw new DecisionUsageError(`${id} is not a decision in this register`);
+      found.set(id, d);
+    }
+    for (const id of list) {
+      const d = found.get(id);
+      if (d.status === 'superseded') throw new DecisionUsageError(`${id} is superseded by ${d.supersededBy}; it is already out of the live view`);
+    }
+    const blocking: any[] = [];
+    for (const id of list) {
+      const d = found.get(id);
+      if (d.retired) continue;
+      const stays = (other: any): boolean => Boolean(other) && other.status === 'live' && !other.retired && !list.includes(other.id);
+      for (const other of [...register.decisions].sort(byId)) {
+        if ((other.narrows || []).includes(id) && stays(other)) blocking.push({ id, other: other.id, direction: 'narrowed-by' });
+      }
+      for (const otherId of d.narrows || []) {
+        if (stays(register.decisions.find((x: any) => x.id === otherId))) blocking.push({ id, other: otherId, direction: 'narrows' });
+      }
+    }
+    if (blocking.length) {
+      const pairs = blocking.map((b: any) => (b.direction === 'narrowed-by' ? `${b.id} is narrowed by ${b.other}, which stays in the live view` : `${b.id} narrows ${b.other}, which stays in the live view`));
+      return {
+        ...base,
+        finding: 'linked-from-live',
+        message: `${pairs.join('; ')}. Retire them together in one call (--ids ${blocking[0].id},${blocking[0].other}) or record a decision that supersedes one of them. Nothing was written`,
+        blocking,
+      };
+    }
+    const iso = now.toISOString();
+    const retired: any[] = [];
+    const unchanged: string[] = [];
+    for (const id of list) {
+      const d = found.get(id);
+      if (d.retired) { unchanged.push(id); continue; }
+      d.retired = { date: iso.slice(0, 10), at: iso, reason: why };
+      retired.push({ id, topic: d.topic });
+    }
+    if (retired.length) {
+      writeRegister(fsImpl, featureDir, register);
+      renderViews(fsImpl, featureDir, register);
+    }
+    return { ...base, retired, unchanged };
+  } finally {
+    release();
+  }
+}
+
 // ── verb handler ───────────────────────────────────────────────────────────────────────────────
 
-const VALID_ACTIONS = ['init', 'add', 'list', 'compact'];
+const VALID_ACTIONS = ['init', 'add', 'list', 'compact', 'link', 'retire'];
 
 /** `--by user,agent` → ['user', 'agent']; undefined → no filter. */
 function parseBy(value: any): string[] | null {
@@ -391,6 +590,21 @@ function parseBy(value: any): string[] | null {
   const bad = list.filter((v: string) => !DECIDERS.includes(v));
   if (!list.length || bad.length) throw new DecisionUsageError(`--by ${bad.length ? `'${bad.join(',')}'` : 'is empty'}: valid values are ${DECIDERS.join(', ')}`);
   return list;
+}
+
+/** `--status live,retired` → ['live', 'retired']; undefined → no filter. */
+function parseStatus(value: any): string[] | null {
+  if (value === undefined || value === null) return null;
+  const list = toList(value, 'status', '--status');
+  const bad = list.filter((v: string) => !(DECISION_STATES as readonly string[]).includes(v));
+  if (!list.length || bad.length) throw new DecisionUsageError(`--status ${bad.length ? `'${bad.join(',')}'` : 'is empty'}: valid values are ${DECISION_STATES.join(', ')}`);
+  return list;
+}
+
+function parseMode(value: any): string {
+  if (value === undefined || value === null) return 'history';
+  if (!(COMPACT_MODES as readonly string[]).includes(value)) throw new DecisionUsageError(`--mode '${value}': valid values are ${COMPACT_MODES.join(', ')}`);
+  return value;
 }
 
 function readBatchFile(batchPath: string, fsImpl: any): any {
@@ -413,11 +627,13 @@ function readBatchFile(batchPath: string, fsImpl: any): any {
  * compaction) can call it directly.
  *
  * @param {Object} options
- * @param {string} options.action init | add | list | status | compact
+ * @param {string} options.action init | add | list | status | compact | link | retire
  * @param {string} options.projectRoot directory the feature is resolved from
  * @param {string|null} [options.slug] explicit feature override
  * @param {Object} [options.flags] add: topic, statement, channel, stage, rationale, supersedes,
- *   refs, source, undo, batch (path); list: all, by (user|agent|autopilot, comma-separated)
+ *   refs, source, undo, batch (path); list: all, by (user|agent|autopilot, comma-separated), status
+ *   (live|superseded|retired, comma-separated); compact: mode (history|closed-points); link: from,
+ *   to, kind (supersedes|narrows|reopens); retire: ids (comma-separated), reason
  * @returns {{exitCode:number, result?:Object, usage?:string}}
  */
 function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, now = new Date(), fsImpl = nodeFs }: any): { exitCode: number; result?: any; usage?: string } {
@@ -433,9 +649,13 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
     if (act === 'init') {
       result = initRegister({ ...resolved, fsImpl });
     } else if (act === 'list') {
-      result = listDecisions({ ...resolved, all: Boolean(flags.all), by: parseBy(flags.by), fsImpl });
+      result = listDecisions({ ...resolved, all: Boolean(flags.all), by: parseBy(flags.by), status: parseStatus(flags.status), fsImpl });
     } else if (act === 'compact') {
-      result = compactDecisions({ ...resolved, repoRoot: feature.featureRoot, paths: feature.paths, now, fsImpl });
+      result = compactDecisions({ ...resolved, repoRoot: feature.featureRoot, paths: feature.paths, now, mode: parseMode(flags.mode), fsImpl });
+    } else if (act === 'link') {
+      result = linkDecisions({ ...resolved, from: flags.from, to: flags.to, kind: flags.kind, fsImpl });
+    } else if (act === 'retire') {
+      result = retireDecisions({ ...resolved, ids: flags.ids, reason: flags.reason, now, fsImpl });
     } else {
       let items: any;
       if (flags.batch) {
@@ -470,18 +690,31 @@ function humanLines(result: any): string[] {
   if (result.action === 'init' && !result.finding) {
     lines.push(result.created ? `created ${path.join(result.featureDir, 'decisions', 'register.json')}` : 'register already exists; nothing written');
   }
+  if (result.action === 'link' && !result.finding) {
+    lines.push(result.changed ? `linked ${result.from} ${result.kind} ${result.to}` : `${result.from} already ${result.kind} ${result.to}; nothing written`);
+  }
+  if (result.action === 'retire' && !result.finding) {
+    for (const r of result.retired as any[]) lines.push(`retired ${r.id} (${r.topic})`);
+    for (const id of result.unchanged as string[]) lines.push(`${id} already retired; nothing written`);
+  }
   for (const a of (result.added || []) as any[]) lines.push(`added ${a.id} (${a.topic})`);
   for (const s of (result.superseded || []) as any[]) lines.push(`superseded ${s.id} by ${s.by}`);
   if (result.action === 'list' && !result.finding) {
     if (result.decisions.length === 0) lines.push('No decisions.');
     for (const d of result.decisions as any[]) {
-      lines.push(`${d.id}  ${d.topic}  ${d.statement}  [${d.decidedBy}, ${d.stage}${d.status === 'live' ? '' : `, superseded by ${d.supersededBy}`}]`);
+      const state = decisionState(d);
+      const suffix = state === 'superseded' ? `, superseded by ${d.supersededBy}` : state === 'retired' ? ', retired' : '';
+      lines.push(`${d.id}  ${d.topic}  ${d.statement}  [${d.decidedBy}, ${d.stage}${suffix}]`);
       if (d.undo) lines.push(`    undo: ${d.undo}`);
     }
   }
   if (result.action === 'compact') {
     if (result.status === 'unchanged') lines.push('nothing to compact');
-    for (const m of (result.moved || []) as any[]) lines.push(`moved ${m.lines} line${m.lines === 1 ? '' : 's'} from ${m.path} to ${m.archive}`);
+    for (const m of (result.moved || []) as any[]) {
+      lines.push(result.mode === 'closed-points'
+        ? `moved ${m.items} closed point${m.items === 1 ? '' : 's'} (${m.lines} line${m.lines === 1 ? '' : 's'}) from ${m.path} to ${m.archive}`
+        : `moved ${m.lines} line${m.lines === 1 ? '' : 's'} from ${m.path} to ${m.archive}`);
+    }
   }
   return lines;
 }
@@ -505,7 +738,14 @@ module.exports = {
   initRegister,
   addDecisions,
   listDecisions,
+  linkDecisions,
+  retireDecisions,
   compactDecisions,
+  decisionState,
+  inLiveView,
+  LINK_KINDS,
+  DECISION_STATES,
+  COMPACT_MODES,
   readRegister,
   renderLiveView,
   renderArchive,

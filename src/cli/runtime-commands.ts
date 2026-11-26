@@ -423,7 +423,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // The feature is resolved from the working directory (or --slug) by the same resolver
     // `scaffold` uses; the flags are the caller's own statements, validated by the register module.
     case 'review-pack': return handleReviewPackCommand({ taskId: o.taskId, cwd: evidenceRoot(o), json: o.json });
-    case 'decision': return handleDecisionCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { topic: o.topic, statement: o.statement, channel: o.channel, stage: o.stage, rationale: o.rationale, supersedes: o.supersedes, refs: o.refs, source: o.source, undo: o.undo, batch: o.batchPath, all: o.all, by: o.by } });
+    case 'decision': return handleDecisionCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { topic: o.topic, statement: o.statement, channel: o.channel, stage: o.stage, rationale: o.rationale, supersedes: o.supersedes, refs: o.refs, source: o.source, undo: o.undo, batch: o.batchPath, all: o.all, by: o.by, from: o.from, to: o.to, kind: o.kind, ids: o.ids, reason: o.reason, status: o.attemptStatus, mode: o.mode } });
     // 136: the feature is resolved the way `decision` resolves it; the engine moves files only inside its additional-context folder.
     case 'intake': return handleIntakeCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { runId: o.runId, stdin: o.stdin, file: o.file, stage: o.stage } });
     // Feature 046: the project's follow-up store lives at the repository root (never `-g`, which

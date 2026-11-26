@@ -107,3 +107,39 @@ test('the markdown form has a Live decisions section only when there are live de
   assert.deepEqual(without.decisions, { available: false, live: [], liveCount: 0 });
   assert.doesNotMatch(compiler.formatMarkdown(without), /Live decisions/);
 });
+
+// IC-011: stage context gets the live-view set only. A retired decision keeps status `live` in the
+// register but is out of the live view, so the pack must not hand it to a stage as live.
+
+const retireIds = (root: any, ids: any) => assert.equal(runDecision({ action: 'retire', projectRoot: root, slug: '060-x', flags: { ids, reason: 'No longer relevant' } }).exitCode, 0);
+
+test('IC-011: a retired decision is left out of the pack; live holds only the live one and liveCount is 1', (t) => {
+  const root = fixture(t);
+  // The fixture's live decisions are DEC-002 (auth-mode) and DEC-003 (wire-id); DEC-001 is superseded.
+  retireIds(root, 'DEC-002');
+  const { code, pack } = packOf(root);
+  assert.equal(code, 0);
+  assert.equal(pack.decisions.available, true);
+  assert.equal(pack.decisions.liveCount, 1);
+  assert.deepEqual(pack.decisions.live, [
+    { id: 'DEC-003', topic: 'wire-id', statement: 'The wire carries the UUID.', decidedBy: 'user', stage: 'design' },
+  ]);
+});
+
+test('IC-011: with every live decision retired the pack reads as available with none live', (t) => {
+  const root = fixture(t);
+  retireIds(root, 'DEC-002,DEC-003');
+  const { pack } = packOf(root);
+  assert.equal(pack.decisions.available, true);
+  assert.deepEqual(pack.decisions.live, []);
+  assert.equal(pack.decisions.liveCount, 0);
+});
+
+test('IC-011: a decision that is retired and then superseded stays out of the pack as well', (t) => {
+  const root = fixture(t);
+  retireIds(root, 'DEC-003');
+  assert.equal(runDecision({ action: 'link', projectRoot: root, slug: '060-x', flags: { from: 'DEC-002', to: 'DEC-003', kind: 'supersedes' } }).exitCode, 0);
+  const { pack } = packOf(root);
+  assert.equal(pack.decisions.liveCount, 1);
+  assert.deepEqual(pack.decisions.live.map((d: any) => d.id), ['DEC-002']);
+});

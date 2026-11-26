@@ -315,6 +315,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--refs', 'refs'],                  // comma-separated ids the decision touches, e.g. FR-001,IC-002
   ['--source', 'source'],              // where the decision was stated, e.g. design/design-02-question.md#question-1
   ['--undo', 'undo'],                  // decision --action add: one line on how a person reverses it (required for an unattended default)
+  ['--from', 'from'],                  // decision --action link: the newer decision (DEC-###)
+  ['--to', 'to'],                      // decision --action link: the older decision (DEC-###)
   ['--index', 'index'],                // package add: local pinned package index
   // followup and lifecycle (feature 046). `--statement`, `--stage`, `--slug`, `--batch`, `--reason`,
   // `--channel`, `--state`, `--source`, `--intent`, `--task-class` and `--task-id` above are shared.
@@ -360,7 +362,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--observed-command', 'observedCommand'], // evidence --action add: the command a test-result/runtime-observation ran
   ['--batch', 'batchPath'],            // evidence --action add: a stage's batch file, or '-'
   ['--verification-plan', 'verificationPlan'], // readiness: how success will be established
-  ['--mode', 'mode'],                  // readiness: execution mode, workflow (default) | standalone
+  ['--mode', 'mode'],                  // readiness: execution mode, workflow (default) | standalone · decision --action compact: history (default) | closed-points
   ['--scope', 'scope'],                // readiness: the stated scope boundary; verify: the declared
                                        // change scope, <path>[,<path>...], unioned with the plan's bound
   ['--invariants', 'invariants'],      // readiness: the invariants a refactor must preserve
@@ -388,7 +390,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--gap', 'gap'],                     // research-request: unresolved reason
   ['--stage', 'stage'],                // retrieval-plan: the stage id declaring the plan;
                                        // outcome: the stage writing it, refused unless terminal
-  ['--status', 'attemptStatus'],       // retrieval-plan: attempt status (EMPTY|UNREACHED|UNVERIFIED)
+  ['--status', 'attemptStatus'],       // retrieval-plan: attempt status (EMPTY|UNREACHED|UNVERIFIED) · decision --action list: live|superseded|retired[,..]
   ['--state', 'state'],                // outcome: the terminal state being recorded
   ['--result', 'result'],              // orchestrate complete-stage: the stage's own outcome, passed | failed (omit → unverified)
   // outcome: the verdicts the run saw, stated by it and validated against the vocabulary the
@@ -635,7 +637,7 @@ Commands:
                        config set <key> <json-value> --layer user|project|local [--json]   validate, then write that layer's file; refuses security-relevant and invariant.* keys
                        config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
-  decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+  decision             Register, list, link, retire or compact the active feature's decisions (--action init|add|list|compact|link|retire)
   review-pack          Write the feature's review pack from its records: review-pack --task-id <slug> [--json]
   intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
   followup             Record, list, take, settle, promote or report what a feature left unfinished, or propose a check for a repeat (--action add|list|take|settle|promote|report|propose|decide; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
@@ -786,6 +788,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --rationale, --proposed-by, --calling-skill    classify
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
       --undo <text>, --by <user|agent|autopilot[,..]>  decision (add: how to reverse an unattended default; list: filter by decider)
+      --from <DEC-###> --to <DEC-###> --kind supersedes|narrows|reopens  decision link (record that --from replaces, narrows or reopens --to)
+      --ids <DEC-###[,..]> --reason <text>  decision retire (take settled decisions out of the live view; they stay in force)
+      --status live|superseded|retired[,..]  decision list (select by state, by id)
+      --mode history|closed-points          decision compact (history is the default; closed-points moves labelled settled open points to decisions/history/<artifact>-closed.md)
       --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
       --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
       --intent, --query, --check, --harness  route
