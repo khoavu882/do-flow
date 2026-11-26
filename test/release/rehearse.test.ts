@@ -89,6 +89,22 @@ test('parseArgs rejects unknown, repeated, valueless and bad-valued flags with t
   }
 });
 
+test('parseArgs rejects --seed-fault plantuml with --skip-suite, naming both flags, and still allows the other seed combinations', () => {
+  assert.throws(() => parseArgs(['--seed-fault', 'plantuml', '--skip-suite']), /--seed-fault plantuml.*--skip-suite/);
+  assert.throws(() => parseArgs(['--skip-suite', '--seed-fault', 'plantuml']), /--seed-fault plantuml.*--skip-suite/);
+  assert.equal(parseArgs(['--seed-fault', 'plantuml', '--skip-preflight']).seed, 'plantuml');
+  assert.equal(parseArgs(['--seed-fault', 'raw-ts', '--skip-suite']).skipSuite, true);
+});
+
+test('the CLI exits 2 on --seed-fault plantuml with --skip-suite, before any stage runs', () => {
+  const result = require('node:child_process').spawnSync(process.execPath,
+    [path.join(__dirname, '..', '..', 'src', 'release', 'rehearse.ts'), '--seed-fault', 'plantuml', '--skip-suite'],
+    { encoding: 'utf8', timeout: 30000 });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /--seed-fault plantuml.*--skip-suite/);
+  assert.equal(result.stdout, '');
+});
+
 test('ciEnv builds the environment from nothing and keeps every path under scratch', () => {
   const base = {
     PATH: '/opt/homebrew/bin:/usr/bin', HOME: '/operator/home', DOFLOW_X: '1', DOFLOW_RUNTIME_DIR: '/r',
