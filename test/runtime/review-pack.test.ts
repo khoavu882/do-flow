@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
-const { initRegister, addDecisions } = require('../../src/runtime/decision-register.ts');
+const { initRegister, addDecisions, retireDecisions } = require('../../src/runtime/decision-register.ts');
 const { addFollowups } = require('../../src/runtime/lifecycle/followup.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../../src/runtime/lifecycle/root.ts');
 const { writeReviewPack, buildRoadmapReport, handleRoadmapReportCommand, handleReviewPackCommand, renderPack, gatherFacts } = require('../../src/runtime/review-pack.ts');
@@ -292,6 +292,17 @@ test('section 1 takes the run record\'s branch first, then a current branch endi
   assert.match(section(text, 1), /Branch: not determined\n- Head commit: not determined/);
   assert.match(section(text, 8), /No branch was determined/);
   assert.doesNotMatch(section(text, 1), /no branch/i);
+});
+
+test('section 3 marks a retired decision after its by-part, whether it is live or superseded', (t) => {
+  const { root, featureDir } = fixture(t);
+  const retired = retireDecisions({ featureDir, slug: SLUG, ids: ['DEC-001'], reason: 'Out of scope', now: NOW });
+  assert.equal(retired.finding, undefined, JSON.stringify(retired));
+  assert.match(section(packOf(root), 3), /\n- DEC-001 · design · wire-id · by agent · retired\n/);
+  addDecisions({ featureDir, slug: SLUG, now: NOW, items: [item({ topic: 'wire-id', statement: 'Use the long id.', channel: 'default', rationale: 'simplest', supersedes: ['DEC-001'] })] });
+  const three = section(packOf(root), 3);
+  assert.match(three, /\n- DEC-001 · design · wire-id · by agent · superseded by DEC-005 · retired\n/);
+  assert.doesNotMatch(three.split('\n').find((l) => l.startsWith('- DEC-004')) as string, /retired/);
 });
 
 test('section 3 says what a decision was superseded by; section 4 marks a forced gate and does not call every actor a policy', (t) => {

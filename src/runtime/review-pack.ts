@@ -316,7 +316,7 @@ function sectionDecisions(f: any): string[] {
   const out: string[] = [];
   if (listed.length === 0) out.push(`- ${NONE}`);
   for (const d of listed) {
-    out.push(`- ${clean(d.id)} · ${clean(d.stage)} · ${clean(d.topic)} · by ${clean(d.decidedBy)}${d.status === 'live' ? '' : ` · superseded by ${clean(d.supersededBy)}`}`);
+    out.push(`- ${clean(d.id)} · ${clean(d.stage)} · ${clean(d.topic)} · by ${clean(d.decidedBy)}${d.status === 'live' ? '' : ` · superseded by ${clean(d.supersededBy)}`}${d.retired ? ' · retired' : ''}`);
     out.push(`  - Decision: ${clean(d.statement)}`);
     out.push(`  - Reason: ${clean(d.rationale)}`);
     out.push(`  - Undo: ${d.undo ? clean(d.undo) : NONE}`);
