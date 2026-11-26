@@ -356,6 +356,8 @@ test('R15 reads the run of the step that runs release:rehearse, not other job te
     ['|| exit 0 on the step', goodStep + ' || exit 0', /must not mask the rehearsal failure/],
     ['; : on the step', goodStep + '; :', /must not mask the rehearsal failure/],
     ['; exit 0 on the step', goodStep + '; exit 0', /must not mask the rehearsal failure/],
+    ['the rehearsal in the background', goodStep + ' &', /must not run release:rehearse in the background/],
+    ['the rehearsal in the background, then waited without its status', '      - run: |\n          npm run release:rehearse -- --skip-preflight --skip-suite &\n          wait', /must not run release:rehearse in the background/],
     ['|| true after a pipe', goodStep + ' 2>&1 | tee rehearse.log || true', /must not mask the rehearsal failure/],
     ['|| true after a continuation line', '      - run: |\n          npm run release:rehearse -- --skip-preflight \\\n            --skip-suite \\\n            || true', /must not mask the rehearsal failure/],
     ['the command only inside a quoted comment', '      - run: "true # npm run release:rehearse -- --skip-preflight --skip-suite"', /must run release:rehearse/],

@@ -355,6 +355,12 @@ function shellTokens(text: string): ShellToken[] {
  * not mask its exit status. The rehearsal is a command (at the start of a command, after `&&`,
  * `;`, `|` or the like), never text inside quotes, a comment or another command's arguments; its
  * arguments end at the first shell operator. Every problem is returned, not only the first.
+ *
+ * Residuals this reader accepts (FU-gy2mkf), because it tokenises one command line and is not a
+ * shell: a heredoc body or dead code (`if false; then ...; fi`, `exit 0` before the command) that
+ * holds the command text still passes; a `{ }`, `time` or `if` wrapper before the command is
+ * rejected, not followed, so a legitimate wrapper has to be spelled as a plain command; and a
+ * `||` branch that re-raises the failure (`|| exit 1`) is flagged with the other `||` forms.
  */
 function rehearseStepViolations(job: WorkflowJob): string[] {
   const { parseArgs } = require('./rehearse.ts');
@@ -392,12 +398,17 @@ function rehearseStepViolations(job: WorkflowJob): string[] {
             + String(error.message).split('\n')[0]);
         }
       }
-      // Anything after the command up to the end of its line or its `;`: a `||` or a `; true`, `; :`, `; exit 0` hides a failed rehearsal.
+      // Anything after the command up to the end of its line or its `;`: a `||` or a `; true`, `; :`, `; exit 0` hides a failed rehearsal,
+      // and a trailing `&` runs it in the background, where the step never sees its exit code.
       for (let next = end; next < tokens.length; next++) {
         const follow = tokens[next];
         if (!('op' in follow) || follow.op === '\n') {
           if ('op' in follow) break;
           continue;
+        }
+        if (follow.op === '&') {
+          violations.push('rehearse must not run release:rehearse in the background with &: the step loses its exit code');
+          break;
         }
         if (follow.op === '||') {
           violations.push('rehearse must not mask the rehearsal failure with ||, ; true, ; : or ; exit 0');
