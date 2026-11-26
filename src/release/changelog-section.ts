@@ -56,6 +56,30 @@ function changelogSection(changelogText: string, version: string): string | null
 }
 
 /**
+ * Closes a `**` the cut left open. Only a bare `**` counts (not `2**10`, which sits against a word,
+ * nor a run of three or more), and only when no closing `**` follows it in the kept text. A `_` that
+ * opens right inside it and is not closed is closed too; a `**` that is the last thing kept is dropped.
+ */
+function closeBold(kept: string): string {
+  const masked = kept.replace(UNBREAKABLE, (span) => '\0'.repeat(span.length));
+  let open = -1;
+  for (const run of masked.matchAll(/\*+/g)) {
+    if (run[0].length !== 2) continue;
+    const before = masked[run.index - 1] || '';
+    const after = masked[run.index + 2] || '';
+    if (open < 0) {
+      if (!/\w/.test(before) && after !== '' && !/\s/.test(after)) open = run.index;
+    } else if (before !== '' && !/\s/.test(before)) {
+      open = -1;
+    }
+  }
+  if (open < 0) return kept;
+  if (open + 2 === kept.length) return kept.slice(0, open).trimEnd();
+  const inner = masked.slice(open + 2);
+  return `${kept}${inner.startsWith('_') && !inner.includes('_', 1) ? '_' : ''}**`;
+}
+
+/**
  * Cuts a line to about `max` characters at a space, never inside a link or a code span, and ends it
  * with an ellipsis. A line that opens with a span (after the bullet and any `**`) keeps that whole
  * span, so the entry still has visible text; a span longer than `max` is the one way a cut line
@@ -76,12 +100,7 @@ function trimLine(line: string, max: number): string {
   const space = line.lastIndexOf(' ', cut);
   if (space >= floor && space > cut - 40 && !inside(space)) cut = space;
   if (/[\uD800-\uDBFF]/.test(line[cut - 1] || '')) cut -= 1;
-  let kept = line.slice(0, cut).trimEnd();
-  // `**` outside code spans pair up; an odd one is still open at the cut.
-  if ((kept.replace(UNBREAKABLE, '').match(/\*\*/g) || []).length % 2 === 1) {
-    kept = /\*\*$/.test(kept) ? kept.slice(0, -2).trimEnd() : `${kept}**`;
-  }
-  return `${kept}…`;
+  return `${closeBold(line.slice(0, cut).trimEnd())}…`;
 }
 
 function repositoryUrl(repoRoot: string): string {

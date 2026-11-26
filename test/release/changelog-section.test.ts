@@ -213,6 +213,20 @@ test('a bold title cut mid-way is closed, and a code span with ** inside does no
   assert.match(withSpan, /^- \*\*a `\*\*` bold title .*\*\*…$/);
 });
 
+test('only a bare ** that opens at a word boundary is closed: not 2**10 or ***x, and an open _ inside it is closed too', () => {
+  const cut = (line: string) => body(`### A\n${line}\n${'- filler\n'.repeat(20000)}`.trim()).split('\n')[1];
+  const words = 'word '.repeat(80);
+  const power = cut(`- 2**10 is ${words}`);
+  assert.match(power, /^- 2\*\*10 is word .*word…$/);
+  const triple = cut(`- ***x ${words}`);
+  assert.match(triple, /^- \*\*\*x word .*word…$/);
+  const italic = cut(`- **_${'title '.repeat(60)}_** rest`);
+  assert.match(italic, /^- \*\*_title .*title_\*\*…$/);
+  const closedItalic = cut(`- **_short_ ${words}`);
+  assert.match(closedItalic, /^- \*\*_short_ word .*word\*\*…$/);
+  for (const out of [italic, closedItalic]) assert.equal((out.match(/_/g) || []).length % 2, 0, out);
+});
+
 test('a fenced block and its stray heading lines are dropped, so no fence is left open', () => {
   const out = body(`### A\n\`\`\`\n### not a heading\n\`\`\`\n- kept\n${'- filler line\n'.repeat(20000)}`.trim(), 5000);
   assert.ok(!out.includes('not a heading') && !out.includes('```'));
