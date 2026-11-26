@@ -1875,6 +1875,8 @@ underscore or dash (starting with a letter or digit, no `..`) is refused with ex
 4. Watch the workflow graph: the release workflow runs `preflight`, `test` and `rehearse` in parallel (`rehearse` passes `--skip-preflight`: it runs on the tag, which its own preflight stage would reject, and the `preflight` job owns that check), followed by `verify-artifact`, `draft-release`, `publish`, `verify-registry`, `promote`, and `publish-release`.
 5. Verify and record: inspect `npm view @khoavu882/doflow dist-tags` and record the outcome in the cut record below.
 
+The GitHub Release body is the tagged version's `CHANGELOG.md` section (`npm run release-notes -- <tag>`). GitHub refuses a body over 125,000 characters, so when the section is over 120,000 characters (UTF-16 code units, as `String.length` counts them) the script writes a shorter body instead: every heading, the first line of each entry (cut at about 300 characters, never inside a link or a code span) and a final `Full notes:` link to the section at the tag. If that is still too long it leaves out the last entries of the longest headings and says how many (`- … and N more entries`). A section under the cap is printed unchanged. Preflight's `release-notes-size` check builds that body and fails when it is over the cap, so a body GitHub would refuse is found before the tag.
+
 #### Dist-tag policy
 
 - `beta-candidate` holds a just-published prerelease until `verify-registry` passes and is empty otherwise.

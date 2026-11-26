@@ -6,7 +6,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { parseSemVer, compareSemVer } = require('../helper/semver.ts');
-const { changelogSection } = require('./changelog-section.ts');
+const { changelogSection, releaseNotesBody, NOTES_CAP } = require('./changelog-section.ts');
 const { releaseWorkflowFindings, STABLE_ENVIRONMENT } = require('./release-workflow.ts');
 
 const PACKAGE_NAME = '@khoavu882/doflow';
@@ -173,6 +173,7 @@ function runPreflight({
   fsImpl = fs,
   envImpl = process.env,
   execFileSyncImpl = execFileSync,
+  releaseNotesBodyImpl = releaseNotesBody,
 }: {
   repoRoot?: string,
   tag?: string | null,
@@ -182,6 +183,7 @@ function runPreflight({
   fsImpl?: typeof fs,
   envImpl?: Record<string, string | undefined>,
   execFileSyncImpl?: typeof execFileSync,
+  releaseNotesBodyImpl?: typeof releaseNotesBody,
 } = {}): { ok: boolean, checks: Check[] } {
   const checks: Check[] = [];
   let packageJson: any = null;
@@ -345,6 +347,21 @@ function runPreflight({
   }
 
   addChangelogMergeCheck({ checks, repoRoot, cutTag: tag, section, execFileSyncImpl });
+
+  // GitHub refuses a Release body over 125,000 characters at `gh release create`, after the tag.
+  if (section === null) {
+    addCheck(checks, 'release-notes-size', true, 'skipped (no non-empty changelog section to size)', true);
+  } else {
+    try {
+      const length = String(releaseNotesBodyImpl(section, tag || `v${version}`)).length;
+      addCheck(checks, 'release-notes-size', length <= NOTES_CAP,
+        length <= NOTES_CAP ? `release notes are ${length} characters (cap ${NOTES_CAP})`
+          : `release notes are ${length} characters, over the cap of ${NOTES_CAP}`);
+    } catch (error: any) {
+      addCheck(checks, 'release-notes-size', false,
+        `could not build the release notes: ${String(error.message).split('\n')[0]}`);
+    }
+  }
 
   try {
     const workflow = fsImpl.readFileSync(path.join(repoRoot, '.github/workflows/release.yml'), 'utf8');

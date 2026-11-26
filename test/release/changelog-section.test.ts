@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { changelogSection } = require('../../src/release/changelog-section.ts');
+const { changelogSection, releaseNotesBody, NOTES_CAP } = require('../../src/release/changelog-section.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const SCRIPT = path.resolve(__dirname, '../../src/release/changelog-section.ts');
@@ -107,4 +107,105 @@ test('CLI exits 1 when the section is empty', (t) => {
 test('CLI exits 1 when no version is given', () => {
   const r = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
   assert.equal(r.status, 1);
+});
+
+// ── releaseNotesBody: a section over GitHub's body limit is shortened, never refused ─────────────
+const REPO = 'https://github.com/example/repo';
+const LINK = 'Full notes: https://github.com/example/repo/blob/v9.0.0/CHANGELOG.md';
+const body = (section: string, cap?: number): string => releaseNotesBody(section, 'v9.0.0', { repository: REPO, ...(cap ? { cap } : {}) });
+
+// A section of `headings` headings with `entries` bullets each; every bullet has a long first line
+// and a continuation line, a code span and a link near the 300-character cut.
+function bigSection(headings: number, entries: number, firstLine = 700): string {
+  const out: string[] = [];
+  for (let h = 0; h < headings; h++) {
+    out.push(`### Heading ${h}`, '');
+    for (let e = 0; e < entries; e++) {
+      const head = `- **Entry ${h}.${e}:** `;
+      out.push(`${head}${'word '.repeat(Math.ceil(firstLine / 5))}`.trimEnd(), `  continuation ${h}.${e} that must not survive`, '');
+    }
+  }
+  return out.join('\n').trim();
+}
+
+test('a section under the cap is returned unchanged, byte for byte', () => {
+  const section = '### Fixed\n- the one fix\n  with a continuation\n\n### Added\n- another';
+  assert.equal(body(section), section);
+  assert.equal(body(section, section.length), section);
+});
+
+test('a section over the cap keeps every heading and every entry first line, with the link, under the cap', () => {
+  const section = bigSection(4, 50); // about 140,000 characters
+  assert.ok(section.length > 125000, `fixture is ${section.length}`);
+  const out = body(section);
+  assert.ok(out.length <= NOTES_CAP, `body is ${out.length}`);
+  assert.deepEqual(out.split('\n').filter((l) => l.startsWith('### ')), ['### Heading 0', '### Heading 1', '### Heading 2', '### Heading 3']);
+  assert.equal(out.split('\n').filter((l) => l.startsWith('- **Entry ')).length, 200);
+  assert.ok(out.includes('- **Entry 3.49:** word word'));
+  assert.ok(!out.includes('continuation'));
+  assert.ok(out.endsWith(`\n\n${LINK}`));
+  assert.ok(!/more entr/.test(out));
+});
+
+test('a first line over 300 characters ends in an ellipsis; a shorter one is untouched', () => {
+  const out = body(`### A\n- short one\n- ${'x '.repeat(400)}`, 700);
+  const [, short, long] = out.split('\n');
+  assert.equal(short, '- short one');
+  assert.ok(long.endsWith('…') && long.length <= 301, `${long.length}`);
+});
+
+test('a cut never lands inside a link or a code span', () => {
+  const link = '[the link text with spaces](https://example.com/a/very/long/path)';
+  const span = '`a code span with spaces`';
+  for (const middle of [link, span]) {
+    for (let pad = 250; pad < 300; pad += 7) {
+      const line = `- ${'a'.repeat(pad)} ${middle} ${'tail '.repeat(40)}`;
+      const out = body(`### A\n${line}\n${'- filler\n'.repeat(20000)}`.trim());
+      const kept = out.split('\n')[1];
+      assert.ok(kept.endsWith('…'));
+      const text = kept.slice(0, -1);
+      assert.ok(text.includes(middle) || !text.includes(middle.slice(0, 6)), `cut inside ${middle}: ${kept.slice(-60)}`);
+      assert.equal((text.match(/`/g) || []).length % 2, 0);
+    }
+  }
+});
+
+test('a fenced block and its stray heading lines are dropped, so no fence is left open', () => {
+  const out = body(`### A\n\`\`\`\n### not a heading\n\`\`\`\n- kept\n${'- filler line\n'.repeat(20000)}`.trim(), 5000);
+  assert.ok(!out.includes('not a heading') && !out.includes('```'));
+  assert.ok(out.includes('- kept'));
+});
+
+test('an extreme section drops entries from the end of the longest headings and says how many', () => {
+  const section = bigSection(3, 400, 400); // 1,200 entries, 600 characters each after the first-line cut
+  const out = body(section);
+  assert.ok(out.length <= NOTES_CAP, `body is ${out.length}`);
+  assert.deepEqual(out.split('\n').filter((l) => l.startsWith('### ')), ['### Heading 0', '### Heading 1', '### Heading 2']);
+  const markers = out.split('\n').filter((l) => l.startsWith('- … and '));
+  assert.equal(markers.length, 3);
+  const shown = out.split('\n').filter((l) => l.startsWith('- **Entry '));
+  const left = markers.reduce((sum, l) => sum + Number(l.match(/and (\d+) more/)![1]), 0);
+  assert.equal(shown.length + left, 1200);
+  assert.ok(shown.some((l) => l.startsWith('- **Entry 0.0:')) && !shown.some((l) => l.startsWith('- **Entry 0.399:')));
+  const perHeading = markers.map((l) => Number(l.match(/and (\d+) more/)![1]));
+  assert.ok(Math.max(...perHeading) - Math.min(...perHeading) <= 1, perHeading.join());
+  assert.ok(out.endsWith(`\n\n${LINK}`));
+});
+
+test('a cap too small for any entry leaves the link alone', () => {
+  assert.equal(body(bigSection(2, 5), 100), LINK);
+});
+
+test('the link is built from the package.json repository when none is given, and a missing v is added', () => {
+  const out = releaseNotesBody(bigSection(1, 400), '2.5.0');
+  assert.match(out, /\nFull notes: https:\/\/github\.com\/khoavu882\/do-flow\/blob\/v2\.5\.0\/CHANGELOG\.md$/);
+});
+
+test('CLI prints the shortened body of an oversized section and exits 0', (t) => {
+  const text = `# Changelog\n\n## [9.0.0] - 2026-01-01\n\n${bigSection(4, 50)}\n\n## [8.0.0]\n\n### Added\n- old\n`;
+  const r = run(t, (file: any) => ['v9.0.0', file], text);
+  assert.equal(r.status, 0);
+  assert.ok(r.stdout.length <= NOTES_CAP + 1);
+  assert.match(r.stdout, /### Heading 3\n/);
+  assert.match(r.stdout, /Full notes: https:\/\/github\.com\/khoavu882\/do-flow\/blob\/v9\.0\.0\/CHANGELOG\.md\n$/);
 });
