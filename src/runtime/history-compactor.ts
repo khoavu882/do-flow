@@ -291,7 +291,7 @@ function compactClosedPoints({ fsImpl, featureDir, file, date }: { fsImpl: any; 
   let pendingBlank: string | null = null;
   for (let i = start + 1; i < end; i += 1) {
     if (moving.has(i)) continue;
-    if (kinds[i] === 'text' && strip(lines[i]).trim() === canonicalPointer) continue;
+    if (kinds[i] === 'text' && strip(lines[i]) === canonicalPointer) continue;
     if (isBlank(i)) { if (kept.length && pendingBlank === null) pendingBlank = lines[i]; continue; }
     if (pendingBlank !== null) { kept.push(pendingBlank); pendingBlank = null; }
     kept.push(lines[i]);

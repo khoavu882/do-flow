@@ -689,6 +689,14 @@ test('closed-points: any line other than the exact canonical pointer is content,
   assert.equal(read(f.file('design')), doc('# D', '', CP_HEADING, '', stray, '', DESIGN_POINTER));
 });
 
+test('closed-points: a line equal to the pointer but with leading or trailing spaces is content, not the pointer (IC-009)', () => {
+  for (const variant of [`  ${DESIGN_POINTER}`, `${DESIGN_POINTER}  `, `\t${DESIGN_POINTER}`]) {
+    const f = closedFeature({ design: doc('# D', '', CP_HEADING, '', variant, '', '- **Decided:** a.', '') });
+    closedRun(f);
+    assert.equal(read(f.file('design')), doc('# D', '', CP_HEADING, '', variant, '', DESIGN_POINTER), JSON.stringify(variant));
+  }
+});
+
 test('closed-points: specs and data-model move to their own archives with their own relative links', () => {
   const f = closedFeature({
     specs: doc('# S', '', '## 3. Open Points for Review', '', '- **Rejected (option B):** no.', '- keep', ''),
