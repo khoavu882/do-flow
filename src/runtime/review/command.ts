@@ -116,7 +116,7 @@ function handleReviewInput({ slug, base, json, cwd, env, resolve, out }: any): n
   let baseSha: string | null = null;
   let reason = '';
   if (base !== null) {
-    const explicit = resolveExplicitBaseline({ cwd, ref: base });
+    const explicit = resolveExplicitBaseline({ cwd, ref: base, flag: '--base' });
     baseSha = explicit.ok ? explicit.sha : null;
     reason = explicit.ok ? '' : String(explicit.reason);
   } else {
