@@ -9,11 +9,22 @@
 // as the Release body. A tag whose section is missing or empty fails the job instead of
 // publishing an empty Release.
 //
+// GitHub refuses a Release body over 125,000 characters (HTTP 422), and one version's section can
+// be longer than that (2.5.0's was 140,549). `releaseNotesBody` keeps the section as it is when it
+// fits under NOTES_CAP and otherwise writes a shorter body: every heading, the first line of every
+// entry, and a link to the full section. Lengths are UTF-16 code units (`String.length`), which is
+// never fewer than the code points GitHub counts, and the cap leaves 5,000 of margin.
+//
 // Usage: node src/release/changelog-section.ts <version|tag> [CHANGELOG path]
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
+
+const NOTES_CAP = 120000;
+const ENTRY_LINE_MAX = 300;
+// A markdown link or a code span: the two places a cut line would stop rendering.
+const UNBREAKABLE = /`[^`\n]*`|\[[^\]\n]*\]\([^)\n]*\)/g;
 
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -43,6 +54,111 @@ function changelogSection(changelogText: string, version: string): string | null
   return body === '' ? null : body;
 }
 
+/** Cuts a line to about `max` characters at a space, never inside a link or a code span, and ends it with an ellipsis. */
+function trimLine(line: string, max: number): string {
+  if (line.length <= max) return line;
+  const spans = [...line.matchAll(UNBREAKABLE)].map((m) => [m.index, m.index + m[0].length]);
+  const inside = (at: number) => spans.some(([start, end]) => start < at && at < end);
+  let cut = max;
+  const span = spans.find(([start, end]) => start < cut && cut < end);
+  if (span) cut = span[0] > 0 ? span[0] : span[1];
+  const space = line.lastIndexOf(' ', cut);
+  if (space > cut - 40 && !inside(space)) cut = space;
+  if (/[\uD800-\uDBFF]/.test(line[cut - 1] || '')) cut -= 1;
+  return `${line.slice(0, cut).trimEnd()}…`;
+}
+
+function repositoryUrl(): string {
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+  const match = String(pkg.repository?.url ?? pkg.repository ?? '')
+    .match(/github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
+  if (!match) throw new Error('package.json repository is not a github.com URL');
+  return `https://github.com/${match[1]}`;
+}
+
+/**
+ * The text of a GitHub Release body for a version's section, at most `cap` characters. A section
+ * that fits is returned unchanged. A longer one keeps every heading and the first line of every
+ * top-level bullet (cut at about 300 characters), then a link to the full CHANGELOG at the tag. If
+ * that is still too long, the last entries of the longest headings are left out one at a time
+ * and each heading says how many ("... and N more entries").
+ * @param {string} section a version's section from changelogSection
+ * @param {string} tag the release tag; a missing leading v is added
+ * @returns {string}
+ */
+function releaseNotesBody(
+  section: string,
+  tag: string,
+  { cap = NOTES_CAP, repository }: { cap?: number, repository?: string } = {},
+): string {
+  if (section.length <= cap) return section;
+  const link = `Full notes: ${repository ?? repositoryUrl()}/blob/v${String(tag).trim().replace(/^v/, '')}/CHANGELOG.md`;
+
+  // One line per kept line of the section. Lines under an entry (indented, nested, lazy
+  // continuation) and fenced blocks are dropped; a fence left open would break the rest of the page.
+  type Line = { text: string, group: number, entry: boolean };
+  const lines: Line[] = [];
+  const entries: Line[][] = [[]];
+  let inEntry = false;
+  let inFence = false;
+  for (const text of section.split('\n')) {
+    if (/^(`{3,}|~{3,})/.test(text)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const entry = /^[-*+] /.test(text);
+    if (/^#{1,6} /.test(text)) {
+      entries.push([]);
+      inEntry = false;
+      lines.push({ text, group: entries.length - 1, entry: false });
+      continue;
+    }
+    if (!entry && text.trim() !== '') {
+      if (inEntry && (/^\s/.test(text) || lines[lines.length - 1].text !== '')) continue;
+      inEntry = false;
+    }
+    if (entry) inEntry = true;
+    const line = { text: trimLine(text, ENTRY_LINE_MAX), group: entries.length - 1, entry };
+    lines.push(line);
+    if (entry) entries[line.group].push(line);
+  }
+
+  // keep[g] is how many entries of heading g are shown; the rest become one "and N more" line.
+  const keep = entries.map((list) => list.length);
+  const build = (): string => {
+    const out: string[] = [];
+    const seen = entries.map(() => 0);
+    for (const line of lines) {
+      if (line.entry && seen[line.group]++ >= keep[line.group]) {
+        if (seen[line.group] === keep[line.group] + 1) {
+          const n = entries[line.group].length - keep[line.group];
+          out.push(`- … and ${n} more ${n === 1 ? 'entry' : 'entries'}`);
+        }
+        continue;
+      }
+      if (line.text === '' && out[out.length - 1] === '') continue;
+      out.push(line.text);
+    }
+    while (out[out.length - 1] === '') out.pop();
+    return `${out.join('\n')}\n\n${link}`;
+  };
+
+  let body = build();
+  while (body.length > cap) {
+    // Drop from the heading with the most entries left until the estimate fits, then measure.
+    let excess = body.length - cap + 32 * entries.length;
+    let dropped = false;
+    while (excess > 0) {
+      const g = keep.indexOf(Math.max(...keep));
+      if (keep[g] === 0) break;
+      keep[g] -= 1;
+      excess -= entries[g][keep[g]].text.length + 1;
+      dropped = true;
+    }
+    if (!dropped) return link;
+    body = build();
+  }
+  return body;
+}
+
 if (require.main === module) {
   const version = process.argv[2];
   const file = process.argv[3] || path.join(REPO_ROOT, 'CHANGELOG.md');
@@ -57,12 +173,12 @@ if (require.main === module) {
     console.error(`cannot read ${file}: ${(err as Error).message}`);
     process.exit(1);
   }
-  const body = changelogSection(text, version);
-  if (body === null) {
+  const section = changelogSection(text, version);
+  if (section === null) {
     console.error(`no non-empty CHANGELOG section for ${String(version).replace(/^v/, '')} in ${file}`);
     process.exit(1);
   }
-  process.stdout.write(`${body}\n`);
+  process.stdout.write(`${releaseNotesBody(section, version)}\n`);
 }
 
-module.exports = { changelogSection };
+module.exports = { changelogSection, releaseNotesBody, NOTES_CAP };

@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { parseArgs, runPreflight } = require('../../src/release/preflight.ts');
+const { NOTES_CAP } = require('../../src/release/changelog-section.ts');
 
 const VERSION = '2.0.0-beta.6';
 const TAG = 'v' + VERSION;
@@ -104,13 +105,14 @@ test('preflight passes the beta release policy and all clean fixture checks', (t
     'version-ahead',
     'changelog',
     'changelog-names-merges',
+    'release-notes-size',
     'release-workflow',
     'clean-tree',
   ]);
   for (const id of [
     'manifest-versions', 'tag-matches-version', 'tag-unused', 'stable-allowed',
     'npm-unpublished', 'version-ahead', 'changelog', 'changelog-names-merges',
-    'release-workflow', 'clean-tree',
+    'release-notes-size', 'release-workflow', 'clean-tree',
   ]) {
     assert.equal(check(result, id).ok, true, id);
   }
@@ -368,4 +370,29 @@ test('release-workflow takes the Node floor from the checkout engines.node, so a
   const none = check(fixture(t, { engines: 'latest' }).result, 'release-workflow');
   assert.equal(none.ok, false);
   assert.match(none.message, /R11 /);
+});
+
+test('release-notes-size passes on the real 2.5.0 CHANGELOG section, which is far over GitHub\'s limit unshortened', (t) => {
+  const changelog = fs.readFileSync(path.join(__dirname, '../../CHANGELOG.md'), 'utf8');
+  const { result } = fixture(t, { version: '2.5.0', offline: true, changelog });
+  const size = check(result, 'release-notes-size');
+  assert.equal(size.ok, true, size.message);
+  assert.match(size.message, new RegExp(`characters \\(cap ${NOTES_CAP}\\)`));
+});
+
+test('release-notes-size fails and names the length and the cap when the body is over the cap', (t) => {
+  const { run } = fixture(t, { offline: true });
+  const result = run({ releaseNotesBodyImpl: () => 'x'.repeat(NOTES_CAP + 1) });
+  const size = check(result, 'release-notes-size');
+  assert.equal(size.ok, false);
+  assert.match(size.message, new RegExp(`${NOTES_CAP + 1} characters.*${NOTES_CAP}`));
+  assert.equal(result.ok, false);
+});
+
+test('release-notes-size is skipped when there is no section, and fails when the body cannot be built', (t) => {
+  const missing = fixture(t, { offline: true, changelog: '# Changelog\n' });
+  assert.equal(check(missing.result, 'release-notes-size').skipped, true);
+  const { run } = fixture(t, { offline: true });
+  const result = run({ releaseNotesBodyImpl: () => { throw new Error('boom'); } });
+  assert.equal(check(result, 'release-notes-size').ok, false);
 });
