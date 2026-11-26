@@ -335,6 +335,77 @@ test('R15: the rehearsal job must exist, run on the preflight Node, run the rehe
   }
 });
 
+test('R15 reads the run of the step that runs release:rehearse, not other job text', () => {
+  const rehearseJob = workflow.slice(workflow.indexOf('  rehearse:\n'), workflow.indexOf('  verify-artifact:\n'));
+  const goodStep = '      - run: npm run release:rehearse -- --skip-preflight --skip-suite';
+  assert.ok(rehearseJob.includes(goodStep), 'the fixture carries the rehearsal step');
+  const withStep = (step: string) => workflow.replace(rehearseJob, rehearseJob.replace(goodStep, step));
+  const r15 = (text: string) => releaseWorkflowFindings(text).filter((finding: string) => finding.startsWith('R15 '));
+  const bothMissing = /must pass --skip-preflight.*must pass --skip-suite/;
+  const cases: Array<[string, string, RegExp]> = [
+    ['a name carrying the flags over a bare command', '      - name: npm run release:rehearse -- --skip-preflight --skip-suite\n        run: npm run release:rehearse', bothMissing],
+    ['a second step carrying the flags after a bare one', '      - run: npm run release:rehearse\n' + goodStep, bothMissing],
+    ['the flags in another key of the step', '      - env:\n          NOTE: --skip-preflight --skip-suite\n        run: npm run release:rehearse', bothMissing],
+    ['the flags before the bare --', '      - run: npm run release:rehearse --skip-preflight --skip-suite', bothMissing],
+    ['only one flag reports the other', '      - run: npm run release:rehearse -- --skip-suite', /must pass --skip-preflight/],
+    ['a repeated flag', '      - run: npm run release:rehearse -- --skip-preflight --skip-preflight --skip-suite', /rejects.*usage:/],
+    ['a flag taking a value that swallows a skip flag', '      - run: npm run release:rehearse -- --ref --skip-preflight --skip-suite', /rejects.*usage:/],
+    ['|| true on the step', goodStep + ' || true', /must not mask the rehearsal failure/],
+    ['; true on the step', goodStep + '; true', /must not mask the rehearsal failure/],
+    ['|| : on the step', goodStep + ' || :', /must not mask the rehearsal failure/],
+    ['|| exit 0 on the step', goodStep + ' || exit 0', /must not mask the rehearsal failure/],
+    ['; : on the step', goodStep + '; :', /must not mask the rehearsal failure/],
+    ['; exit 0 on the step', goodStep + '; exit 0', /must not mask the rehearsal failure/],
+    ['|| true after a pipe', goodStep + ' 2>&1 | tee rehearse.log || true', /must not mask the rehearsal failure/],
+    ['|| true after a continuation line', '      - run: |\n          npm run release:rehearse -- --skip-preflight \\\n            --skip-suite \\\n            || true', /must not mask the rehearsal failure/],
+    ['the command only inside a quoted comment', '      - run: "true # npm run release:rehearse -- --skip-preflight --skip-suite"', /must run release:rehearse/],
+    ['the command only as echo arguments', '      - run: echo npm run release:rehearse -- --skip-preflight --skip-suite', /must run release:rehearse/],
+    ['the command only inside quotes', '      - run: echo "x" && echo \'npm run release:rehearse -- --skip-preflight --skip-suite\'', /must run release:rehearse/],
+    ['a flag taking a value, after a pipe-free redirect', goodStep + ' --ref --keep > rehearse.log', /rejects.*usage:/],
+  ];
+  for (const [name, step, message] of cases) {
+    const mutated = withStep(step);
+    assert.notEqual(mutated, workflow, name);
+    const found = r15(mutated);
+    assert.equal(found.length, 1, name + ': ' + releaseWorkflowFindings(mutated).join('; '));
+    assert.match(found[0], message, name);
+  }
+  // Both flags are reported at once, not only the first.
+  const missing = r15(withStep('      - run: npm run release:rehearse'))[0];
+  assert.match(missing, /--skip-preflight/);
+  assert.match(missing, /--skip-suite/);
+  // Controls: the same command in a block scalar, folded across lines and with an extra valid flag stays green.
+  for (const step of [
+    '      - run: |\n          npm run release:rehearse -- --skip-preflight --skip-suite',
+    '      - run: |\n          echo start\n          npm run release:rehearse -- --skip-preflight \\\n            --skip-suite',
+    '      - run: npm run release:rehearse -- --skip-preflight --skip-suite --keep',
+    '      - name: the rehearsal\n        run: "npm run release:rehearse -- --skip-preflight --skip-suite"',
+    goodStep + ' 2>&1 | tee rehearse.log',
+    goodStep + ' > rehearse.log',
+    goodStep + ' >> rehearse.log 2>&1',
+    goodStep + ' && echo done',
+    goodStep + ' # the rehearsal',
+    goodStep + ' --ref ${{ github.sha }}',
+    goodStep + ' --ref "$GITHUB_SHA"',
+    goodStep + ' --node "$(command -v node)"',
+    goodStep + ' --node "${NODE_BIN}"',
+    '      - run: echo start && npm run release:rehearse -- --skip-preflight --skip-suite',
+    '      - run: |\n          npm run release:rehearse -- --skip-preflight --skip-suite\n          rm -rf scratch || true',
+    '      - run: |\n          npm run release:rehearse -- --skip-preflight --skip-suite\n          echo done; true',
+    '      - env:\n          FOO: bar\n        working-directory: .\n        run: FOO=1 npm run release:rehearse -- --skip-preflight --skip-suite',
+    '      - run: >-\n          npm run release:rehearse --\n          --skip-preflight --skip-suite',
+  ]) {
+    assert.deepEqual(releaseWorkflowFindings(withStep(step)), [], step);
+  }
+  // An indentless sequence (`steps:` and `- run:` at one indent) is read, in both directions.
+  const indentless = (text: string) => text.replace(/(  rehearse:\n[\s\S]*?\n    steps:\n)([\s\S]*?)(\n  verify-artifact:)/,
+    (_match, head: string, steps: string, tail: string) => head + steps.split('\n').map((line) => line.replace(/^  /, '')).join('\n') + tail);
+  assert.notEqual(indentless(workflow), workflow);
+  assert.deepEqual(r15(indentless(workflow)), []);
+  assert.match(r15(indentless(withStep('      - run: npm run release:rehearse')))[0], bothMissing);
+  assert.match(r15(indentless(withStep(goodStep + ' || true')))[0], /must not mask/);
+});
+
 test('yamlKeys reads keys however spelled and treats block scalar bodies as text', () => {
   const { yamlKeys } = require('../../src/release/release-workflow.ts');
   const text = [

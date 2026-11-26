@@ -75,6 +75,10 @@ function parseArgs(argv: string[]): Options {
       else throw new Error(USAGE);
     }
   }
+  // plantuml's expected failure is at the suite stage: skipping it leaves nothing to reproduce.
+  if (options.seed === 'plantuml' && options.skipSuite) {
+    throw new Error('--seed-fault plantuml reproduces its failure in the suite stage, so --skip-suite cannot be combined with it\n' + USAGE);
+  }
   return options;
 }
 

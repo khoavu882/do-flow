@@ -24,7 +24,7 @@ function fixture(t: any, options: any = {}) {
   const version = options.version || VERSION;
   const tag = options.tag || 'v' + version;
   const root = tempDir(t, 'doflow-preflight-');
-  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version, engines: { node: options.engines || '>=24.22.1' } }, null, 2));
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ version, repository: { url: 'git+https://github.com/example/fixture.git' }, engines: { node: options.engines || '>=24.22.1' } }, null, 2));
   const changelog = options.changelog === undefined
     ? '# Changelog\n\n## [' + version + '] - 2026-10-18\n\n### Added\n- Release notes.\n'
     : options.changelog;
@@ -346,6 +346,14 @@ test('release-workflow findings reject a publish step using a fixed beta tag', (
   assert.match(releaseWorkflow.message, /R9 publish/);
 });
 
+test('release-workflow passing message names the whole rule range, R15 included', (t) => {
+  const { RELEASE_WORKFLOW_RULE_IDS } = require('../../src/release/release-workflow.ts');
+  const releaseWorkflow = check(fixture(t, {}).result, 'release-workflow');
+  assert.equal(releaseWorkflow.ok, true, releaseWorkflow.message);
+  assert.equal(releaseWorkflow.message, `release workflow satisfies R1-${RELEASE_WORKFLOW_RULE_IDS.at(-1)}`);
+  assert.equal(releaseWorkflow.message, 'release workflow satisfies R1-R15');
+});
+
 test('a dirty working tree fails', (t) => {
   const { result } = fixture(t, { dirty: true });
   assert.equal(check(result, 'clean-tree').ok, false);
@@ -382,11 +390,23 @@ test('release-notes-size passes on the real 2.5.0 CHANGELOG section, which is fa
 
 test('release-notes-size fails and names the length and the cap when the body is over the cap', (t) => {
   const { run } = fixture(t, { offline: true });
-  const result = run({ releaseNotesBodyImpl: () => 'x'.repeat(NOTES_CAP + 1) });
+  // The CLI prints the body and a newline, so a body of exactly the cap prints one over it.
+  const result = run({ releaseNotesBodyImpl: () => 'x'.repeat(NOTES_CAP) });
   const size = check(result, 'release-notes-size');
   assert.equal(size.ok, false);
   assert.match(size.message, new RegExp(`${NOTES_CAP + 1} characters.*${NOTES_CAP}`));
   assert.equal(result.ok, false);
+  const fits = check(run({ releaseNotesBodyImpl: () => 'x'.repeat(NOTES_CAP - 1) }), 'release-notes-size');
+  assert.equal(fits.ok, true, fits.message);
+  assert.match(fits.message, new RegExp(`${NOTES_CAP} characters`));
+});
+
+test('release-notes-size builds the body for the preflight repoRoot, so the repository comes from its package.json', (t) => {
+  const { root, run } = fixture(t, { offline: true });
+  const seen: any[] = [];
+  run({ releaseNotesBodyImpl: (...args: any[]) => { seen.push(args); return 'x'; } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0][2].repoRoot, root);
 });
 
 test('release-notes-size is skipped when there is no section, and fails when the body cannot be built', (t) => {

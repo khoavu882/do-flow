@@ -12,8 +12,9 @@
 // GitHub refuses a Release body over 125,000 characters (HTTP 422), and one version's section can
 // be longer than that (2.5.0's was 140,549). `releaseNotesBody` keeps the section as it is when it
 // fits under NOTES_CAP and otherwise writes a shorter body: every heading, the first line of every
-// entry, and a link to the full section. Lengths are UTF-16 code units (`String.length`), which is
-// never fewer than the code points GitHub counts, and the cap leaves 5,000 of margin.
+// entry, and a link to the whole CHANGELOG.md at the tag. Lengths are UTF-16 code units
+// (`String.length`), which is never fewer than the code points GitHub counts; the cap applies to
+// what the CLI prints (the body and its trailing newline) and leaves 5,000 of margin.
 //
 // Usage: node src/release/changelog-section.ts <version|tag> [CHANGELOG path]
 
@@ -54,22 +55,56 @@ function changelogSection(changelogText: string, version: string): string | null
   return body === '' ? null : body;
 }
 
-/** Cuts a line to about `max` characters at a space, never inside a link or a code span, and ends it with an ellipsis. */
+/**
+ * Closes a `**` the cut left open. Only a bare `**` counts (not `2**10`, which sits against a word,
+ * nor a run of three or more), and only when no closing `**` follows it in the kept text. A `_` that
+ * opens right inside it and is not closed is closed too; a `**` that is the last thing kept is dropped.
+ */
+function closeBold(kept: string): string {
+  const masked = kept.replace(UNBREAKABLE, (span) => '\0'.repeat(span.length));
+  let open = -1;
+  for (const run of masked.matchAll(/\*+/g)) {
+    if (run[0].length !== 2) continue;
+    const before = masked[run.index - 1] || '';
+    const after = masked[run.index + 2] || '';
+    if (open < 0) {
+      if (!/\w/.test(before) && after !== '' && !/\s/.test(after)) open = run.index;
+    } else if (before !== '' && !/\s/.test(before)) {
+      open = -1;
+    }
+  }
+  if (open < 0) return kept;
+  if (open + 2 === kept.length) return kept.slice(0, open).trimEnd();
+  const inner = masked.slice(open + 2);
+  return `${kept}${inner.startsWith('_') && !inner.includes('_', 1) ? '_' : ''}**`;
+}
+
+/**
+ * Cuts a line to about `max` characters at a space, never inside a link or a code span, and ends it
+ * with an ellipsis. A line that opens with a span (after the bullet and any `**`) keeps that whole
+ * span, so the entry still has visible text; a span longer than `max` is the one way a cut line
+ * runs past it. An unclosed `**` is closed.
+ */
 function trimLine(line: string, max: number): string {
   if (line.length <= max) return line;
   const spans = [...line.matchAll(UNBREAKABLE)].map((m) => [m.index, m.index + m[0].length]);
   const inside = (at: number) => spans.some(([start, end]) => start < at && at < end);
   let cut = max;
+  let floor = 0;
   const span = spans.find(([start, end]) => start < cut && cut < end);
-  if (span) cut = span[0] > 0 ? span[0] : span[1];
+  if (span) {
+    const lead = line.slice(0, span[0]).replace(/^[-*+] /, '').replace(/[*_\s]+/g, '');
+    cut = lead === '' ? span[1] : span[0];
+    if (lead === '') floor = cut;
+  }
   const space = line.lastIndexOf(' ', cut);
-  if (space > cut - 40 && !inside(space)) cut = space;
+  if (space >= floor && space > cut - 40 && !inside(space)) cut = space;
   if (/[\uD800-\uDBFF]/.test(line[cut - 1] || '')) cut -= 1;
-  return `${line.slice(0, cut).trimEnd()}…`;
+  return `${closeBold(line.slice(0, cut).trimEnd())}…`;
 }
 
-function repositoryUrl(): string {
-  const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+function repositoryUrl(repoRoot: string): string {
+  const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   const match = String(pkg.repository?.url ?? pkg.repository ?? '')
     .match(/github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/);
   if (!match) throw new Error('package.json repository is not a github.com URL');
@@ -77,22 +112,26 @@ function repositoryUrl(): string {
 }
 
 /**
- * The text of a GitHub Release body for a version's section, at most `cap` characters. A section
- * that fits is returned unchanged. A longer one keeps every heading and the first line of every
- * top-level bullet (cut at about 300 characters), then a link to the full CHANGELOG at the tag. If
- * that is still too long, the last entries of the longest headings are left out one at a time
- * and each heading says how many ("... and N more entries").
+ * The text of a GitHub Release body for a version's section; with the newline the CLI prints after
+ * it, at most `cap` characters. A section that fits is returned unchanged. A longer one keeps every
+ * heading and the first line of every top-level bullet (cut at about 300 characters), then a link
+ * to the whole CHANGELOG.md at the tag. If that is still too long, the last entries of the
+ * heading with the most entries left are left out one at a time and each heading says how many
+ * ("... and N more entries"). If even the headings and those lines are too long, only the headings,
+ * "(entries omitted)" and the link remain; if those are too long, only the link.
  * @param {string} section a version's section from changelogSection
  * @param {string} tag the release tag; a missing leading v is added
+ * @param {{cap?: number, repository?: string, repoRoot?: string}} [options] repoRoot is the checkout whose package.json names the repository
  * @returns {string}
  */
 function releaseNotesBody(
   section: string,
   tag: string,
-  { cap = NOTES_CAP, repository }: { cap?: number, repository?: string } = {},
+  { cap = NOTES_CAP, repository, repoRoot = REPO_ROOT }: { cap?: number, repository?: string, repoRoot?: string } = {},
 ): string {
-  if (section.length <= cap) return section;
-  const link = `Full notes: ${repository ?? repositoryUrl()}/blob/v${String(tag).trim().replace(/^v/, '')}/CHANGELOG.md`;
+  const limit = cap - 1; // the CLI prints a newline after the body
+  if (section.length <= limit) return section;
+  const link = `Full notes: ${repository ?? repositoryUrl(repoRoot)}/blob/v${String(tag).trim().replace(/^v/, '')}/CHANGELOG.md`;
 
   // One line per kept line of the section. Lines under an entry (indented, nested, lazy
   // continuation) and fenced blocks are dropped; a fence left open would break the rest of the page.
@@ -142,9 +181,9 @@ function releaseNotesBody(
   };
 
   let body = build();
-  while (body.length > cap) {
+  while (body.length > limit) {
     // Drop from the heading with the most entries left until the estimate fits, then measure.
-    let excess = body.length - cap + 32 * entries.length;
+    let excess = body.length - limit + 32 * entries.length;
     let dropped = false;
     while (excess > 0) {
       const g = keep.indexOf(Math.max(...keep));
@@ -153,7 +192,11 @@ function releaseNotesBody(
       excess -= entries[g][keep[g]].text.length + 1;
       dropped = true;
     }
-    if (!dropped) return link;
+    if (!dropped) {
+      const headings = lines.filter((line) => /^#{1,6} /.test(line.text)).map((line) => line.text);
+      const omitted = `${headings.join('\n')}\n\n(entries omitted)\n\n${link}`;
+      return omitted.length <= limit ? omitted : link;
+    }
     body = build();
   }
   return body;

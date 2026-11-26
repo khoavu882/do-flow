@@ -17,6 +17,9 @@ All notable changes to DoFlow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Release tooling polish:** rule R15 of the release-workflow check now reads the command of the step that runs `release:rehearse` (a step name or a second step no longer counts), requires both skip flags once after `--`, and reports every missing flag and a masking `|| true` or `; true`. The release notes for an oversized section keep an entry whose link or code span opens the line, close a cut `**`, and keep the headings and a link when even the entry counts do not fit; `docs/reference.md` says the link goes to the whole `CHANGELOG.md` at the tag.
+
 ## [2.5.0] - 2026-11-25
 
 ### Added
