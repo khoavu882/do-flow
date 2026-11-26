@@ -73,13 +73,14 @@ function readJsonState(file: string, fsImpl: any): any {
 }
 
 /** The feature folder of `slug`: this checkout's, else the first other checkout of the repository that has one. */
-function resolveFeature(cwd: string, slug: string): any {
-  const first = resolveActiveFeature({ projectRoot: cwd, slug });
-  if (!first.error) return first;
+function resolveFeature(cwd: string, slug: string | null, resolve: any = resolveActiveFeature): any {
+  const first = resolve({ projectRoot: cwd, slug });
+  // Another checkout is asked only for a named feature: without a slug the branch of this one is the answer.
+  if (!first.error || !slug) return first;
   let others: string[] = [];
   try { const found = listCheckouts({ cwd }); others = found.ok ? found.others || [] : []; } catch { /* no other checkout to ask */ }
   for (const root of others) {
-    const next = resolveActiveFeature({ projectRoot: root, slug });
+    const next = resolve({ projectRoot: root, slug });
     if (!next.error) return next;
   }
   return first;
@@ -560,4 +561,4 @@ function handleRoadmapReportCommand({ runId, cwd = process.cwd(), json = false, 
   return finishRuntime(0);
 }
 
-module.exports = { handleReviewPackCommand, handleRoadmapReportCommand, writeReviewPack, buildRoadmapReport, renderPack, gatherFacts, PACK_FILE, REPORT_FILE };
+module.exports = { resolveFeature, handleReviewPackCommand, handleRoadmapReportCommand, writeReviewPack, buildRoadmapReport, renderPack, gatherFacts, PACK_FILE, REPORT_FILE };
