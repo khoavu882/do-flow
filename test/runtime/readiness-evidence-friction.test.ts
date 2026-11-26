@@ -132,7 +132,6 @@ test('re-recording evidence for a file supersedes the stale item for the same fi
 
   const re = JSON.parse(addEvidence(root, 'demo', 'src/a.js').stdout);
   const newId = re.evidence[0].id;
-  assert.deepEqual(re.superseded, [staleId]);
 
   const ledger = JSON.parse(fs.readFileSync(path.join(root, '.doflow', 'state', 'evidence', 'demo.json'), 'utf8')).evidence;
   const byId = Object.fromEntries(ledger.map((i: any) => [i.id, i]));
@@ -146,7 +145,6 @@ test('re-recording evidence for a file supersedes the stale item for the same fi
 
   // A fresh item for the same file is not superseded by a second record of it.
   const again = JSON.parse(addEvidence(root, 'demo', 'src/a.js').stdout);
-  assert.deepEqual(again.superseded, []);
   assert.equal(JSON.parse(fs.readFileSync(path.join(root, '.doflow', 'state', 'evidence', 'demo.json'), 'utf8')).evidence.find((i: any) => i.id === newId).status, 'active');
 });
 

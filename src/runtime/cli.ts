@@ -373,7 +373,7 @@ function addEvidence({ ledger, root, sourceRoot = root, attemptRoot, taskId, ite
   }
 
   if (json) {
-    console.log(JSON.stringify({ action: 'add', taskId, written: written.length, stateFile, evidence: written, superseded }, null, 2));
+    console.log(JSON.stringify({ action: 'add', taskId, written: written.length, stateFile, evidence: written }, null, 2));
     return finish(0);
   }
 
