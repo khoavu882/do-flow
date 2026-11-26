@@ -31,6 +31,9 @@ const OPEN_POINTS_HEADING = /^## (?:([0-9]+)\. )?Open Points for Review\s*$/;
 const CLOSED_POINT = /^- \*\*(Decided|Rejected|Round [0-9]+)(?: \([^)\n]*\))?:\*\*/;
 const CLOSED_POINTER = /^Closed points: \[decisions\/history\/[a-z-]+-closed\.md\]/;
 
+/** A line that starts a new block inside a list: a bullet or ordered list item, or an ATX heading (CommonMark). */
+const LIST_OR_HEADING = /^ {0,3}(?:[-+*]|[0-9]{1,9}[.)]|#{1,6})(?:[ \t]|\r?$)/;
+
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 
 /**
@@ -238,9 +241,18 @@ function compactClosedPoints({ fsImpl, featureDir, file, date }: { fsImpl: any; 
   }
   if (unclosed && openAt < end) refuse();
 
+  const name = path.basename(file);
+  const stem = name.replace(/\.md$/, '');
+  const archiveFile = path.join(featureDir, 'decisions', 'history', `${stem}-closed.md`);
+  const link = toPosix(path.relative(path.dirname(file), archiveFile));
+  const canonicalPointer = `Closed points: [decisions/history/${stem}-closed.md](${link}).`;
+
   // Items: an opener plus the lines that belong to it (blank, indented, or inside a fence or comment
   // that opened on one of its own lines); trailing blank lines are not part of the item.
   const isBlank = (i: number): boolean => kinds[i] === 'text' && lines[i].trim() === '';
+  // CommonMark lazy continuation: a non-blank line directly after a text line that opens no list item
+  // or heading (a fence or comment opener is not 'text', so it never reaches here) belongs to the item.
+  const isLazy = (j: number): boolean => kinds[j - 1] === 'text' && lines[j - 1].trim() !== '' && !LIST_OR_HEADING.test(lines[j]) && lines[j].replace(/\r$/, '') !== canonicalPointer;
   const items: Array<[number, number]> = [];
   for (let i = start + 1; i < end; i += 1) {
     if (kinds[i] !== 'text' || !CLOSED_POINT.test(lines[i])) continue;
@@ -248,7 +260,7 @@ function compactClosedPoints({ fsImpl, featureDir, file, date }: { fsImpl: any; 
     for (let j = i + 1; j < end; j += 1) {
       const kind = kinds[j];
       const owned = kind === 'text'
-        ? lines[j].trim() === '' || lines[j][0] === ' ' || lines[j][0] === '\t'
+        ? lines[j].trim() === '' || lines[j][0] === ' ' || lines[j][0] === '\t' || isLazy(j)
         : !starts[j] || lines[j][0] === ' ' || lines[j][0] === '\t';
       if (!owned) break;
       last = j;
@@ -259,11 +271,6 @@ function compactClosedPoints({ fsImpl, featureDir, file, date }: { fsImpl: any; 
   }
   if (items.length === 0) return null;
 
-  const name = path.basename(file);
-  const stem = name.replace(/\.md$/, '');
-  const archiveFile = path.join(featureDir, 'decisions', 'history', `${stem}-closed.md`);
-  const link = toPosix(path.relative(path.dirname(file), archiveFile));
-  const canonicalPointer = `Closed points: [decisions/history/${stem}-closed.md](${link}).`;
   const rel = toPosix(path.relative(featureDir, file));
   const archiveRel = toPosix(path.relative(featureDir, archiveFile));
   const number = (OPEN_POINTS_HEADING.exec(lines[start]) as RegExpExecArray)[1];

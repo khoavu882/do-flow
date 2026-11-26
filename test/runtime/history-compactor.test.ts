@@ -611,6 +611,30 @@ test('closed-points: a non-indented line ends the item, and trailing blank lines
   assert.equal(read(f.file('design')), doc('# D', '', CP_HEADING, '', 'A paragraph that is not indented.', '', DESIGN_POINTER));
 });
 
+test('closed-points: a non-blank line directly after the item that opens no list item, heading or fence is a lazy continuation and moves with it', () => {
+  const f = closedFeature({ design: doc('# D', '', CP_HEADING, '', '- **Decided:** use X', 'because Y', '- open Z', '', '## 8. Next') });
+  const result = closedRun(f);
+  assert.equal(result.moved[0].lines, 2);
+  assert.equal(result.moved[0].items, 1);
+  assert.ok(read(designArchive(f)).endsWith('\n\n- **Decided:** use X\nbecause Y\n'));
+  assert.equal(read(f.file('design')), doc('# D', '', CP_HEADING, '', '- open Z', '', DESIGN_POINTER, '', '## 8. Next'));
+});
+
+test('closed-points: the exact pointer line directly after the item is not swallowed as a lazy continuation', () => {
+  const f = closedFeature({ design: doc('# D', '', CP_HEADING, '', '- **Decided:** a.', DESIGN_POINTER, '- keep', '') });
+  const result = closedRun(f);
+  assert.equal(result.moved[0].lines, 1);
+  assert.equal(read(f.file('design')), doc('# D', '', CP_HEADING, '', '- keep', '', DESIGN_POINTER));
+});
+
+test('closed-points: a heading, an ordered or other list item, or a fence directly after the item ends it', () => {
+  for (const next of ['### Sub', '1. numbered', '* star', '+ plus', '```\ncode\n```', '2) paren']) {
+    const f = closedFeature({ design: doc('# D', '', CP_HEADING, '', '- **Decided:** a.', next, '- keep', '') });
+    const result = closedRun(f);
+    assert.equal(result.moved[0].lines, 1, `"${next}" ends the item`);
+  }
+});
+
 test('closed-points: a heading-like line inside an indented fence of the item does not end the section', () => {
   const f = closedFeature({ design: doc('# D', '', CP_HEADING, '', '- **Decided:** a.', '  ```', '  ## 8. fake', '  ```', '', '## 8. History', '', 'None.') });
   closedRun(f);
