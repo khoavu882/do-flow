@@ -123,6 +123,33 @@ test('without the retire, stale evidence blocks READY (control for the retire ab
   assert.notEqual(ready.state, 'READY');
 });
 
+test('re-recording evidence for a file supersedes the stale item for the same file, and only that one (FU-z76qb8)', () => {
+  const { root } = makeRepo();
+  const staleId = JSON.parse(addEvidence(root, 'demo', 'src/a.js').stdout).evidence[0].id;
+  const otherStaleId = JSON.parse(addEvidence(root, 'demo', 'src/b.js').stdout).evidence[0].id;
+  fs.writeFileSync(path.join(root, 'src', 'a.js'), 'changed\n');
+  fs.writeFileSync(path.join(root, 'src', 'b.js'), 'changed\n');
+
+  const re = JSON.parse(addEvidence(root, 'demo', 'src/a.js').stdout);
+  const newId = re.evidence[0].id;
+  assert.deepEqual(re.superseded, [staleId]);
+
+  const ledger = JSON.parse(fs.readFileSync(path.join(root, '.doflow', 'state', 'evidence', 'demo.json'), 'utf8')).evidence;
+  const byId = Object.fromEntries(ledger.map((i: any) => [i.id, i]));
+  assert.equal(byId[staleId].status, 'superseded');
+  assert.equal(byId[staleId].supersededBy, newId);
+  assert.equal(byId[newId].status, 'active');
+  assert.equal(byId[otherStaleId].status, 'active', 'a stale item for another file stays');
+
+  const ready = JSON.parse(run(root, ['readiness', '--task-class', 'feature', '--task-id', 'demo', '--scope', 'src/a.js', '--verification-plan', 'node -e 0', '--json']).stdout);
+  assert.deepEqual(ready.staleEvidence.map((i: any) => i.evidenceId), [otherStaleId]);
+
+  // A fresh item for the same file is not superseded by a second record of it.
+  const again = JSON.parse(addEvidence(root, 'demo', 'src/a.js').stdout);
+  assert.deepEqual(again.superseded, []);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, '.doflow', 'state', 'evidence', 'demo.json'), 'utf8')).evidence.find((i: any) => i.id === newId).status, 'active');
+});
+
 test('a directory locator is refused with exit 2 and a message naming it, in plain and --json mode, for any provenance', () => {
   const { root } = makeRepo();
   const plain = run(root, ['evidence', '--task-id', 'demo', '--action', 'add', '--kind', 'structural', '--provenance', 'extracted',

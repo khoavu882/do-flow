@@ -347,11 +347,25 @@ function addEvidence({ ledger, root, sourceRoot = root, attemptRoot, taskId, ite
   }
 
   const written = [];
+  const superseded: string[] = [];
   let stateFile;
   try {
+    // Items already stale before this write: a new item for the same file replaces them (FU-z76qb8).
+    const staleBefore = validated.some((record: any) => typeof record.locator?.file === 'string')
+      ? staleItemIds({ root, sourceRoot, taskId, slug }) : new Set<string>();
     for (const record of validated) {
       const id = ledger.addEvidence(record);
       written.push(ledger.getEvidence(id));
+    }
+    for (const record of written) {
+      if (typeof record.locator?.file !== 'string') continue;
+      for (const old of ledger.getAllEvidence()) {
+        if (!staleBefore.has(old.id) || old.status === 'superseded') continue;
+        if (old.taskId !== taskId || old.kind !== record.kind || old.locator?.file !== record.locator.file
+          || old.source?.provider !== record.source?.provider || old.source?.capability !== record.source?.capability) continue;
+        ledger.supersedeEvidence(old.id, record.id);
+        superseded.push(old.id);
+      }
     }
     stateFile = ledger.save(taskId);
   } catch (error: any) {
@@ -359,7 +373,7 @@ function addEvidence({ ledger, root, sourceRoot = root, attemptRoot, taskId, ite
   }
 
   if (json) {
-    console.log(JSON.stringify({ action: 'add', taskId, written: written.length, stateFile, evidence: written }, null, 2));
+    console.log(JSON.stringify({ action: 'add', taskId, written: written.length, stateFile, evidence: written, superseded }, null, 2));
     return finish(0);
   }
 
@@ -377,9 +391,21 @@ function addEvidence({ ledger, root, sourceRoot = root, attemptRoot, taskId, ite
   }
   console.log('─'.repeat(78));
   console.log(`Wrote ${written.length} item(s) to ${stateFile}`);
+  if (superseded.length > 0) console.log(`Superseded ${superseded.length} stale item(s) for the same file: ${superseded.join(', ')}`);
   console.log(`Commit at observation: ${treeState.gitCommit || (treeState.prefix !== null ? 'not measured' : 'not a git worktree — freshness cannot expire by diff')}`);
   console.log('═'.repeat(78) + '\n');
   return finish(0);
+}
+
+/** The ids of the task's active items the ledger classes stale right now, judged the way readiness judges them. */
+function staleItemIds({ root, sourceRoot, taskId, slug }: any): Set<string> {
+  const { FreshnessValidator } = require('./freshness.ts');
+  const probe = new EvidenceLedger({ repoRoot: root, slug });
+  probe.load(taskId);
+  new FreshnessValidator({ repoRoot: root, treeRoot: sourceRoot, sourceRoot }).validateLedgerFreshness(probe);
+  return new Set(probe.getAllEvidence()
+    .filter((item: any) => item.taskId === taskId && item.freshness?.status === 'STALE' && item.status !== 'superseded')
+    .map((item: any) => item.id));
 }
 
 /** One-line rendering of a locator for the table views. */
