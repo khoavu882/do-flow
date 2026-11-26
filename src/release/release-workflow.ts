@@ -229,6 +229,81 @@ function jobHasCommand(job: WorkflowJob | undefined, command: RegExp): boolean {
   return Boolean(job && command.test(job.text));
 }
 
+/** The `run:` text of each step of a job, in order (block scalars joined by newline, folded ones by space). */
+function jobStepRuns(job: WorkflowJob): string[] {
+  const lines = job.text.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^ {4}steps:\s*$/.test(line));
+  if (start < 0) return [];
+  const body: string[] = [];
+  for (let index = start + 1; index < lines.length; index++) {
+    if (lines[index].trim() && indentation(lines[index]) <= 4) break;
+    body.push(lines[index]);
+  }
+  const first = body.find((line) => line.trim());
+  if (!first) return [];
+  const itemIndent = indentation(first);
+  const steps: string[][] = [];
+  for (const line of body) {
+    if (indentation(line) === itemIndent && /^\s*-(?:\s|$)/.test(line)) steps.push([]);
+    if (steps.length) steps[steps.length - 1].push(line);
+  }
+  const runs: string[] = [];
+  for (const step of steps) {
+    let run = '';
+    for (let index = 0; index < step.length; index++) {
+      const match = /^( *)(?:-[ \t]+)?(?:run|"run"|'run'):(?:[ \t]+(.*))?$/.exec(step[index]);
+      if (!match || match[1].length + (/^ *-/.test(step[index]) ? 2 : 0) !== itemIndent + 2) continue;
+      const inline = (match[2] || '').trim();
+      if (/^[|>][-+0-9]*$/.test(inline)) {
+        const block: string[] = [];
+        for (let next = index + 1; next < step.length
+          && (!step[next].trim() || indentation(step[next]) > itemIndent + 2); next++) block.push(step[next].trim());
+        run = block.join(inline.startsWith('>') ? ' ' : '\n').trim();
+      } else {
+        run = unquote(inline);
+      }
+      break;
+    }
+    runs.push(run);
+  }
+  return runs;
+}
+
+/**
+ * What is wrong with the steps of the rehearse job that run `release:rehearse`: each such step's
+ * command must pass both skip flags after `--`, once, in arguments the rehearsal itself accepts,
+ * and must not mask its exit status. Every problem is returned, not only the first.
+ */
+function rehearseStepViolations(job: WorkflowJob): string[] {
+  const { parseArgs } = require('./rehearse.ts');
+  const command = /npm\s+run\s+release:rehearse(?=\s|$)([^\n;&|]*)([\s\S]*)/;
+  const violations: string[] = [];
+  const runs = jobStepRuns(job).map((run) => run.replace(/\\\r?\n/g, ' ')).filter((run) => command.test(run));
+  if (!runs.length) return ['rehearse must run release:rehearse'];
+  for (const run of runs) {
+    const [, args, after] = command.exec(run) as RegExpExecArray;
+    const tokens = args.trim().split(/\s+/).filter(Boolean).map(unquote);
+    // Without a bare `--` before them the flags are npm's own and never reach the rehearsal.
+    const flags = tokens[0] === '--' ? tokens.slice(1) : [];
+    // On a tag run the rehearsal's own preflight stage can never pass (tag-unused, stable-allowed); the preflight job owns it.
+    if (!flags.includes('--skip-preflight')) violations.push('rehearse must pass --skip-preflight to release:rehearse');
+    // The test job in this workflow already runs the full suite on both OSes; a second unsharded run only doubles the flake exposure.
+    if (!flags.includes('--skip-suite')) violations.push('rehearse must pass --skip-suite to release:rehearse');
+    if (flags.length) {
+      try {
+        parseArgs(flags);
+      } catch (error: any) {
+        violations.push('rehearse passes arguments release:rehearse rejects (a repeated flag, or a flag without its value): '
+          + String(error.message).split('\n')[0]);
+      }
+    }
+    if (/(?:\|\||;)\s*true\s*(?:$|[\n;&|])/.test(after)) {
+      violations.push('rehearse must not mask the rehearsal failure with || true or ; true');
+    }
+  }
+  return violations;
+}
+
 function shellCommands(text: string): string[] {
   const source = String(text).replace(/\\\r?\n/g, ' ');
   const commands: string[] = [];
@@ -731,15 +806,7 @@ function releaseWorkflowFindings(text: string, { nodeFloor }: { nodeFloor?: stri
   if (!rehearse) {
     r15Violations.push('rehearse job is missing');
   } else {
-    if (!jobHasCommand(rehearse, /npm\s+run\s+release:rehearse(?:\s|$)/)) {
-      r15Violations.push('rehearse must run release:rehearse');
-    } else if (!jobHasCommand(rehearse, /npm\s+run\s+release:rehearse\s+--[^\n]*\s--skip-preflight(?:\s|$)/)) {
-      // On a tag run the rehearsal's own preflight stage can never pass (tag-unused, stable-allowed); the preflight job owns it.
-      r15Violations.push('rehearse must pass --skip-preflight to release:rehearse');
-    } else if (!jobHasCommand(rehearse, /npm\s+run\s+release:rehearse\s+--[^\n]*\s--skip-suite(?:\s|$)/)) {
-      // The test job in this workflow already runs the full suite on both OSes; a second unsharded run only doubles the flake exposure.
-      r15Violations.push('rehearse must pass --skip-suite to release:rehearse');
-    }
+    r15Violations.push(...rehearseStepViolations(rehearse));
     // A failed rehearsal must fail the job: continue-on-error on the job or on any of its steps lets verify-artifact go on.
     if (yamlKeys(rehearse.text).some((entry) => entry.key === 'continue-on-error')) {
       r15Violations.push('rehearse must not declare continue-on-error, on the job or on a step');

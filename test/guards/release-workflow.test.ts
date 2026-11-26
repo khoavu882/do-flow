@@ -201,6 +201,36 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
       '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
       '      - run: npm run release:rehearse -- --skip-preflight',
     ) },
+    { name: 'R15 the flags sit in the step name, not its command', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - name: npm run release:rehearse -- --skip-preflight --skip-suite\n        run: npm run release:rehearse',
+    ) },
+    { name: 'R15 a decoy step carries the flags, the real one does not', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: npm run release:rehearse\n      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+    ) },
+    { name: 'R15 a skip flag is repeated', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-preflight --skip-suite',
+    ) },
+    { name: 'R15 a flag swallows a skip flag as its value', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: npm run release:rehearse -- --ref --skip-preflight --skip-suite',
+    ) },
+    { name: 'R15 the rehearsal step masks its failure with || true', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite || true',
+    ) },
+    { name: 'R15 the rehearsal step masks its failure with ; true', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite; true',
+    ) },
     { name: 'R15 rehearse job continues on error', rules: ['R15'], text: replaceOnce(
       workflow,
       '  rehearse:\n    runs-on: ubuntu-latest\n',
