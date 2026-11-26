@@ -7,7 +7,7 @@ can predate the register) and, when it reports `has_decisions: true`:
 
 1. List the live decisions with `"$DOFLOW" decision --action list --json`. A decision that changes a
    live one reuses its topic and names it in `supersedes`; a new topic key is for a genuinely new
-   subject only.
+   subject only. A replacement on another topic, or of part of one, is recorded after the add with `"$DOFLOW" decision --action link --from <new> --to <old> --kind supersedes|narrows|reopens`, and a settled decision leaves the live view with `decision --action retire`, not with prose.
 2. Register this stage's decisions (question answers, gate answers carrying a choice, decisions the
    user typed as prompts, "Decide for me" defaults, agent resolutions) in one
    `"$DOFLOW" decision --action add --batch <file>.json --json` call. Drop an item that only

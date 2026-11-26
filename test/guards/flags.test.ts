@@ -99,6 +99,8 @@ const NOT_FRAMEWORK_FLAGS: any = new Map<string, string>([
   ['--role', "the runtime claim verb's own argument (claim --action add --role root-cause), quoted in EVIDENCE_LEDGER.md"],
   ['--evidence-id', "the runtime evidence verb's own argument (evidence --action supersede --evidence-id ...), quoted in EVIDENCE_LEDGER.md"],
   ['--batch', "the runtime decision verb's own argument (decision --action add --batch <file>.json), quoted in WORKFLOW_HANDOFF.md"],
+  ['--mode', "the runtime decision verb's own argument (decision --action compact --mode closed-points), quoted in ARTIFACT_FORMAT.md"],
+  ['--kind', "the runtime decision verb's own argument (decision --action link --from <new> --to <old> --kind supersedes|narrows|reopens), quoted in WORKFLOW_HANDOFF.md"],
   ...['--stage', '--statement']
     .map(flag => [flag, "the runtime followup verb's own argument (followup --action add --stage <stage> --statement ...), quoted in WORKFLOW_HANDOFF.md"]),
   ['--replaced-by', "the runtime evidence verb's own argument (evidence --action supersede ... --replaced-by ...), quoted in EVIDENCE_LEDGER.md"],

@@ -131,6 +131,8 @@ below so the reasoning behind a reversal is not compressed into a cell:
 
 A new artifact writes `None — initial version.` Every ID marked `Superseded` must appear here.
 
+History rows go in the artifact's own History section, below the `Earlier entries:` pointer once compacted; only `decision --action compact` writes under `decisions/history/`.
+
 **Revising an artifact updates its History.** An artifact revised after its initial write MUST
 record the revision here. `None — initial version.` MUST NOT remain once any indexed item has been
 added, changed or superseded — that line is a claim that the body has never moved, and leaving it
@@ -398,3 +400,4 @@ applies.
   `Earlier entries: [decisions/history/<artifact>.md](<relative link>).`, the link relative to the
   artifact's own directory, matching `^Earlier entries: \[decisions/history/[a-z-]+\.md\]`. Index
   rows and tombstones stay.
+- A settled Open Points bullet starts `- **Decided (<ref>):**` (or `- **Decided:**`), `- **Rejected:**` or `- **Round <n>:**`; `decision --action compact --mode closed-points` moves it to `decisions/history/<artifact>-closed.md` and leaves one pointer.
