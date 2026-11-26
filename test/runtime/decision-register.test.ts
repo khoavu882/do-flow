@@ -9,6 +9,7 @@ const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 const {
   runDecision, addDecisions, initRegister, listDecisions, readRegister, renderLiveView, renderArchive,
   registerFile, handleDecisionCommand, humanLines, STATEMENT_MAX,
+  linkDecisions, retireDecisions, compactDecisions, decisionState, inLiveView, LINK_KINDS, DECISION_STATES, COMPACT_MODES,
 } = require('../../src/runtime/decision-register.ts');
 
 const SLUG = '001-demo';
@@ -713,4 +714,910 @@ test('compact reports compaction-failed with failed[] and still carries moved an
   assert.deepEqual(run.result.failed.map((f: any) => f.artifact), ['design.md']);
   assert.equal(fs.readFileSync(path.join(r.featureDir, 'design/design.md'), 'utf8'), design);
   assert.ok(fs.readFileSync(path.join(r.featureDir, 'plan.md'), 'utf8').includes('Earlier entries:'));
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+// Decision register lifecycle (IC-001 to IC-013). Written from design/specs.md alone.
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+
+const GOLDEN = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'decision-register', 'golden-views.json'), 'utf8'));
+
+/** n live decisions on topics t1..tn: DEC-001 is t1, and so on. */
+function seed(r: any, n: any = 4) {
+  const run = add(r, Array.from({ length: n }, (_: any, i: any) => item({ topic: `t${i + 1}`, statement: `Statement ${i + 1}` })));
+  assert.equal(run.exitCode, 0);
+  return r;
+}
+const seeded = (n: any = 4) => seed(initialised(), n);
+const link = (r: any, from: any, to: any, kind: any, extra: any = {}) => runDecision({ action: 'link', projectRoot: r.root, flags: { from, to, kind }, now: FIXED, ...extra });
+const retire = (r: any, ids: any, reason: any = 'Out of scope', extra: any = {}) => runDecision({ action: 'retire', projectRoot: r.root, flags: { ids, reason }, now: FIXED, ...extra });
+const dec = (r: any, id: any) => readRegister(r.featureDir).decisions.find((d: any) => d.id === id);
+const tick = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+
+/** A usage error naming `fragment`; nothing under the feature folder changed. */
+function assertUsage(r: any, run: any, fragment: any, before: any = snapshot(r.featureDir)) {
+  assert.equal(run.exitCode, 2, JSON.stringify(run));
+  assert.equal(run.result, undefined);
+  assert.ok(String(run.usage).includes(fragment), `usage "${run.usage}" should include "${fragment}"`);
+  assert.deepEqual(snapshot(r.featureDir), before);
+}
+function assertFinding(r: any, run: any, finding: any, before: any = snapshot(r.featureDir)) {
+  assert.equal(run.exitCode, 1, JSON.stringify(run));
+  assert.equal(run.result.finding, finding);
+  assert.deepEqual(snapshot(r.featureDir), before);
+}
+
+// ── library surface (IC-005) ───────────────────────────────────────────────────────────────────
+
+test('IC-005: the new constants and state helpers exist with the contracted values', () => {
+  assert.deepEqual([...LINK_KINDS], ['supersedes', 'narrows', 'reopens']);
+  assert.deepEqual([...DECISION_STATES], ['live', 'superseded', 'retired']);
+  assert.deepEqual([...COMPACT_MODES], ['history', 'closed-points']);
+  const retired = { date: '2026-10-03', at: '2026-10-03T00:00:00.000Z', reason: 'r' };
+  assert.equal(decisionState({ status: 'live' } as any), 'live');
+  assert.equal(decisionState({ status: 'live', retired } as any), 'retired');
+  assert.equal(decisionState({ status: 'superseded' } as any), 'superseded');
+  assert.equal(decisionState({ status: 'superseded', retired } as any), 'superseded');
+  assert.equal(inLiveView({ status: 'live' } as any), true);
+  assert.equal(inLiveView({ status: 'live', retired } as any), false);
+  assert.equal(inLiveView({ status: 'superseded' } as any), false);
+});
+
+test('IC-005: the unknown-action message lists link and retire', () => {
+  const r = initialised();
+  const run = runDecision({ action: 'purge', projectRoot: r.root });
+  assert.equal(run.exitCode, 2);
+  assert.match(run.usage, /init, add, list, compact, link, retire/);
+});
+
+// ── link: each kind's effect (IC-001) ──────────────────────────────────────────────────────────
+
+test('IC-001: link supersedes records the link on the source, supersedes the target, allocates no id, and renders both views', () => {
+  const r = seeded();
+  const before = readRegister(r.featureDir);
+  const run = link(r, 'DEC-002', 'DEC-001', 'supersedes');
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(run.result, {
+    action: 'link', slug: SLUG, featureDir: r.featureDir, from: 'DEC-002', to: 'DEC-001', kind: 'supersedes',
+    changed: true, superseded: [{ id: 'DEC-001', by: 'DEC-002' }], replaced: null,
+  });
+  const after = readRegister(r.featureDir);
+  assert.equal(after.nextId, before.nextId);
+  assert.equal(after.decisions.length, before.decisions.length);
+  assert.deepEqual(dec(r, 'DEC-002').supersedes, ['DEC-001']);
+  assert.equal(dec(r, 'DEC-002').narrows, undefined);
+  assert.equal(dec(r, 'DEC-001').status, 'superseded');
+  assert.equal(dec(r, 'DEC-001').supersededBy, 'DEC-002');
+  // Nothing else changed on either decision.
+  for (const id of ['DEC-001', 'DEC-002']) {
+    const a = dec(r, id);
+    const b = before.decisions.find((d: any) => d.id === id);
+    for (const key of ['topic', 'statement', 'date', 'at', 'decidedBy', 'stage', 'rationale']) assert.equal(a[key], b[key], `${id}.${key}`);
+  }
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  assert.ok(!live.includes('| DEC-001 |'));
+  assert.ok(live.includes('| DEC-002 |'));
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  assert.ok(archive.includes('- **Status:** Superseded → DEC-002\n'));
+  assert.ok(archive.includes('- **Supersedes:** DEC-001'));
+  assert.equal(renderLiveView(after), live);
+  assert.equal(renderArchive(after), archive);
+});
+
+test('IC-001: link reopens records reopens (not supersedes), supersedes the target, and the archive says reopened', () => {
+  const r = seeded();
+  const run = link(r, 'DEC-002', 'DEC-001', 'reopens');
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(run.result.superseded, [{ id: 'DEC-001', by: 'DEC-002' }]);
+  assert.equal(run.result.replaced, null);
+  assert.deepEqual(dec(r, 'DEC-002').reopens, ['DEC-001']);
+  assert.deepEqual(dec(r, 'DEC-002').supersedes, []);
+  assert.equal(dec(r, 'DEC-001').status, 'superseded');
+  assert.equal(dec(r, 'DEC-001').supersededBy, 'DEC-002');
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  assert.ok(archive.includes('- **Status:** Superseded → DEC-002 (reopened)\n'));
+  assert.ok(archive.includes('- **Reopens:** DEC-001'));
+});
+
+test('IC-001: link narrows keeps both decisions live, records narrows, and the live view shows the narrowed block', () => {
+  const r = seeded();
+  const run = link(r, 'DEC-002', 'DEC-001', 'narrows');
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(run.result, {
+    action: 'link', slug: SLUG, featureDir: r.featureDir, from: 'DEC-002', to: 'DEC-001', kind: 'narrows',
+    changed: true, superseded: [], replaced: null,
+  });
+  assert.deepEqual(dec(r, 'DEC-002').narrows, ['DEC-001']);
+  assert.equal(dec(r, 'DEC-001').status, 'live');
+  assert.equal(dec(r, 'DEC-001').supersededBy, null);
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  assert.ok(live.includes('| DEC-001 |') && live.includes('| DEC-002 |'));
+  assert.ok(live.includes('\n\nNarrowed in part:\n\n- DEC-001 is narrowed by DEC-002.\n'));
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  assert.ok(archive.includes('- **Narrows:** DEC-001'));
+  assert.ok(archive.includes('- **Narrowed by:** DEC-002'));
+});
+
+test('IC-001: the text output names the link, then each superseded decision; a repeat says nothing was written', () => {
+  const r = seeded();
+  assert.deepEqual(humanLines(link(r, 'DEC-002', 'DEC-001', 'supersedes').result), ['linked DEC-002 supersedes DEC-001', 'superseded DEC-001 by DEC-002']);
+  assert.deepEqual(humanLines(link(r, 'DEC-003', 'DEC-004', 'narrows').result), ['linked DEC-003 narrows DEC-004']);
+  assert.deepEqual(humanLines(link(r, 'DEC-003', 'DEC-004', 'narrows').result), ['DEC-003 already narrows DEC-004; nothing written']);
+  const cycle = link(r, 'DEC-004', 'DEC-003', 'supersedes');
+  assert.equal(humanLines(cycle.result)[0], `link-cycle: ${cycle.result.message}`);
+});
+
+test('IC-001: the ids are trimmed before they are checked and used', () => {
+  const r = seeded();
+  const run = link(r, ' DEC-002 ', '\tDEC-001', 'supersedes');
+  assert.equal(run.exitCode, 0);
+  assert.equal(run.result.from, 'DEC-002');
+  assert.equal(run.result.to, 'DEC-001');
+  assert.deepEqual(dec(r, 'DEC-002').supersedes, ['DEC-001']);
+});
+
+test('IC-001: a link across topics is fine and leaves topics alone; a source that is itself superseded is refused for every kind', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  assert.equal(dec(r, 'DEC-001').topic, 't1');
+  assert.equal(dec(r, 'DEC-002').topic, 't2');
+  // DEC-001 is now superseded: it may no longer be recorded as replacing, reopening or narrowing anything.
+  const before = snapshot(r.featureDir);
+  for (const kind of ['supersedes', 'reopens']) {
+    assertUsage(r, link(r, 'DEC-001', 'DEC-003', kind), '--from DEC-001 is not live (it was superseded by DEC-002)', before);
+  }
+  assertUsage(r, link(r, 'DEC-001', 'DEC-003', 'narrows'), '--from DEC-001 is not live (it was superseded by DEC-002)', before);
+  assert.deepEqual(dec(r, 'DEC-001').supersedes, []);
+  assert.equal(dec(r, 'DEC-003').status, 'live');
+});
+
+test('IC-001: a retired --from is refused for supersedes and reopens, naming the retirement', () => {
+  const r = seeded();
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  const before = snapshot(r.featureDir);
+  for (const kind of ['supersedes', 'reopens']) {
+    assertUsage(r, link(r, 'DEC-001', 'DEC-003', kind), '--from DEC-001 is retired', before);
+  }
+  assert.equal(dec(r, 'DEC-003').status, 'live');
+});
+
+test('IC-001: a repeat of a recorded link, of every kind, is changed: false and writes no file', () => {
+  const r = seeded();
+  for (const [kind, to] of [['supersedes', 'DEC-001'], ['narrows', 'DEC-003'], ['reopens', 'DEC-004']] as any) {
+    assert.equal(link(r, 'DEC-002', to, kind).exitCode, 0);
+  }
+  const before = snapshot(r.featureDir);
+  const times = ['register.json', 'archive.md'].map((n: any) => fs.statSync(path.join(r.featureDir, 'decisions', n)).mtimeMs);
+  tick();
+  for (const [kind, to] of [['supersedes', 'DEC-001'], ['narrows', 'DEC-003'], ['reopens', 'DEC-004']] as any) {
+    const run = link(r, 'DEC-002', to, kind);
+    assert.equal(run.exitCode, 0);
+    assert.equal(run.result.changed, false);
+    assert.deepEqual(run.result.superseded, []);
+    assert.equal(run.result.replaced, null);
+    assert.equal(run.result.kind, kind);
+  }
+  assert.deepEqual(snapshot(r.featureDir), before);
+  assert.deepEqual(['register.json', 'archive.md'].map((n: any) => fs.statSync(path.join(r.featureDir, 'decisions', n)).mtimeMs), times);
+});
+
+test('IC-001: a supersedes link made by add counts as recorded, so the same link is a no-op', () => {
+  const r = seeded(2);
+  assert.equal(add(r, [item({ topic: 't3', supersedes: ['DEC-001'] })]).exitCode, 0);
+  const before = snapshot(r.featureDir);
+  const run = link(r, 'DEC-003', 'DEC-001', 'supersedes');
+  assert.equal(run.exitCode, 0);
+  assert.equal(run.result.changed, false);
+  assert.deepEqual(snapshot(r.featureDir), before);
+});
+
+for (const kind of ['supersedes', 'reopens']) {
+  test(`IC-001: link ${kind} replaces a narrows link on the same pair and reports replaced: 'narrows'`, () => {
+    const r = seeded();
+    assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+    const run = link(r, 'DEC-002', 'DEC-001', kind);
+    assert.equal(run.exitCode, 0);
+    assert.equal(run.result.changed, true);
+    assert.equal(run.result.replaced, 'narrows');
+    assert.deepEqual(run.result.superseded, [{ id: 'DEC-001', by: 'DEC-002' }]);
+    const d = dec(r, 'DEC-002');
+    assert.ok(!('narrows' in d), 'the emptied narrows key is dropped');
+    assert.deepEqual(d[kind], ['DEC-001']);
+    assert.equal(dec(r, 'DEC-001').status, 'superseded');
+    const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+    assert.ok(!live.includes('Narrowed in part'));
+  });
+}
+
+test('IC-001: replacing a narrows link keeps the other narrows entries', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-002', 'DEC-003', 'narrows').exitCode, 0);
+  assert.deepEqual(dec(r, 'DEC-002').narrows, ['DEC-001', 'DEC-003']);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').result.replaced, 'narrows');
+  assert.deepEqual(dec(r, 'DEC-002').narrows, ['DEC-003']);
+});
+
+test('IC-001: a link that replaces nothing reports replaced: null', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').result.replaced, null);
+  assert.equal(link(r, 'DEC-003', 'DEC-004', 'supersedes').result.replaced, null);
+});
+
+// ── link: checks, in order, each writing nothing (IC-001 rows 1 to 13) ──────────────────────────
+
+test('IC-001 row 1: --from, --to and --kind are required, named in that order', () => {
+  const r = seeded();
+  const call = (flags: any) => runDecision({ action: 'link', projectRoot: r.root, flags, now: FIXED });
+  assertUsage(r, call({}), '--from is required for --action link');
+  assertUsage(r, call({ kind: 'supersedes' }), '--from is required for --action link');
+  assertUsage(r, call({ from: 'DEC-001' }), '--to is required for --action link');
+  assertUsage(r, call({ from: 'DEC-001', to: 'DEC-002' }), '--kind is required for --action link');
+  // A missing flag is named before a malformed id.
+  assertUsage(r, call({ from: 'nope', to: 'DEC-002' }), '--kind is required for --action link');
+});
+
+test('IC-001 row 2: --from and --to must be DEC-### ids', () => {
+  const r = seeded();
+  assertUsage(r, link(r, 'dec-001', 'DEC-002', 'supersedes'), "--from 'dec-001' is not a DEC-### id");
+  assertUsage(r, link(r, 'DEC-001', 'DEC-1', 'supersedes'), "--to 'DEC-1' is not a DEC-### id");
+  assertUsage(r, link(r, 'DEC-001', 'DEC-002x', 'supersedes'), "--to 'DEC-002x' is not a DEC-### id");
+  // An id is checked before the kind.
+  assertUsage(r, link(r, 'x', 'DEC-002', 'bogus'), "--from 'x' is not a DEC-### id");
+});
+
+test('IC-001 row 3: --kind must be supersedes, narrows or reopens', () => {
+  const r = seeded();
+  assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'replaces'), "--kind 'replaces' must be one of supersedes, narrows, reopens");
+  assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'Supersedes'), "--kind 'Supersedes' must be one of supersedes, narrows, reopens");
+  // The kind is checked before the same-id rule.
+  assertUsage(r, link(r, 'DEC-001', 'DEC-001', 'bogus'), "--kind 'bogus' must be one of");
+});
+
+test('IC-001 row 4: a decision cannot be linked to itself', () => {
+  const r = seeded();
+  assertUsage(r, link(r, 'DEC-001', 'DEC-001', 'narrows'), '--from and --to name the same decision DEC-001');
+});
+
+test('IC-001 row 5: an unresolvable feature is a usage error', () => {
+  const bare = suiteTempDir('doflow-decision-register-bare-');
+  git(bare, 'init', '-q');
+  git(bare, 'commit', '-q', '--allow-empty', '-m', 'init');
+  git(bare, 'checkout', '-q', '-B', 'main');
+  const run = runDecision({ action: 'link', projectRoot: bare, flags: { from: 'DEC-001', to: 'DEC-002', kind: 'supersedes' } });
+  assert.equal(run.exitCode, 2);
+  assert.ok(run.usage);
+  assert.doesNotMatch(run.usage, /unknown --action/, 'link is a known action');
+});
+
+test('IC-001 row 6: no register is the no-register finding with the init hint', () => {
+  const r = repo({ 'plan.md': '# p\n' });
+  const before = snapshot(r.featureDir);
+  const run = link(r, 'DEC-002', 'DEC-001', 'supersedes');
+  assertFinding(r, run, 'no-register', before);
+  assert.equal(run.result.message, `${r.featureDir} has no decisions/register.json; run \`decision --action init\` when the feature is created`);
+  assert.equal(run.result.action, 'link');
+});
+
+test('IC-001 row 8: an id that is not in the register is named, the source first', () => {
+  const r = seeded(2);
+  assertUsage(r, link(r, 'DEC-009', 'DEC-001', 'supersedes'), 'DEC-009 is not a decision in this register');
+  assertUsage(r, link(r, 'DEC-001', 'DEC-009', 'supersedes'), 'DEC-009 is not a decision in this register');
+  assertUsage(r, link(r, 'DEC-008', 'DEC-009', 'supersedes'), 'DEC-008 is not a decision in this register');
+});
+
+test('IC-001 row 10: a target that is already superseded is refused, naming who superseded it, for every kind', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  for (const kind of ['supersedes', 'narrows', 'reopens']) {
+    assertUsage(r, link(r, 'DEC-003', 'DEC-001', kind), 'DEC-001 is not live (it was superseded by DEC-002)');
+  }
+});
+
+test('IC-001 row 11: narrows needs a live source, refused as for every kind', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  assertUsage(r, link(r, 'DEC-001', 'DEC-003', 'narrows'), '--from DEC-001 is not live (it was superseded by DEC-002)');
+});
+
+test('IC-001 row 12: narrows needs a retired-free target; a retired source is refused first as --from', () => {
+  const r = seeded();
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'narrows'), '--kind narrows needs both decisions in the live view; DEC-001 is retired');
+  assertUsage(r, link(r, 'DEC-001', 'DEC-002', 'narrows'), '--from DEC-001 is retired (in force, out of the live view)');
+  assert.equal(retire(r, 'DEC-002').exitCode, 0);
+  assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'narrows'), '--from DEC-002 is retired (in force, out of the live view)');
+});
+
+test('IC-001: a retired decision can still be the target of supersedes and reopens, and stays retired', () => {
+  const r = seeded();
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  assert.equal(dec(r, 'DEC-001').status, 'superseded');
+  assert.ok(dec(r, 'DEC-001').retired);
+  assert.equal(decisionState(dec(r, 'DEC-001')), 'superseded');
+  assert.equal(link(r, 'DEC-003', 'DEC-004', 'reopens').exitCode, 0);
+});
+
+// ── cycles (IC-012, IC-001 row 13) ─────────────────────────────────────────────────────────────
+
+test('IC-012: a direct reverse link is link-cycle with the path in order, and nothing is written', () => {
+  const r = seeded(2);
+  // Both decisions stay live: DEC-002 narrows DEC-001, so a cycle can only close through a live source.
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  const before = snapshot(r.featureDir);
+  const run = link(r, 'DEC-001', 'DEC-002', 'supersedes');
+  assertFinding(r, run, 'link-cycle', before);
+  assert.deepEqual(run.result.cycle, ['DEC-002', 'DEC-001']);
+  assert.ok(run.result.message.startsWith('linking DEC-001 to DEC-002 would close a cycle: '), run.result.message);
+  assert.ok(run.result.message.endsWith(' already exists. Nothing was written'), run.result.message);
+  assert.ok(run.result.message.includes('DEC-002') && run.result.message.includes('DEC-001'));
+  assert.equal(run.result.action, 'link');
+  assert.equal(run.result.slug, SLUG);
+});
+
+test('IC-012: a two-step reverse link, through an intermediate decision, is link-cycle with the whole path', () => {
+  const r = seeded(3);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-002', 'narrows').exitCode, 0);
+  const before = snapshot(r.featureDir);
+  const run = link(r, 'DEC-001', 'DEC-003', 'supersedes');
+  assertFinding(r, run, 'link-cycle', before);
+  assert.deepEqual(run.result.cycle, ['DEC-003', 'DEC-002', 'DEC-001']);
+  assert.ok(run.result.message.startsWith('linking DEC-001 to DEC-003 would close a cycle: '), run.result.message);
+  assert.ok(run.result.message.endsWith(' already exists. Nothing was written'));
+  for (const id of run.result.cycle) assert.ok(run.result.message.includes(id), `message names ${id}`);
+  assert.equal(readRegister(r.featureDir).nextId, 4);
+});
+
+test('IC-012: edges made by add (supersedes) count, and reopens and narrows edges count too', () => {
+  const r = seeded(3);
+  assert.equal(link(r, 'DEC-001', 'DEC-003', 'narrows').exitCode, 0);
+  assert.equal(add(r, [item({ topic: 't4', supersedes: ['DEC-001'] })]).exitCode, 0);
+  // DEC-004 -> DEC-001 (made by add) -> DEC-003 exists; linking DEC-003 -> DEC-004 would close it.
+  const run = link(r, 'DEC-003', 'DEC-004', 'reopens');
+  assertFinding(r, run, 'link-cycle');
+  assert.deepEqual(run.result.cycle, ['DEC-004', 'DEC-001', 'DEC-003']);
+  const r2 = seeded(3);
+  assert.equal(link(r2, 'DEC-002', 'DEC-003', 'narrows').exitCode, 0);
+  assert.equal(link(r2, 'DEC-001', 'DEC-002', 'reopens').exitCode, 0);
+  assert.deepEqual(link(r2, 'DEC-003', 'DEC-001', 'supersedes').result.cycle, ['DEC-001', 'DEC-002', 'DEC-003']);
+});
+
+test('IC-012: a superseded --from whose link would also close a cycle is refused as not live (exit 2), not link-cycle', () => {
+  const r = seeded(2);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  for (const kind of ['supersedes', 'narrows', 'reopens']) {
+    assertUsage(r, link(r, 'DEC-001', 'DEC-002', kind), '--from DEC-001 is not live (it was superseded by DEC-002)');
+  }
+});
+
+test('IC-012: a link that only shares a target with an existing link is not a cycle', () => {
+  const r = seeded(3);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-001', 'narrows').exitCode, 0);
+  assert.deepEqual(dec(r, 'DEC-003').narrows, ['DEC-001']);
+});
+
+// ── retire (IC-002) ────────────────────────────────────────────────────────────────────────────
+
+test('IC-002: retire keeps status live, records the retirement from now, and moves the decision out of the live view', () => {
+  const r = seeded();
+  const before = readRegister(r.featureDir);
+  const run = retire(r, 'DEC-002', '  Out of scope now  ');
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(run.result, { action: 'retire', slug: SLUG, featureDir: r.featureDir, retired: [{ id: 'DEC-002', topic: 't2' }], unchanged: [] });
+  const d = dec(r, 'DEC-002');
+  assert.equal(d.status, 'live');
+  assert.equal(d.supersededBy, null);
+  assert.deepEqual(d.retired, { date: '2026-10-03', at: '2026-10-03T09:12:44.120Z', reason: 'Out of scope now' });
+  assert.equal(decisionState(d), 'retired');
+  assert.equal(readRegister(r.featureDir).nextId, before.nextId);
+  assert.equal(dec(r, 'DEC-001').retired, undefined);
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  assert.ok(!live.includes('| DEC-002 |') && live.includes('| DEC-001 |'));
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  assert.ok(archive.includes('- **Status:** Live\n- **Retired:** 2026-10-03 · Out of scope now\n- **Decision:** Statement 2\n'));
+  assert.deepEqual(humanLines(run.result), ['retired DEC-002 (t2)']);
+});
+
+test('IC-002: several ids retire together and both result arrays follow --ids order', () => {
+  const r = seeded();
+  assert.equal(retire(r, 'DEC-003').exitCode, 0);
+  const run = retire(r, ' DEC-004 , DEC-003 ,DEC-001');
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(run.result.retired, [{ id: 'DEC-004', topic: 't4' }, { id: 'DEC-001', topic: 't1' }]);
+  assert.deepEqual(run.result.unchanged, ['DEC-003']);
+  assert.deepEqual(humanLines(run.result), ['retired DEC-004 (t4)', 'retired DEC-001 (t1)', 'DEC-003 already retired; nothing written']);
+});
+
+test('IC-002: an id that is already retired keeps its first retirement; when nothing changes nothing is written', () => {
+  const r = seeded();
+  assert.equal(retire(r, 'DEC-001', 'first reason').exitCode, 0);
+  const first = dec(r, 'DEC-001').retired;
+  const later: any = new Date('2026-11-01T00:00:00.000Z');
+  const mixed = retire(r, 'DEC-001,DEC-002', 'second reason', { now: later });
+  assert.deepEqual(mixed.result.unchanged, ['DEC-001']);
+  assert.deepEqual(mixed.result.retired, [{ id: 'DEC-002', topic: 't2' }]);
+  assert.deepEqual(dec(r, 'DEC-001').retired, first);
+  assert.equal(dec(r, 'DEC-002').retired.reason, 'second reason');
+  assert.equal(dec(r, 'DEC-002').retired.date, '2026-11-01');
+
+  const before = snapshot(r.featureDir);
+  const mtime = fs.statSync(registerFile(r.featureDir)).mtimeMs;
+  tick();
+  const again = retire(r, 'DEC-001,DEC-002', 'third');
+  assert.equal(again.exitCode, 0);
+  assert.deepEqual(again.result.retired, []);
+  assert.deepEqual(again.result.unchanged, ['DEC-001', 'DEC-002']);
+  assert.deepEqual(snapshot(r.featureDir), before);
+  assert.equal(fs.statSync(registerFile(r.featureDir)).mtimeMs, mtime);
+});
+
+test('IC-002 rows 1 to 3: --ids is required, each entry must be a DEC-### id, and an id may be named once', () => {
+  const r = seeded();
+  const call = (ids: any) => runDecision({ action: 'retire', projectRoot: r.root, flags: { ids, reason: 'why' }, now: FIXED });
+  assertUsage(r, runDecision({ action: 'retire', projectRoot: r.root, flags: { reason: 'why' } }), '--ids is required for --action retire');
+  assertUsage(r, call(''), '--ids is required for --action retire');
+  assertUsage(r, call(' , ,'), '--ids is required for --action retire');
+  assertUsage(r, call('DEC-001,DEC-1'), "--ids entry 'DEC-1' is not a DEC-### id");
+  assertUsage(r, call('foo'), "--ids entry 'foo' is not a DEC-### id");
+  assertUsage(r, call('DEC-001,DEC-002,DEC-001'), '--ids names DEC-001 twice');
+  // --ids is checked before --reason.
+  assertUsage(r, runDecision({ action: 'retire', projectRoot: r.root, flags: {} }), '--ids is required for --action retire');
+});
+
+test('IC-002 rows 4 to 6: --reason is required, one line, and at most 280 characters', () => {
+  const r = seeded();
+  const call = (reason: any) => runDecision({ action: 'retire', projectRoot: r.root, flags: { ids: 'DEC-001', reason }, now: FIXED });
+  const need = '--reason is required for --action retire: one line saying why the decision leaves the live view';
+  assertUsage(r, runDecision({ action: 'retire', projectRoot: r.root, flags: { ids: 'DEC-001' } }), need);
+  assertUsage(r, call(''), need);
+  assertUsage(r, call('   '), need);
+  assertUsage(r, call('line one\nline two'), '--reason must be one line');
+  assertUsage(r, call('line one\r\nline two'), '--reason must be one line');
+  assertUsage(r, call('x'.repeat(281)), '--reason is 281 characters; the limit is 280');
+  assertUsage(r, call(`${'x'.repeat(281)}\nmore`), '--reason must be one line');
+  assert.equal(call(`  ${'x'.repeat(280)}  `).exitCode, 0);
+  assert.equal(dec(r, 'DEC-001').retired.reason.length, 280);
+});
+
+test('IC-002 row 7: no register is the no-register finding', () => {
+  const r = repo({ 'plan.md': '# p\n' });
+  const before = snapshot(r.featureDir);
+  const run = retire(r, 'DEC-001');
+  assertFinding(r, run, 'no-register', before);
+  assert.equal(run.result.action, 'retire');
+});
+
+test('IC-002 row 8: an id that is not in the register is named, the first of --ids; nothing is retired', () => {
+  const r = seeded();
+  assertUsage(r, retire(r, 'DEC-001,DEC-009,DEC-010'), 'DEC-009 is not a decision in this register');
+});
+
+test('IC-002 row 9: a superseded decision cannot be retired, and the whole call is all-or-nothing', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  assertUsage(r, retire(r, 'DEC-003,DEC-001'), 'DEC-001 is superseded by DEC-002; it is already out of the live view');
+  assert.equal(dec(r, 'DEC-003').retired, undefined);
+});
+
+test('IC-002 row 10: a decision narrowed by a live-view decision cannot be retired alone; the finding names the pair', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  const before = snapshot(r.featureDir);
+  const narrowedBy = retire(r, 'DEC-001');
+  assertFinding(r, narrowedBy, 'linked-from-live', before);
+  assert.equal(narrowedBy.result.message, 'DEC-001 is narrowed by DEC-002, which stays in the live view. Retire them together in one call (--ids DEC-001,DEC-002) or record a decision that supersedes one of them. Nothing was written');
+  assert.deepEqual(narrowedBy.result.blocking, [{ id: 'DEC-001', other: 'DEC-002', direction: 'narrowed-by' }]);
+
+  const narrows = retire(r, 'DEC-002');
+  assertFinding(r, narrows, 'linked-from-live', before);
+  assert.equal(narrows.result.message, 'DEC-002 narrows DEC-001, which stays in the live view. Retire them together in one call (--ids DEC-002,DEC-001) or record a decision that supersedes one of them. Nothing was written');
+  assert.deepEqual(narrows.result.blocking, [{ id: 'DEC-002', other: 'DEC-001', direction: 'narrows' }]);
+});
+
+test('IC-002 row 10: with several blocking pairs every pair is named and the finding still writes nothing', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-001', 'narrows').exitCode, 0);
+  const run = retire(r, 'DEC-001');
+  assertFinding(r, run, 'linked-from-live');
+  assert.deepEqual(run.result.blocking.map((b: any) => [b.id, b.other, b.direction]).sort(), [
+    ['DEC-001', 'DEC-002', 'narrowed-by'], ['DEC-001', 'DEC-003', 'narrowed-by'],
+  ]);
+  assert.ok(run.result.message.includes('DEC-001 is narrowed by DEC-002, which stays in the live view'));
+  assert.ok(run.result.message.includes('DEC-001 is narrowed by DEC-003, which stays in the live view'));
+  assert.ok(run.result.message.endsWith('Nothing was written'));
+});
+
+test('IC-002: retiring a narrows pair in one call works, and an empty live view says where the retired ones are', () => {
+  const r = seeded(2);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  const run = retire(r, 'DEC-001,DEC-002');
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(run.result.retired.map((x: any) => x.id), ['DEC-001', 'DEC-002']);
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  assert.ok(live.includes('No decisions in the live view; retired ones are in `decisions/archive.md`.'));
+  assert.ok(!live.includes('No live decisions yet.'));
+  assert.ok(!live.includes('| ID |'));
+  assert.ok(!live.includes('Narrowed in part'));
+});
+
+test('IC-002: a narrowing decision that is no longer live does not block the retire', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-002', 'supersedes').exitCode, 0);
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+});
+
+test('IC-002: the topic-conflict on a retired decision says it is retired and names both ways forward; a plain live one keeps the old message', () => {
+  const r = seeded(2);
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  const before = snapshot(r.featureDir);
+  const run = add(r, [item({ topic: 't1', statement: 'again' })]);
+  assert.equal(run.exitCode, 1);
+  assert.equal(run.result.finding, 'topic-conflict');
+  assert.equal(run.result.message, "topic 't1' is held by DEC-001, which is retired (in force, out of the live view); to replace it, name it in supersedes or run decision --action link --from <new id> --to DEC-001 --kind supersedes. Nothing was written");
+  assert.deepEqual(snapshot(r.featureDir), before);
+  const plain = add(r, [item({ topic: 't2', statement: 'again' })]);
+  assert.equal(plain.result.message, "topic 't2' already has live decision DEC-002; name it in supersedes to replace it. Nothing was written");
+});
+
+test('IC-002: a retired decision still holds its topic and can be superseded by add and by link', () => {
+  const r = seeded();
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  const conflict = add(r, [item({ topic: 't1', statement: 'again' })]);
+  assert.equal(conflict.exitCode, 1);
+  assert.equal(conflict.result.finding, 'topic-conflict');
+  assert.match(conflict.result.message, /DEC-001/);
+  const by = add(r, [item({ topic: 't1', statement: 'again', supersedes: ['DEC-001'] })]);
+  assert.equal(by.exitCode, 0);
+  assert.equal(dec(r, 'DEC-001').status, 'superseded');
+  assert.ok(dec(r, 'DEC-001').retired, 'the retirement is kept');
+
+  assert.equal(retire(r, 'DEC-002').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-002', 'supersedes').exitCode, 0);
+  assert.equal(dec(r, 'DEC-002').status, 'superseded');
+  assert.ok(dec(r, 'DEC-002').retired);
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  const entry = archive.slice(archive.indexOf('### DEC-002'), archive.indexOf('### DEC-003'));
+  assert.ok(entry.includes('- **Status:** Superseded → DEC-003\n- **Retired:'));
+});
+
+test('IC-002: the library takes ids as an array or a string and throws a usage error for rows 1 to 6 before reading the register', () => {
+  const r = seeded();
+  const base = { featureDir: r.featureDir, slug: SLUG, now: FIXED };
+  assert.throws(() => retireDecisions({ ...base, ids: [], reason: 'why' }), /--ids is required for --action retire/);
+  assert.throws(() => retireDecisions({ ...base, ids: ['DEC-001'], reason: '' }), /--reason is required/);
+  assert.throws(() => retireDecisions({ ...base, ids: 'DEC-009', reason: 'why' }), /DEC-009 is not a decision in this register/);
+  const run: any = retireDecisions({ ...base, ids: ['DEC-001', 'DEC-002'], reason: 'why' });
+  assert.deepEqual(run.retired.map((x: any) => x.id), ['DEC-001', 'DEC-002']);
+  const out: any = linkDecisions({ ...base, from: 'DEC-003', to: 'DEC-004', kind: 'narrows' });
+  assert.equal(out.changed, true);
+  assert.throws(() => linkDecisions({ ...base, from: 'DEC-003', to: 'DEC-003', kind: 'narrows' }), /name the same decision/);
+});
+
+// ── list --status (IC-003) ─────────────────────────────────────────────────────────────────────
+
+/** DEC-001 alpha (live, user), DEC-002 beta (superseded by DEC-003), DEC-003 beta (live, agent), DEC-004 delta (retired, user). */
+function listFixture() {
+  const r = initialised();
+  add(r, [item({ topic: 'alpha' }), item({ topic: 'beta', statement: 'beta v1' }), item({ topic: 'delta' })]);
+  add(r, [item({ topic: 'beta', statement: 'beta v2', channel: 'default', rationale: 'unattended:x', undo: 'Supersede it.', supersedes: ['DEC-002'] })]);
+  assert.equal(retire(r, 'DEC-003').exitCode, 0, 'DEC-003 is delta here');
+  return r;
+}
+
+test('IC-003: the default list leaves out retired decisions; --all still returns every decision by id', () => {
+  const r = listFixture();
+  // ids: 001 alpha, 002 beta (superseded), 003 delta (retired), 004 beta (live)
+  const live = runDecision({ action: 'list', projectRoot: r.root });
+  assert.deepEqual(live.result.decisions.map((d: any) => d.id), ['DEC-001', 'DEC-004']);
+  const all = runDecision({ action: 'list', projectRoot: r.root, flags: { all: true } });
+  assert.deepEqual(all.result.decisions.map((d: any) => d.id), ['DEC-001', 'DEC-002', 'DEC-003', 'DEC-004']);
+});
+
+test('IC-003: --status selects by state, by id, alone and combined', () => {
+  const r = listFixture();
+  const by = (status: any, extra: any = {}) => runDecision({ action: 'list', projectRoot: r.root, flags: { status, ...extra } });
+  const ids = (run: any) => run.result.decisions.map((d: any) => d.id);
+  assert.deepEqual(ids(by('live')), ['DEC-001', 'DEC-004']);
+  assert.deepEqual(ids(by('superseded')), ['DEC-002']);
+  assert.deepEqual(ids(by('retired')), ['DEC-003']);
+  assert.deepEqual(ids(by('retired,live')), ['DEC-001', 'DEC-003', 'DEC-004']);
+  assert.deepEqual(ids(by(' superseded , retired ')), ['DEC-002', 'DEC-003']);
+  assert.deepEqual(ids(by('live,superseded,retired')), ['DEC-001', 'DEC-002', 'DEC-003', 'DEC-004']);
+  assert.deepEqual(ids(by('retired', { all: true })), ['DEC-003'], '--status wins over --all');
+  const run = by('retired');
+  assert.equal(run.exitCode, 0);
+  assert.deepEqual(Object.keys(run.result).sort(), ['action', 'decisions', 'featureDir', 'slug']);
+  assert.deepEqual(run.result.decisions[0], dec(r, 'DEC-003'), 'each decision is the register object as stored');
+});
+
+test('IC-003: --by filters the --status selection afterwards', () => {
+  const r = listFixture();
+  const by = (status: any, who: any) => runDecision({ action: 'list', projectRoot: r.root, flags: { status, by: who } }).result.decisions.map((d: any) => d.id);
+  assert.deepEqual(by('live,retired', 'agent'), ['DEC-004']);
+  assert.deepEqual(by('live,retired', 'user'), ['DEC-001', 'DEC-003']);
+  assert.deepEqual(by('superseded', 'agent'), []);
+});
+
+test('IC-003: unknown or empty --status values are usage errors that name the valid set', () => {
+  const r = listFixture();
+  const before = snapshot(r.featureDir);
+  const call = (status: any) => runDecision({ action: 'list', projectRoot: r.root, flags: { status } });
+  assertUsage(r, call('robot'), "--status 'robot': valid values are live, superseded, retired", before);
+  assertUsage(r, call('live,robot,x'), "--status 'robot,x': valid values are live, superseded, retired", before);
+  assertUsage(r, call(''), '--status is empty: valid values are live, superseded, retired', before);
+  assertUsage(r, call(' , '), '--status is empty: valid values are live, superseded, retired', before);
+});
+
+test('IC-003: the library list takes status as an array', () => {
+  const r = listFixture();
+  const out: any = listDecisions({ featureDir: r.featureDir, slug: SLUG, status: ['retired', 'superseded'] });
+  assert.deepEqual(out.decisions.map((d: any) => d.id), ['DEC-002', 'DEC-003']);
+});
+
+test('IC-003: the text line shows superseded by, retired, or nothing after the stage', () => {
+  const r = listFixture();
+  const lines = humanLines(runDecision({ action: 'list', projectRoot: r.root, flags: { status: 'live,superseded,retired' } }).result);
+  assert.deepEqual(lines.filter((l: any) => !/^ +undo:/.test(l)), [
+    'DEC-001  alpha  The wire carries the UUID.  [user, design]',
+    'DEC-002  beta  beta v1  [user, design, superseded by DEC-004]',
+    'DEC-003  delta  The wire carries the UUID.  [user, design, retired]',
+    'DEC-004  beta  beta v2  [agent, design]',
+  ]);
+  assert.ok(lines.includes('    undo: Supersede it.'));
+});
+
+// ── views (IC-006, IC-007) ─────────────────────────────────────────────────────────────────────
+
+const LIVE_HEAD = [
+  '# Decisions: 001-demo', '',
+  '> Generated from `decisions/register.json` by `doflow-run decision`. Do not edit this file. Superseded decisions and rationale are in `decisions/archive.md`.', '',
+];
+
+test('IC-006: the narrowed block follows the table exactly, one line per narrowed decision, narrowers by id', () => {
+  const r = initialised();
+  add(r, [item({ topic: 'cache-policy', statement: 'Cache for 60 s' }), item({ topic: 'cache-bypass', statement: 'Admin reads bypass the cache' }), item({ topic: 'cache-ttl', statement: 'TTL is 60 s' }), item({ topic: 'other', statement: 'Other' })]);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-004', 'DEC-003', 'narrows').exitCode, 0);
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  assert.equal(live, [
+    ...LIVE_HEAD,
+    '| ID | Topic | Decision | By | Stage | Date |',
+    '|---|---|---|---|---|---|',
+    '| DEC-002 | cache-bypass | Admin reads bypass the cache | user | design | 2026-10-03 |',
+    '| DEC-001 | cache-policy | Cache for 60 s | user | design | 2026-10-03 |',
+    '| DEC-003 | cache-ttl | TTL is 60 s | user | design | 2026-10-03 |',
+    '| DEC-004 | other | Other | user | design | 2026-10-03 |',
+    '',
+    'Narrowed in part:',
+    '',
+    '- DEC-001 is narrowed by DEC-002, DEC-003.',
+    '- DEC-003 is narrowed by DEC-004.',
+    '',
+  ].join('\n'));
+});
+
+test('IC-006: only narrowers that are in the live view are listed, and no block appears when none is', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(add(r, [item({ topic: 't5', supersedes: ['DEC-003'] })]).exitCode, 0);
+  const live = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+  assert.ok(live.endsWith('\n\nNarrowed in part:\n\n- DEC-001 is narrowed by DEC-002.\n'), live);
+
+  const none = seeded();
+  assert.ok(!fs.readFileSync(path.join(none.featureDir, 'decisions.md'), 'utf8').includes('Narrowed in part'));
+  assert.equal(link(none, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  assert.ok(!fs.readFileSync(path.join(none.featureDir, 'decisions.md'), 'utf8').includes('Narrowed in part'));
+});
+
+test('IC-006: an empty live view says "No live decisions yet." unless something is retired', () => {
+  assert.ok(fs.readFileSync(path.join(initialised().featureDir, 'decisions.md'), 'utf8').includes('No live decisions yet.'));
+  const r = seeded(1);
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  assert.equal(fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8'), [
+    ...LIVE_HEAD, 'No decisions in the live view; retired ones are in `decisions/archive.md`.', '',
+  ].join('\n'));
+});
+
+test('IC-006, IC-007: a register without retired, narrows or reopens renders byte-identically to the previous renderer', () => {
+  assert.equal(renderLiveView(GOLDEN.register), GOLDEN.live);
+  assert.equal(renderArchive(GOLDEN.register), GOLDEN.archive);
+});
+
+test('IC-007: every archive line appears under its condition and in the contracted order', () => {
+  const r = initialised();
+  add(r, [item({ topic: 'a1', statement: 'one' }), item({ topic: 'a2', statement: 'two' }), item({ topic: 'a3', statement: 'three' }), item({ topic: 'a4', statement: 'four' }), item({ topic: 'a5', statement: 'five' })]);
+  add(r, [item({ topic: 'omega', statement: 'omega', channel: 'default', rationale: 'unattended:x', undo: 'Supersede it.', refs: ['IC-004'], source: 'design/x.md#q1', supersedes: ['DEC-001'] })]);
+  // DEC-006 supersedes DEC-001, narrows DEC-002, reopens DEC-003, and is narrowed by DEC-004.
+  assert.equal(link(r, 'DEC-006', 'DEC-002', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-006', 'DEC-003', 'reopens').exitCode, 0);
+  assert.equal(link(r, 'DEC-004', 'DEC-006', 'narrows').exitCode, 0);
+  assert.equal(retire(r, 'DEC-005', 'No longer relevant').exitCode, 0);
+  // DEC-007 narrows DEC-004, then is itself superseded: "Narrowed by" counts any status.
+  add(r, [item({ topic: 'a7', statement: 'seven' })]);
+  assert.equal(link(r, 'DEC-007', 'DEC-004', 'narrows').exitCode, 0);
+  assert.equal(add(r, [item({ topic: 'a8', statement: 'eight', supersedes: ['DEC-007'] })]).exitCode, 0);
+
+  const archive = fs.readFileSync(path.join(r.featureDir, 'decisions', 'archive.md'), 'utf8');
+  const entry = (id: any) => {
+    const start = archive.indexOf(`### ${id}:`);
+    const next = archive.indexOf('\n### DEC-', start + 1);
+    return archive.slice(start, next === -1 ? undefined : next);
+  };
+  const labels = (id: any) => entry(id).split('\n').map((l: any) => /^- \*\*([^*:]+):\*\*/.exec(l)).filter(Boolean).map((m: any) => m[1]);
+
+  assert.deepEqual(labels('DEC-006'), ['Status', 'Decision', 'By', 'Supersedes', 'Narrows', 'Reopens', 'Narrowed by', 'Refs', 'Source', 'Rationale', 'Undo']);
+  assert.ok(entry('DEC-006').includes('- **Supersedes:** DEC-001\n- **Narrows:** DEC-002\n- **Reopens:** DEC-003\n- **Narrowed by:** DEC-004\n'));
+  assert.ok(entry('DEC-006').includes('- **Status:** Live\n'));
+
+  assert.ok(entry('DEC-001').includes('- **Status:** Superseded → DEC-006\n'));
+  assert.ok(!entry('DEC-001').includes('(reopened)'));
+  assert.ok(entry('DEC-003').includes('- **Status:** Superseded → DEC-006 (reopened)\n'));
+
+  assert.deepEqual(labels('DEC-005'), ['Status', 'Retired', 'Decision', 'By', 'Rationale']);
+  assert.ok(entry('DEC-005').includes('- **Status:** Live\n- **Retired:** 2026-10-03 · No longer relevant\n- **Decision:** five\n'));
+
+  // DEC-004 is narrowed by DEC-007, which is superseded by DEC-008: still listed.
+  assert.ok(entry('DEC-004').includes('- **Narrowed by:** DEC-007\n'));
+  assert.ok(entry('DEC-007').includes('- **Status:** Superseded → DEC-008\n'));
+  assert.ok(entry('DEC-007').includes('- **Narrows:** DEC-004\n'));
+  assert.ok(entry('DEC-008').includes('- **Supersedes:** DEC-007\n'));
+  assert.ok(entry('DEC-002').includes('- **Narrowed by:** DEC-006\n'));
+  // A decision with no links carries none of the new lines.
+  assert.deepEqual(labels('DEC-005').filter((l: any) => ['Narrows', 'Reopens', 'Narrowed by', 'Supersedes'].includes(l)), []);
+});
+
+// ── compact closed-points text output (IC-004) ─────────────────────────────────────────────────
+
+test('IC-004: the closed-points text output counts items and lines with plurals; unchanged says nothing to compact', () => {
+  const lines = humanLines({ action: 'compact', mode: 'closed-points', status: 'compacted', moved: [
+    { artifact: 'design.md', path: 'design/design.md', archive: 'decisions/history/design-closed.md', lines: 3, items: 2 },
+    { artifact: 'specs.md', path: 'design/specs.md', archive: 'decisions/history/specs-closed.md', lines: 1, items: 1 },
+  ], failed: [] });
+  assert.deepEqual(lines, [
+    'moved 2 closed points (3 lines) from design/design.md to decisions/history/design-closed.md',
+    'moved 1 closed point (1 line) from design/specs.md to decisions/history/specs-closed.md',
+  ]);
+  assert.deepEqual(humanLines({ action: 'compact', mode: 'closed-points', status: 'unchanged', moved: [], failed: [] }), ['nothing to compact']);
+  // History mode keeps its existing wording.
+  assert.deepEqual(humanLines({ action: 'compact', mode: 'history', status: 'compacted', moved: [{ artifact: 'plan.md', path: 'plan.md', archive: 'decisions/history/plan.md', lines: 5 }], failed: [] }),
+    ['moved 5 lines from plan.md to decisions/history/plan.md']);
+});
+
+// ── lock and atomic writes (IC-010) ────────────────────────────────────────────────────────────
+
+for (const [label, call] of [
+  ['link', (r: any) => link(r, 'DEC-002', 'DEC-001', 'supersedes')],
+  ['retire', (r: any) => retire(r, 'DEC-001')],
+] as any) {
+  test(`IC-010: ${label} with the register lock held by another writer exits 1 as register-locked and changes no byte`, { timeout: 30000 }, () => {
+    const r = seeded();
+    fs.mkdirSync(path.join(r.featureDir, 'design'), { recursive: true });
+    fs.writeFileSync(path.join(r.featureDir, 'design', 'design.md'), '# D\n\n## 7. Open Points for Review\n\n- **Decided:** a.\n');
+    const lockDir = `${registerFile(r.featureDir)}.lock`;
+    fs.mkdirSync(lockDir);
+    const before = snapshot(r.featureDir);
+    try {
+      const run = call(r);
+      assert.equal(run.exitCode, 1);
+      assert.equal(run.result.finding, 'register-locked');
+      assert.equal(run.usage, undefined);
+      assert.match(run.result.message, /Could not lock/);
+    } finally {
+      assert.ok(fs.existsSync(lockDir), 'the other writer\'s lock survives');
+      fs.rmSync(lockDir, { recursive: true, force: true });
+    }
+    assert.deepEqual(snapshot(r.featureDir), before);
+  });
+}
+
+test('IC-010: link and retire leave no lock directory and no temp file behind', () => {
+  const r = seeded();
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  assert.equal(retire(r, 'DEC-003').exitCode, 0);
+  assert.ok(!fs.existsSync(`${registerFile(r.featureDir)}.lock`));
+  assert.deepEqual(Object.keys(snapshot(r.featureDir)).filter((n: any) => n.endsWith('.tmp') || /\.tmp$/.test(n)), []);
+});
+
+/** An fs whose renameSync into a path ending `suffix` throws, as a full disk would; `seen` counts the attempts. */
+function failingRenameTo(suffix: any) {
+  const double: any = {
+    ...fs,
+    seen: 0,
+    renameSync(from: any, to: any) { if (String(to).endsWith(suffix)) { double.seen += 1; throw new Error('disk full'); } return fs.renameSync(from, to); },
+  };
+  return double;
+}
+function attempt(fn: any) { try { return fn(); } catch (error: any) { return { threw: error }; } }
+
+test('IC-010: compact --mode closed-points runs under the register lock, and writes through the atomic path', () => {
+  const r = seeded(1);
+  fs.mkdirSync(path.join(r.featureDir, 'design'), { recursive: true });
+  const design = path.join(r.featureDir, 'design', 'design.md');
+  fs.writeFileSync(design, '# D\n\n## 7. Open Points for Review\n\n- **Decided:** a.\n- keep\n');
+  const lockDir = `${registerFile(r.featureDir)}.lock`;
+  const lockSeenOnWrite: any = [];
+  const spy: any = {
+    ...fs,
+    writeFileSync(p: any, ...rest: any[]) { lockSeenOnWrite.push(fs.existsSync(lockDir)); return fs.writeFileSync(p, ...rest); },
+    renameSync(from: any, to: any) { lockSeenOnWrite.push(fs.existsSync(lockDir)); return fs.renameSync(from, to); },
+  };
+  const paths = { design: path.relative(r.root, design) };
+  const result: any = compactDecisions({ featureDir: r.featureDir, slug: SLUG, repoRoot: r.root, paths, now: FIXED, mode: 'closed-points', fsImpl: spy });
+  assert.equal(result.status, 'compacted');
+  assert.equal(result.mode, 'closed-points');
+  assert.ok(lockSeenOnWrite.length >= 2, 'the archive and the artifact were both written');
+  assert.ok(lockSeenOnWrite.every(Boolean), 'every write happened while the register lock was held');
+  assert.ok(!fs.existsSync(lockDir), 'the lock is released afterwards');
+});
+
+for (const [label, call] of [
+  ['link', (r: any, fsImpl: any) => linkDecisions({ featureDir: r.featureDir, slug: SLUG, from: 'DEC-002', to: 'DEC-001', kind: 'supersedes', fsImpl })],
+  ['retire', (r: any, fsImpl: any) => retireDecisions({ featureDir: r.featureDir, slug: SLUG, ids: ['DEC-001'], reason: 'why', now: FIXED, fsImpl })],
+] as any) {
+  test(`IC-010: ${label} writes the register atomically, so a failed rename leaves every file as it was`, () => {
+    const r = seeded();
+    const before = snapshot(r.featureDir);
+    const double = failingRenameTo(`${path.sep}register.json`);
+    const out = attempt(() => call(r, double));
+    assert.ok(double.seen >= 1, 'the register is written by renaming a temp file into place');
+    if (out && out.threw) assert.match(out.threw.message, /disk full/);
+    assert.deepEqual(snapshot(r.featureDir), before);
+    assert.ok(!fs.existsSync(`${registerFile(r.featureDir)}.lock`), 'the lock is released after the failure');
+  });
+
+  test(`IC-010: ${label} writes the register before the views, so a failed view write leaves the register changed and the views stale`, () => {
+    const r = seeded();
+    const beforeRegister = fs.readFileSync(registerFile(r.featureDir), 'utf8');
+    const beforeLive = fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8');
+    attempt(() => call(r, failingRenameTo(`${path.sep}decisions.md`)));
+    assert.notEqual(fs.readFileSync(registerFile(r.featureDir), 'utf8'), beforeRegister, 'the register was written first');
+    assert.equal(fs.readFileSync(path.join(r.featureDir, 'decisions.md'), 'utf8'), beforeLive);
+  });
+}
+
+// ── compat: existing registers and add (IC-005) ────────────────────────────────────────────────
+
+test('IC-005: a register written before this feature still loads, lists and links', () => {
+  const r = seeded(2);
+  const file = registerFile(r.featureDir);
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(raw.decisions.every((d: any) => !('retired' in d) && !('narrows' in d) && !('reopens' in d)));
+  assert.equal(raw.version, 1);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(readRegister(r.featureDir).version, 1);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).decisions[0].retired, undefined);
+});
+
+// ── a register whose optional lifecycle fields have the wrong shape is refused per decision ────
+
+test('readRegister refuses a bad retired, narrows or reopens, naming the file, the decision and the field', () => {
+  const good = { date: '2026-10-03', at: '2026-10-03T00:00:00.000Z', reason: 'r' };
+  const cases: Array<[string, any]> = [
+    ['retired', 'yes'], ['retired', null], ['retired', []], ['retired', { ...good, reason: 7 }], ['retired', { date: good.date, at: good.at }],
+    ['narrows', 'DEC-001'], ['narrows', ['nope']], ['narrows', [1]],
+    ['reopens', {}], ['reopens', ['DEC-1']], ['reopens', [null]],
+  ];
+  for (const [field, value] of cases) {
+    const r = seeded(2);
+    const file = registerFile(r.featureDir);
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    data.decisions[1][field] = value;
+    fs.writeFileSync(file, JSON.stringify(data));
+    assert.throws(() => readRegister(r.featureDir), (e: any) => e.message.includes(file) && e.message.includes('decision DEC-002') && e.message.includes(`'${field}'`), `${field}=${JSON.stringify(value)}`);
+  }
+});
+
+test('readRegister accepts well-formed retired, narrows and reopens', () => {
+  const r = seeded(3);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
+  assert.equal(link(r, 'DEC-003', 'DEC-002', 'reopens').exitCode, 0);
+  assert.equal(retire(r, 'DEC-001').exitCode, 0);
+  assert.equal(readRegister(r.featureDir).decisions.length, 3);
 });

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * History compactor (IC-005, IC-009). Moves the body of an artifact's `## <n>. History` section into
+ * History compactor (IC-005, IC-009; settled-points mode IC-008, IC-009, IC-013). Moves the body of an artifact's `## <n>. History` section into
  * `decisions/history/<artifact>.md` and leaves a comment-and-pointer stub behind, so the live
  * artifact stops growing with the feature's age while every History line stays reachable
  * (NFR-004).
@@ -24,6 +24,15 @@ const ANY_H2 = /^## /;
 const POINTER = /^Earlier entries: \[decisions\/history\/[a-z-]+\.md\]/;
 const INITIAL_VERSION = 'None — initial version.';
 const TARGET_KEYS = ['requirement', 'design', 'specs', 'data_model', 'plan'];
+/** IC-008: the design-stage documents that carry an Open Points for Review section. */
+const CLOSED_TARGET_KEYS = ['design', 'specs', 'data_model'];
+const OPEN_POINTS_HEADING = /^## (?:([0-9]+)\. )?Open Points for Review\s*$/;
+/** A settled open point's opener: `- **Decided:**`, `- **Decided (DEC-###):**`, `- **Rejected (…):**`, `- **Round 2:**`. */
+const CLOSED_POINT = /^- \*\*(Decided|Rejected|Round [0-9]+)(?: \([^)\n]*\))?:\*\*/;
+const CLOSED_POINTER = /^Closed points: \[decisions\/history\/[a-z-]+-closed\.md\]/;
+
+/** A line that starts a new block inside a list: a bullet or ordered list item, or an ATX heading (CommonMark). */
+const LIST_OR_HEADING = /^ {0,3}(?:[-+*]|[0-9]{1,9}[.)]|#{1,6})(?:[ \t]|\r?$)/;
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 
@@ -36,8 +45,10 @@ const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
  *   are true when a fence or an HTML comment is never closed, so everything after it was swallowed;
  *   `openAt` is the line index where that construct opened (-1 when none is left open)
  */
-function scan(lines: string[]): { kinds: string[]; openFence: boolean; openComment: boolean; openAt: number } {
+function scan(lines: string[]): { kinds: string[]; starts: boolean[]; openFence: boolean; openComment: boolean; openAt: number } {
   const kinds: string[] = new Array(lines.length);
+  // starts[i] is true on the line that opens a fence or an HTML comment (IC-008's item extent needs it).
+  const starts: boolean[] = new Array(lines.length).fill(false);
   let fence: { ch: string; len: number } | null = null;
   let comment = false;
   let openedAt = -1;
@@ -55,16 +66,17 @@ function scan(lines: string[]): { kinds: string[]; openFence: boolean; openComme
       continue;
     }
     const open = FENCE_OPEN.exec(line);
-    if (open) { kinds[i] = 'fence'; fence = { ch: open[1][0], len: open[1].length }; openedAt = i; continue; }
+    if (open) { kinds[i] = 'fence'; starts[i] = true; fence = { ch: open[1][0], len: open[1].length }; openedAt = i; continue; }
     const trimmed = line.trim();
     if (trimmed.startsWith('<!--')) {
       kinds[i] = 'comment';
+      starts[i] = true;
       if (!trimmed.includes('-->', 4)) { comment = true; openedAt = i; }
       continue;
     }
     kinds[i] = 'text';
   }
-  return { kinds, openFence: fence !== null, openComment: comment, openAt: fence !== null || comment ? openedAt : -1 };
+  return { kinds, starts, openFence: fence !== null, openComment: comment, openAt: fence !== null || comment ? openedAt : -1 };
 }
 
 /**
@@ -131,6 +143,25 @@ function lastChunkIs(archiveText: string, blockLF: string): boolean {
 }
 
 /**
+ * Appends `chunk` to the archive unless its last chunk already is this block, then reads the archive
+ * back and requires the block to be its last chunk (IC-013): the artifact is rewritten only after
+ * this returns. Chunks are built with LF and converted to the artifact's own line ending on write,
+ * so a CRLF artifact gets a CRLF archive and no file ends up mixed.
+ */
+function appendChunk({ fsImpl, archiveFile, archiveRel, header, chunk, blockLF, crlf }: { fsImpl: any; archiveFile: string; archiveRel: string; header: string; chunk: string; blockLF: string; crlf: boolean }): void {
+  const eol = crlf ? '\r\n' : '\n';
+  const toEol = (t: string) => (crlf ? t.replace(/\n/g, '\r\n') : t);
+  const existing = fsImpl.existsSync(archiveFile) ? fsImpl.readFileSync(archiveFile, 'utf8') : null;
+  if (existing === null || !lastChunkIs(existing, blockLF)) {
+    const base = existing === null ? toEol(`${header}\n`) : (existing.endsWith('\n') ? existing : `${existing}${eol}`);
+    writeAtomic(fsImpl, archiveFile, `${base}${eol}${toEol(chunk)}`);
+  }
+  if (!lastChunkIs(fsImpl.readFileSync(archiveFile, 'utf8'), blockLF)) {
+    throw new Error(`the moved block is not present in ${archiveRel} after the write`);
+  }
+}
+
+/**
  * Compacts one artifact.
  * @returns {{artifact:string, path:string, archive:string, lines:number}|null} null when there was
  *   nothing to move
@@ -171,18 +202,8 @@ function compactArtifact({ fsImpl, featureDir, file, date }: { fsImpl: any; feat
 
   // Chunks are built with LF and converted to the artifact's own line ending on write, so a CRLF
   // artifact gets a CRLF archive and no file ends up mixed.
-  const eol = crlf ? '\r\n' : '\n';
-  const toEol = (t: string) => (crlf ? t.replace(/\n/g, '\r\n') : t);
   const blockLF = moved.map((l) => l.replace(/\r$/, '')).join('\n');
-  const chunk = `## Compacted ${date} from ${rel} §${section}\n\n${blockLF}\n`;
-  const existing = fsImpl.existsSync(archiveFile) ? fsImpl.readFileSync(archiveFile, 'utf8') : null;
-  if (existing === null || !lastChunkIs(existing, blockLF)) {
-    const base = existing === null ? toEol(`# History archive: ${rel}\n`) : (existing.endsWith('\n') ? existing : `${existing}${eol}`);
-    writeAtomic(fsImpl, archiveFile, `${base}${eol}${toEol(chunk)}`);
-  }
-  if (!lastChunkIs(fsImpl.readFileSync(archiveFile, 'utf8'), blockLF)) {
-    throw new Error(`the moved block is not present in ${archiveRel} after the write`);
-  }
+  appendChunk({ fsImpl, archiveFile, archiveRel, header: `# History archive: ${rel}`, chunk: `## Compacted ${date} from ${rel} §${section}\n\n${blockLF}\n`, blockLF, crlf });
 
   const blank = crlf ? '\r' : '';
   const pointerLine = pointer !== null ? pointer : `${canonicalPointer}${blank}`;
@@ -194,6 +215,94 @@ function compactArtifact({ fsImpl, featureDir, file, date }: { fsImpl: any; feat
 }
 
 /**
+ * IC-008, IC-009: moves the labelled settled points of the Open Points for Review section to
+ * `decisions/history/<stem>-closed.md` and leaves one pointer line. Same write order and refusal
+ * rules as `compactArtifact`.
+ * @returns {{artifact:string, path:string, archive:string, lines:number, items:number}|null} null
+ *   when there was no section or nothing labelled in it
+ */
+function compactClosedPoints({ fsImpl, featureDir, file, date }: { fsImpl: any; featureDir: string; file: string; date: string }): { artifact: string; path: string; archive: string; lines: number; items: number } | null {
+  const text = fsImpl.readFileSync(file, 'utf8');
+  const crlf = text.includes('\r\n');
+  const lines = text.split('\n');
+  const { kinds, starts, openFence, openComment, openAt } = scan(lines);
+  const unclosed: string | null = openFence ? 'a code fence' : openComment ? 'an HTML comment' : null;
+  const refuse = (): never => {
+    throw new Error(`${unclosed} is never closed, so the end of the Open Points for Review section cannot be told`);
+  };
+  const start = lines.findIndex((l: string, i: number) => kinds[i] === 'text' && OPEN_POINTS_HEADING.test(l));
+  if (start === -1) {
+    if (unclosed && lines.some((l: string, i: number) => i > openAt && OPEN_POINTS_HEADING.test(l))) refuse();
+    return null;
+  }
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    if (kinds[i] === 'text' && ANY_H2.test(lines[i])) { end = i; break; }
+  }
+  if (unclosed && openAt < end) refuse();
+
+  const name = path.basename(file);
+  const stem = name.replace(/\.md$/, '');
+  const archiveFile = path.join(featureDir, 'decisions', 'history', `${stem}-closed.md`);
+  const link = toPosix(path.relative(path.dirname(file), archiveFile));
+  const canonicalPointer = `Closed points: [decisions/history/${stem}-closed.md](${link}).`;
+
+  // Items: an opener plus the lines that belong to it (blank, indented, or inside a fence or comment
+  // that opened on one of its own lines); trailing blank lines are not part of the item.
+  const isBlank = (i: number): boolean => kinds[i] === 'text' && lines[i].trim() === '';
+  // CommonMark lazy continuation: a non-blank line directly after a text line that opens no list item
+  // or heading (a fence or comment opener is not 'text', so it never reaches here) belongs to the item.
+  const isLazy = (j: number): boolean => kinds[j - 1] === 'text' && lines[j - 1].trim() !== '' && !LIST_OR_HEADING.test(lines[j]) && lines[j].replace(/\r$/, '') !== canonicalPointer;
+  const items: Array<[number, number]> = [];
+  for (let i = start + 1; i < end; i += 1) {
+    if (kinds[i] !== 'text' || !CLOSED_POINT.test(lines[i])) continue;
+    let last = i;
+    for (let j = i + 1; j < end; j += 1) {
+      const kind = kinds[j];
+      const owned = kind === 'text'
+        ? lines[j].trim() === '' || lines[j][0] === ' ' || lines[j][0] === '\t' || isLazy(j)
+        : !starts[j] || lines[j][0] === ' ' || lines[j][0] === '\t';
+      if (!owned) break;
+      last = j;
+    }
+    while (last > i && isBlank(last)) last -= 1;
+    items.push([i, last]);
+    i = last;
+  }
+  if (items.length === 0) return null;
+
+  const rel = toPosix(path.relative(featureDir, file));
+  const archiveRel = toPosix(path.relative(featureDir, archiveFile));
+  const number = (OPEN_POINTS_HEADING.exec(lines[start]) as RegExpExecArray)[1];
+
+  const strip = (l: string) => l.replace(/\r$/, '');
+  const blockLF = items.map(([a, b]) => lines.slice(a, b + 1).map(strip).join('\n')).join('\n\n');
+  const movedLines = items.reduce((n, [a, b]) => n + (b - a + 1), 0);
+  appendChunk({
+    fsImpl, archiveFile, archiveRel, crlf, blockLF,
+    header: `# Closed points archive: ${rel}`,
+    chunk: `## Compacted ${date} from ${rel} §${number || 'Open Points for Review'}\n\n${blockLF}\n`,
+  });
+
+  // Kept body: everything else in the section but the pointer, blank runs collapsed, edges trimmed.
+  const moving = new Set<number>();
+  for (const [a, b] of items) for (let i = a; i <= b; i += 1) moving.add(i);
+  const kept: string[] = [];
+  let pendingBlank: string | null = null;
+  for (let i = start + 1; i < end; i += 1) {
+    if (moving.has(i)) continue;
+    if (kinds[i] === 'text' && strip(lines[i]) === canonicalPointer) continue;
+    if (isBlank(i)) { if (kept.length && pendingBlank === null) pendingBlank = lines[i]; continue; }
+    if (pendingBlank !== null) { kept.push(pendingBlank); pendingBlank = null; }
+    kept.push(lines[i]);
+  }
+  const blank = crlf ? '\r' : '';
+  const body = [blank, ...(kept.length ? [...kept, blank] : []), `${canonicalPointer}${blank}`, end === lines.length ? '' : blank];
+  writeAtomic(fsImpl, file, [...lines.slice(0, start + 1), ...body, ...lines.slice(end)].join('\n'), text);
+  return { artifact: name, path: rel, archive: archiveRel, lines: movedLines, items: items.length };
+}
+
+/**
  * Compacts every existing artifact among requirement, design, specs, data model and plan.
  *
  * @param {Object} options
@@ -202,6 +311,8 @@ function compactArtifact({ fsImpl, featureDir, file, date }: { fsImpl: any; feat
  * @param {Object} options.paths the resolver's JSON (`requirement`, `design`, `specs`,
  *   `data_model`, `plan`, repo-root-relative or null)
  * @param {string} [options.date] YYYY-MM-DD stamped on the archive chunk; defaults to today (UTC)
+ * @param {'history'|'closed-points'} [options.mode] history (default) compacts the History sections;
+ *   closed-points moves labelled settled open points out of design, specs and data model (IC-004)
  * @param {Object} [options.fsImpl] fs implementation (tests substitute one)
  *
  * Not locked: concurrent callers can interleave archive appends, and an artifact edited between its
@@ -216,17 +327,18 @@ function compactArtifact({ fsImpl, featureDir, file, date }: { fsImpl: any; feat
  * @returns {{status:'compacted'|'unchanged'|'partial', moved:Object[], failed:Array<{artifact:string, path:string, message:string}>}}
  *   `partial` means at least one artifact failed
  */
-function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }: { repoRoot: string; featureDir: string; paths: any; date?: string; fsImpl?: any }): { status: 'compacted' | 'unchanged' | 'partial'; moved: any[]; failed: Array<{ artifact: string; path: string; message: string }> } {
+function compactHistory({ repoRoot, featureDir, paths, date, mode = 'history', fsImpl = nodeFs }: { repoRoot: string; featureDir: string; paths: any; date?: string; mode?: 'history' | 'closed-points'; fsImpl?: any }): { status: 'compacted' | 'unchanged' | 'partial'; moved: any[]; failed: Array<{ artifact: string; path: string; message: string }> } {
   const stamp = date || new Date().toISOString().slice(0, 10);
   const moved: any[] = [];
   const failed: any[] = [];
-  for (const key of TARGET_KEYS) {
+  const compactOne = mode === 'closed-points' ? compactClosedPoints : compactArtifact;
+  for (const key of mode === 'closed-points' ? CLOSED_TARGET_KEYS : TARGET_KEYS) {
     if (!paths || !paths[key]) continue;
     const file = path.resolve(repoRoot, paths[key]);
     if (!fsImpl.existsSync(file)) continue;
     let result: any;
     try {
-      result = compactArtifact({ fsImpl, featureDir, file, date: stamp });
+      result = compactOne({ fsImpl, featureDir, file, date: stamp });
     } catch (error: any) {
       const name = toPosix(path.relative(featureDir, file));
       failed.push({ artifact: path.basename(file), path: name, message: `could not compact ${name}: ${error.message}; the artifact was left unchanged` });
@@ -237,4 +349,4 @@ function compactHistory({ repoRoot, featureDir, paths, date, fsImpl = nodeFs }: 
   return { status: failed.length ? 'partial' : moved.length ? 'compacted' : 'unchanged', moved, failed };
 }
 
-module.exports = { compactHistory, HISTORY_HEADING, POINTER, INITIAL_VERSION };
+module.exports = { compactHistory, HISTORY_HEADING, POINTER, INITIAL_VERSION, CLOSED_POINT, CLOSED_POINTER };

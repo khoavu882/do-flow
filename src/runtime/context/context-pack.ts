@@ -9,7 +9,7 @@ const { ResearchRequestStore } = require('../research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('../cli-result.ts');
 const nativeConsoleLog = console.log;
 const { resolveFeature, isSafeSlug } = require('../task-scope.ts');
-const { readRegister } = require('../decision-register.ts');
+const { readRegister, inLiveView } = require('../decision-register.ts');
 const compose = require('./compose.ts');
 const {
   FIELD_CLASSES,
@@ -80,7 +80,7 @@ function loadLiveDecisions({ projectRoot, slug = null }: any) {
     }
     if (!register) return { ...NO_DECISIONS };
     const live = register.decisions
-      .filter((d: any) => d.status === 'live')
+      .filter(inLiveView)
       .sort((a: any, b: any) => (a.topic < b.topic ? -1 : a.topic > b.topic ? 1 : 0))
       .map(({ id, topic, statement, decidedBy, stage }: any) => ({ id, topic, statement, decidedBy, stage }));
     return { available: true, live, liveCount: live.length };

@@ -452,3 +452,96 @@ test('10. the active stage fixes only its own flagged line (FR-010)', { skip: SK
   after.forEach((l: any, i: any) => { if (i !== lineNo - 1) assert.strictEqual(l, lines[i], `design.md line ${i + 1} unchanged`); });
   assert.strictEqual(read(path.join(dir, 'plan.md')), plan, 'plan.md bytes unchanged');
 });
+
+// ── decision register lifecycle: the new verbs through the real dispatcher (CLI passthrough) ────
+// One call each of link, retire, list --status and compact --mode closed-points, with --json,
+// checking exit codes and the shape each contract names (specs.md IC-001 to IC-004).
+
+test('11. link, retire, list --status and compact --mode closed-points pass through the CLI with their exit codes', { skip: SKIP }, () => {
+  const { repo, slug, dir } = makeRepo();
+  assert.strictEqual(decision(repo, ['--action', 'init']).status, 0);
+  for (const topic of ['cache-policy', 'cache-bypass', 'retention', 'legacy']) {
+    assert.strictEqual(add(repo, topic, `statement for ${topic}`).status, 0);
+  }
+
+  // link: narrows, then a repeat, then a usage error (exit 2) and a cycle finding (exit 1).
+  const narrows = decision(repo, ['--action', 'link', '--from', 'DEC-002', '--to', 'DEC-001', '--kind', 'narrows']);
+  assert.strictEqual(narrows.status, 0, narrows.stdout + narrows.stderr);
+  assert.strictEqual(narrows.json.action, 'link');
+  assert.strictEqual(narrows.json.slug, slug);
+  assert.strictEqual(narrows.json.changed, true);
+  assert.deepStrictEqual(narrows.json.superseded, []);
+  assert.strictEqual(narrows.json.replaced, null);
+  assert.deepStrictEqual(register(dir).decisions[1].narrows, ['DEC-001']);
+  assert.match(read(path.join(dir, 'decisions.md')), /Narrowed in part:\n\n- DEC-001 is narrowed by DEC-002\./);
+
+  const repeat = decision(repo, ['--action', 'link', '--from', 'DEC-002', '--to', 'DEC-001', '--kind', 'narrows']);
+  assert.strictEqual(repeat.status, 0);
+  assert.strictEqual(repeat.json.changed, false);
+
+  const supersedes = decision(repo, ['--action', 'link', '--from', 'DEC-003', '--to', 'DEC-004', '--kind', 'supersedes']);
+  assert.strictEqual(supersedes.status, 0, supersedes.stdout + supersedes.stderr);
+  assert.deepStrictEqual(supersedes.json.superseded, [{ id: 'DEC-004', by: 'DEC-003' }]);
+  assert.strictEqual(register(dir).decisions[3].status, 'superseded');
+
+  const before = snapshot(dir);
+  const missing = decision(repo, ['--action', 'link', '--from', 'DEC-002', '--to', 'DEC-001']);
+  assert.strictEqual(missing.status, 2);
+  assert.match(missing.stdout + missing.stderr, /--kind is required for --action link/);
+  const cycle = decision(repo, ['--action', 'link', '--from', 'DEC-001', '--to', 'DEC-002', '--kind', 'reopens']);
+  assert.strictEqual(cycle.status, 1, cycle.stdout + cycle.stderr);
+  assert.strictEqual(cycle.json.finding, 'link-cycle');
+  assert.deepStrictEqual(cycle.json.cycle, ['DEC-002', 'DEC-001']);
+  assert.deepStrictEqual(snapshot(dir), before, 'a usage error and a finding write nothing');
+
+  // retire: a narrowed decision alone is a finding (exit 1); the pair together works; a retired
+  // decision then drops out of the live view and out of the default list.
+  const blocked = decision(repo, ['--action', 'retire', '--ids', 'DEC-001', '--reason', 'No longer relevant']);
+  assert.strictEqual(blocked.status, 1);
+  assert.strictEqual(blocked.json.finding, 'linked-from-live');
+  assert.deepStrictEqual(blocked.json.blocking, [{ id: 'DEC-001', other: 'DEC-002', direction: 'narrowed-by' }]);
+  const noReason = decision(repo, ['--action', 'retire', '--ids', 'DEC-001,DEC-002']);
+  assert.strictEqual(noReason.status, 2);
+  const retired = decision(repo, ['--action', 'retire', '--ids', 'DEC-001,DEC-002', '--reason', 'Replaced by the edge cache']);
+  assert.strictEqual(retired.status, 0, retired.stdout + retired.stderr);
+  assert.deepStrictEqual(retired.json.retired, [{ id: 'DEC-001', topic: 'cache-policy' }, { id: 'DEC-002', topic: 'cache-bypass' }]);
+  assert.deepStrictEqual(retired.json.unchanged, []);
+  assert.strictEqual(register(dir).decisions[0].status, 'live');
+  assert.strictEqual(register(dir).decisions[0].retired.reason, 'Replaced by the edge cache');
+  const live = read(path.join(dir, 'decisions.md'));
+  assert.doesNotMatch(live, /\| DEC-001 \|/);
+  assert.match(live, /\| DEC-003 \|/);
+  assert.match(read(path.join(dir, 'decisions', 'archive.md')), /- \*\*Retired:\*\* \d{4}-\d{2}-\d{2} · Replaced by the edge cache/);
+
+  // list --status.
+  const ids = (res: any) => res.json.decisions.map((d: any) => d.id);
+  assert.deepStrictEqual(ids(decision(repo, ['--action', 'list'])), ['DEC-003'], 'the default list leaves out retired and superseded decisions');
+  const retiredOnly = decision(repo, ['--action', 'list', '--status', 'retired']);
+  assert.strictEqual(retiredOnly.status, 0);
+  assert.deepStrictEqual(ids(retiredOnly), ['DEC-001', 'DEC-002']);
+  assert.deepStrictEqual(ids(decision(repo, ['--action', 'list', '--status', 'superseded,retired'])), ['DEC-001', 'DEC-002', 'DEC-004']);
+  const bad = decision(repo, ['--action', 'list', '--status', 'gone']);
+  assert.strictEqual(bad.status, 2);
+  assert.match(bad.stdout + bad.stderr, /valid values are live, superseded, retired/);
+
+  // compact --mode closed-points: moves a settled point, then reports unchanged; a bad mode is exit 2.
+  writeFiles(dir, { 'design/design.md': '# Design\n\n## 7. Open Points for Review\n\n- **Decided (DEC-003):** keep the cache.\n- Is the TTL right?\n\n## 8. History\n\nNone — initial version.\n' });
+  const compact = decision(repo, ['--action', 'compact', '--mode', 'closed-points']);
+  assert.strictEqual(compact.status, 0, compact.stdout + compact.stderr);
+  assert.strictEqual(compact.json.mode, 'closed-points');
+  assert.strictEqual(compact.json.status, 'compacted');
+  assert.deepStrictEqual(compact.json.moved.map((m: any) => [m.artifact, m.archive, m.items, m.lines]), [['design.md', 'decisions/history/design-closed.md', 1, 1]]);
+  assert.match(read(path.join(dir, 'design', 'design.md')), /Closed points: \[decisions\/history\/design-closed\.md\]\(\.\.\/decisions\/history\/design-closed\.md\)\./);
+  assert.match(read(path.join(dir, 'decisions', 'history', 'design-closed.md')), /- \*\*Decided \(DEC-003\):\*\* keep the cache\./);
+  assert.match(read(path.join(dir, 'design', 'design.md')), /- Is the TTL right\?/);
+  const again = decision(repo, ['--action', 'compact', '--mode', 'closed-points']);
+  assert.strictEqual(again.status, 0);
+  assert.strictEqual(again.json.status, 'unchanged');
+  assert.strictEqual(again.json.mode, 'closed-points');
+  const defaultMode = decision(repo, ['--action', 'compact']);
+  assert.strictEqual(defaultMode.status, 0);
+  assert.strictEqual(defaultMode.json.mode, 'history');
+  const badMode = decision(repo, ['--action', 'compact', '--mode', 'weekly']);
+  assert.strictEqual(badMode.status, 2);
+  assert.match(badMode.stdout + badMode.stderr, /valid values are history, closed-points/);
+});

@@ -260,7 +260,9 @@ Interface contracts are in `./specs.md` §1; the data model and its flows are in
      option you lean to). Lead each with the question in bold; do not number them with an ID. A
      `proposed` or `UNKNOWN -> Open Point` row of ./data-model.md gets one bullet here that asks its
      question and names the row by section and entity, without restating the row. Write
-     "None — no open points." when every question was settled. -->
+     "None — no open points." when every question was settled. Mark a settled point rather than
+     deleting it: start its bullet `- **Decided (DEC-###):**`, `- **Rejected:**` or `- **Round 2:**`
+     (ARTIFACT_FORMAT.md §12). -->
 
 - **[A question a reviewer must answer?]** [The reasoning already known and the option leaned to.]
 
