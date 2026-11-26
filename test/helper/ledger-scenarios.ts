@@ -32,11 +32,12 @@ const SCENARIOS: any = {
 };
 const INITS = ['none', 'stale'];
 
-// Two S1 traces from lock `none` on the 117 Phase C lock, shared by the instrument's own tests.
+// Two S1 traces from lock `none` on the 117 Phase C lock (INTERLEAVED re-recorded with FU-128npa's dead-owner
+// rule: a waiter lists a fresh lock to judge its owner), shared by the instrument's own tests.
 // INTERLEAVED: the actors alternate from the first call; A takes the lock and finishes, B waits on it,
 // then cancels nothing (refused). Replayed it gives one outcome; granted on release it does not.
-const INTERLEAVED = 'A.mkdir B.mkdir A.mkdir B.stat A.readdir B.mkdir A.exists B.stat A.readFile B.mkdir A.writeFile B.stat '
-  + 'A.exists B.mkdir A.rename B.stat A.stat B.mkdir A.exists B.stat A.rmdir B.mkdir A.stat B.stat A.rmdir B.mkdir B.mkdir '
+const INTERLEAVED = 'A.mkdir B.mkdir A.mkdir B.stat A.readdir B.readdir A.exists B.stat A.readFile B.mkdir A.writeFile B.stat '
+  + 'A.exists B.readdir A.rename B.stat A.stat B.mkdir A.exists B.stat A.rmdir B.readdir A.stat B.stat A.rmdir B.mkdir B.mkdir '
   + 'B.readdir B.exists B.readFile B.stat B.exists B.rmdir B.stat B.rmdir';
 // LOST_ACK: the lock's documented bound. A passes its ownership check (A.exists after its tmp write),
 // the lock then ages past LOCK_STALE_MS (age-lock@7), B reclaims it in place and reads before A's rename
