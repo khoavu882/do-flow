@@ -13,6 +13,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { untilLockReclaimable } = require('../../helper/killed-lock-holder.ts');
 
 const REPO = path.join(__dirname, '..', '..', '..');
 const SRC = path.join(REPO, 'src', 'runtime');
@@ -246,6 +247,8 @@ test('a killed supervisor reads channel-closed, supervisor-gone, naming the canc
   assert.equal(logLines(f).length, lines);
   const stop = await verb(f, runId, 'stop');
   assert.deepEqual([stop.body.code, stop.body.current.reason], ['channel-closed', 'supervisor-gone']);
+  // The kill can land inside a store write: the cancel's write then needs the dead supervisor's lock reclaimable.
+  await untilLockReclaimable(f.file);
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'ended', env: f.env, cwd: f.root });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
   await until(() => gone(worker), 'the harness group gone', 5000);
