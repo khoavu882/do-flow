@@ -24,7 +24,7 @@ function forbidden(command: any, args: any) {
     || (command === 'git' && ['push', 'tag'].includes(args[0]));
 }
 
-function fixture(t: any, { seed = null as any, node = NODE as any, override = ((...args: any[]): any => undefined), keep = false, registry = false, skipPreflight = false, extraBase = {} }: any = {}) {
+function fixture(t: any, { seed = null as any, node = NODE as any, override = ((...args: any[]): any => undefined), keep = false, registry = false, skipPreflight = false, skipSuite = false, extraBase = {} }: any = {}) {
   const root = tempDir(t, 'doflow-rehearse-test-');
   const scratchRoot = path.join(root, 'scratch');
   fs.mkdirSync(scratchRoot);
@@ -53,7 +53,7 @@ function fixture(t: any, { seed = null as any, node = NODE as any, override = ((
   };
   const result = runRehearse({
     repoRoot: path.join(root, 'checkout'),
-    options: { node, seed, keep, registry, skipPreflight },
+    options: { node, seed, keep, registry, skipPreflight, skipSuite },
     run,
     scratchRoot,
     baseEnv,
@@ -72,17 +72,17 @@ function scratchOf(result: any) {
 }
 
 test('parseArgs defaults and every flag', () => {
-  assert.deepEqual(parseArgs([]), { node: null, ref: 'HEAD', seed: null, registry: false, keep: false, skipPreflight: false });
+  assert.deepEqual(parseArgs([]), { node: null, ref: 'HEAD', seed: null, registry: false, keep: false, skipPreflight: false, skipSuite: false });
   assert.deepEqual(
-    parseArgs(['--node', '/n/node', '--ref', 'v1', '--seed-fault', 'raw-ts', '--registry', '--keep', '--skip-preflight']),
-    { node: '/n/node', ref: 'v1', seed: 'raw-ts', registry: true, keep: true, skipPreflight: true },
+    parseArgs(['--node', '/n/node', '--ref', 'v1', '--seed-fault', 'raw-ts', '--registry', '--keep', '--skip-preflight', '--skip-suite']),
+    { node: '/n/node', ref: 'v1', seed: 'raw-ts', registry: true, keep: true, skipPreflight: true, skipSuite: true },
   );
   assert.equal(parseArgs(['--seed-fault', 'plantuml']).seed, 'plantuml');
 });
 
 test('parseArgs rejects unknown, repeated, valueless and bad-valued flags with the usage line', () => {
   for (const argv of [
-    ['--bogus'], ['stray'], ['--keep', '--keep'], ['--skip-preflight', '--skip-preflight'], ['--skip-preflight', 'x'], ['--node', '/a', '--node', '/b'], ['--node'],
+    ['--bogus'], ['stray'], ['--keep', '--keep'], ['--skip-preflight', '--skip-preflight'], ['--skip-preflight', 'x'], ['--skip-suite', '--skip-suite'], ['--skip-suite', 'x'], ['--node', '/a', '--node', '/b'], ['--node'],
     ['--ref', '--keep'], ['--ref', '-x'], ['--seed-fault', 'nope'], ['--seed-fault'],
   ]) {
     assert.throws(() => parseArgs(argv), /^Error: usage: node src\/release\/rehearse\.ts /, JSON.stringify(argv));
@@ -129,6 +129,12 @@ test('stagePlan orders the stages and names what each seed skips', () => {
 test('stagePlan with skipPreflight skips only the preflight stage and says why', () => {
   const plan = stagePlan({ seed: null, skipPreflight: true });
   assert.deepEqual(plan.filter((s: any) => !s.run), [{ id: 'preflight', run: false, reason: "the release workflow's preflight job runs it" }]);
+  assert.deepEqual(plan.map((s: any) => s.id), stagePlan({ seed: null }).map((s: any) => s.id));
+});
+
+test('stagePlan with skipSuite skips only the suite stage and says why', () => {
+  const plan = stagePlan({ seed: null, skipSuite: true });
+  assert.deepEqual(plan.filter((s: any) => !s.run), [{ id: 'suite', run: false, reason: "the release workflow's test job runs it" }]);
   assert.deepEqual(plan.map((s: any) => s.id), stagePlan({ seed: null }).map((s: any) => s.id));
 });
 
@@ -195,6 +201,16 @@ test('--skip-preflight does not spawn the preflight, prints its SKIP line and a 
   assert.deepEqual(stageLines(result).map((l: any) => l.split(':')[0]),
     ['env', ...ORDER].map((id) => (id === 'preflight' ? 'SKIP preflight' : `PASS ${id}`)));
   assert.ok(result.lines.includes("SKIP preflight: the release workflow's preflight job runs it"));
+});
+
+test('--skip-suite does not spawn the suite, prints its SKIP line, runs the later stages and exits 0', { skip: WIN_SKIP }, (t) => {
+  const { result, calls } = fixture(t, { skipPreflight: true, skipSuite: true });
+  assert.equal(result.exitCode, 0, result.lines.join('\n'));
+  assert.ok(!calls.some((c: any) => c.args[0] === '--test' && c.args[1] === 'test/**/*.test.ts'), 'the full suite is not spawned');
+  assert.deepEqual(stageLines(result).map((l: any) => l.split(':')[0]),
+    ['env', ...ORDER].map((id) => (['preflight', 'suite'].includes(id) ? `SKIP ${id}` : `PASS ${id}`)));
+  assert.ok(result.lines.includes("SKIP suite: the release workflow's test job runs it"));
+  assert.ok(!result.lines.some((l: any) => l.includes('failed')), 'a skipped suite is not a failure');
 });
 
 test('--registry lets the preflight stage query npm', { skip: WIN_SKIP }, (t) => {

@@ -736,6 +736,9 @@ function releaseWorkflowFindings(text: string, { nodeFloor }: { nodeFloor?: stri
     } else if (!jobHasCommand(rehearse, /npm\s+run\s+release:rehearse\s+--[^\n]*\s--skip-preflight(?:\s|$)/)) {
       // On a tag run the rehearsal's own preflight stage can never pass (tag-unused, stable-allowed); the preflight job owns it.
       r15Violations.push('rehearse must pass --skip-preflight to release:rehearse');
+    } else if (!jobHasCommand(rehearse, /npm\s+run\s+release:rehearse\s+--[^\n]*\s--skip-suite(?:\s|$)/)) {
+      // The test job in this workflow already runs the full suite on both OSes; a second unsharded run only doubles the flake exposure.
+      r15Violations.push('rehearse must pass --skip-suite to release:rehearse');
     }
     // A failed rehearsal must fail the job: continue-on-error on the job or on any of its steps lets verify-artifact go on.
     if (yamlKeys(rehearse.text).some((entry) => entry.key === 'continue-on-error')) {
