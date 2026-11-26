@@ -7,7 +7,7 @@ const { execFileSync } = require('node:child_process');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { parseSemVer, compareSemVer } = require('../helper/semver.ts');
 const { changelogSection, releaseNotesBody, NOTES_CAP } = require('./changelog-section.ts');
-const { releaseWorkflowFindings, STABLE_ENVIRONMENT } = require('./release-workflow.ts');
+const { releaseWorkflowFindings, RELEASE_WORKFLOW_RULE_IDS, STABLE_ENVIRONMENT } = require('./release-workflow.ts');
 
 const PACKAGE_NAME = '@khoavu882/doflow';
 const PLUGIN_MANIFESTS = [
@@ -368,7 +368,7 @@ function runPreflight({
     const nodeFloor = String(packageJson?.engines?.node ?? '').match(/\d+\.\d+\.\d+/)?.[0] ?? null;
     const findings = releaseWorkflowFindings(workflow, { nodeFloor });
     addCheck(checks, 'release-workflow', findings.length === 0,
-      findings.length ? findings.join('; ') : 'release workflow satisfies R1-R14');
+      findings.length ? findings.join('; ') : `release workflow satisfies ${RELEASE_WORKFLOW_RULE_IDS[0]}-${RELEASE_WORKFLOW_RULE_IDS[RELEASE_WORKFLOW_RULE_IDS.length - 1]}`);
   } catch (error: any) {
     addCheck(checks, 'release-workflow', false,
       `could not read release workflow: ${String(error.message).split('\n')[0]}`);

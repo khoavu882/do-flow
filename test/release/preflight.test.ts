@@ -346,6 +346,14 @@ test('release-workflow findings reject a publish step using a fixed beta tag', (
   assert.match(releaseWorkflow.message, /R9 publish/);
 });
 
+test('release-workflow passing message names the whole rule range, R15 included', (t) => {
+  const { RELEASE_WORKFLOW_RULE_IDS } = require('../../src/release/release-workflow.ts');
+  const releaseWorkflow = check(fixture(t, {}).result, 'release-workflow');
+  assert.equal(releaseWorkflow.ok, true, releaseWorkflow.message);
+  assert.equal(releaseWorkflow.message, `release workflow satisfies R1-${RELEASE_WORKFLOW_RULE_IDS.at(-1)}`);
+  assert.equal(releaseWorkflow.message, 'release workflow satisfies R1-R15');
+});
+
 test('a dirty working tree fails', (t) => {
   const { result } = fixture(t, { dirty: true });
   assert.equal(check(result, 'clean-tree').ok, false);
