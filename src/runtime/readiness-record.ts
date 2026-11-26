@@ -124,7 +124,7 @@ function writeReadinessRecord({ stateRoot, taskId, slug = null, report, inputs, 
 /**
  * The task's record where `findStateFile` looks (the main checkout first from a linked worktree),
  * at the first of `recordCandidates` that exists in each checkout; the flat candidate of a
- * namespaced task only when it is this feature's or names none (D-3). No resolver is run: the
+ * namespaced task only when it names this feature (D-3, FU-e2khrt). No resolver is run: the
  * candidates depend only on the task id and the slug the caller names. `conflict` is a worktree
  * copy that differs from the main checkout's (115 C-3).
  * @param {Object} options

@@ -245,12 +245,12 @@ test('an unreadable record is set aside only under the write lock', () => {
   assert.equal(fs.existsSync(`${file}.unreadable`), false);
 });
 
-test('FU-c9agck: a register feature does not read another feature\'s identity-less flat readiness record; a register-less one does', () => {
-  for (const [register, status] of [[true, 'missing'], [false, 'found']] as const) {
+test('FU-c9agck, FU-e2khrt: no feature, with or without a register, reads an identity-less flat readiness record', () => {
+  for (const register of [true, false]) {
     const root = featureRepo(register ? 'flat-register' : 'flat-no-register', { register });
     rawRecord(root, 'A.1.json', { version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
     clearTaskScopeCache();
-    assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, status);
+    assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, 'missing');
   }
 });
 
@@ -262,8 +262,8 @@ test('every reader takes the same candidates: the namespaced path, then the flat
   assert.deepEqual(recordCandidates('A.1', null), [path.join(store, 'A.1.json')]);
 
   const root = dir('candidates');
-  rawRecord(root, 'A.1.json', { version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
-  assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, 'found', 'a flat record is found under a slug');
+  rawRecord(root, 'A.1.json', { version: 1, taskId: 'A.1', slug: SLUG, taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
+  assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, 'found', 'a flat record that names the feature is found under its slug');
   // 115 D-3: the write goes to the namespace, and readers take it first from then on.
   const replaced = write(root, 'A.1', { slug: SLUG });
   assert.equal(replaced.file, path.join(root, store, SLUG, 'A.1.json'), 'the writer writes the namespaced record');

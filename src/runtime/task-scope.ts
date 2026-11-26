@@ -10,9 +10,9 @@ const featureResolve = require('./feature-resolve.ts');
 // and the stores key records by the bare id. Every task record therefore lives under a subdirectory
 // named for its feature whenever a feature slug resolves (`--slug`, else the branch's), with or
 // without a decision register and wherever the feature folder is; a task id that is the feature's
-// own slug, and a call with no feature at all, keep the flat layout. Records written flat before
-// this rule stay readable in place: a namespaced read falls back to the flat file when it is this
-// feature's or names no feature, and the first write lands in the namespace (D-3). Nothing is moved.
+// own slug, and a call with no feature at all, keep the flat layout. A flat record that names this
+// feature (`featureSlug` or `slug`) stays readable in place and seeds the first namespaced write (D-3); a flat record
+// that names no feature is no feature's, so a namespaced read never falls back to it (FU-e2khrt). Nothing is moved.
 
 const SAFE_SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SLUG_RULE = 'use letters, digits, dot, underscore or dash, start with a letter or digit, and no ".."';
@@ -174,24 +174,10 @@ function readRegularFileText(file: string, fsImpl: any = fs): string | null {
   }
 }
 
-/** Whether `slug` is a register feature (it has `decisions/register.json`), for a record file under
- * a checkout's `.doflow/state`. Such a feature never reads another feature's identity-less flat
- * record (045 isolation). A file whose checkout cannot be told, or a feature that does not resolve,
- * has no register. */
-function featureHasRegister(file: string, slug: string): boolean {
-  const marker = `${path.sep}.doflow${path.sep}state${path.sep}`;
-  const at = file.lastIndexOf(marker);
-  if (at <= 0) return false;
-  try {
-    const found = resolveFeature({ projectRoot: file.slice(0, at), slug });
-    return !found.error && Boolean(found.featureDir) && fs.existsSync(path.join(found.featureDir, 'decisions', 'register.json'));
-  } catch { return false; }
-}
-
 /**
  * Whether a flat record may be read as `slug`'s (D-3): it names that feature (`featureSlug` on a
- * run, `slug` on a readiness record), or names none and `slug` has no decision register. A file that does not parse names nobody, so a
- * namespaced read never falls back to it. The probe never blocks and follows no link: a flat file
+ * run, `slug` on a readiness record), or `slug` is null (a call with no feature). A record that names no feature belongs to no
+ * feature: a namespaced read never falls back to it, with or without a decision register (FU-e2khrt). A file that does not parse names nobody either. The probe never blocks and follows no link: a flat file
  * that is not a regular file of at most `MAX_RECORD_FILE_BYTES` is not read; `unsafeIsOurs` is then
  * the answer, so a caller whose reader refuses such a file (the run store's `readRunRecord`) is
  * pointed at it and reports it, and any other caller treats it as not ours.
@@ -210,7 +196,7 @@ function flatRecordIsOurs(file: string, slug: string | null, fsImpl: any = fs, u
     data = JSON.parse(text);
   } catch { return false; }
   const named = [data?.featureSlug, data?.slug].find((value) => typeof value === 'string' && value !== '');
-  if (named === undefined) return !slug || !featureHasRegister(file, slug);
+  if (named === undefined) return !slug;
   return named === slug;
 }
 

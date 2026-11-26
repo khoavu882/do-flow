@@ -341,17 +341,18 @@ same_bytes() {
 
 # Whether the flat record $1 of a namespaced task may be read as feature $2's
 # (115 D-3): it names that feature (featureSlug on a run, slug on a readiness
-# record) or none. A file that does not parse names nobody.
+# record). A record that names no feature is no feature's (FU-e2khrt), and a file
+# that does not parse names nobody.
 flat_is_ours() {
   local named
   named=$(jq -r '[.featureSlug, .slug] | map(select(type == "string" and . != "")) | first // empty' "$1" 2>/dev/null) || return 1
-  [ -z "$named" ] || [ "$named" = "$2" ]
+  [ -n "$named" ] && [ "$named" = "$2" ]
 }
 
 # The task's record of store $2 (readiness | orchestration) under checkout $1,
 # keyed by feature $3 as the runtime keys it (115 C-1): <store>/<feature>/<id>.json
 # for a task id other than the feature's slug, else the flat file; the flat file
-# of a namespaced task only when it is this feature's or names none. Sets HIT.
+# of a namespaced task only when it names this feature. Sets HIT.
 HIT=""
 record_in() {
   local store="$1/.doflow/state/$2"

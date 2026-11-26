@@ -374,8 +374,8 @@ function selectRunEntries(entries: any[]): any[] {
 /**
  * A task's run file: in this checkout, else in exactly one other checkout whose run belongs to the
  * same feature. The run of a task id other than its feature's slug is `orchestration/<slug>/<id>.json`
- * (115 C-1); a flat run of that id is read in its place only when it is this feature's or names none
- * (D-3). Task ids repeat across features, so another checkout's run with the same id but another
+ * (115 C-1); a flat run of that id is read in its place only when it names this feature
+ * (D-3, FU-e2khrt). Task ids repeat across features, so another checkout's run with the same id but another
  * feature (or none) is not this task's and is never read or updated from here.
  * @param {{stateRoot: string, taskId: string, slug: string|null, exec?: Function}} options
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
