@@ -2121,9 +2121,10 @@ test('act has one write slot: a second write waits for the first and runs after 
   const base = f.writeStarts().length;
   const first = f.runner.act('close-run', { ...WRITE_CASES['close-run'].params, note: 'first' });
   const second = f.runner.act('close-run', { ...WRITE_CASES['close-run'].params, note: 'second' });
-  await realDelay(60);
-  assert.equal(f.writeStarts().length - base, 1, 'the second write has not started');
   assert.deepEqual((await Promise.all([first, second])).map((r: any) => r.ok), [true, true]);
+  // Each fake core lives at least FAKE_CORE_DELAY_MS, so two writes in flight at once would overlap
+  // whatever the host's speed; the projects read in writeSetup ended before the first write began.
+  assert.equal(f.maxLive(), 1, 'the second write did not start while the first was running');
   assert.deepEqual(f.writeStarts().slice(base).map((s: any) => s.argv[s.argv.indexOf('--note') + 1]), ['first', 'second']);
 });
 

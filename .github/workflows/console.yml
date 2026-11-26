@@ -33,9 +33,11 @@ on:
 permissions:
   contents: read
 
+# One group per event and ref: a newer push to main or PR cancels that ref's older run. A manual
+# dispatch queues instead of cancelling a push run. This workflow never runs on a tag.
 concurrency:
-  group: console-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: console-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   console:
