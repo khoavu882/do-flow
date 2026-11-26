@@ -12,6 +12,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../../helper/tmp.ts');
+const { untilLockReclaimable } = require('../../helper/killed-lock-holder.ts');
 
 const REPO = path.join(__dirname, '..', '..', '..');
 const SRC = path.join(REPO, 'src', 'runtime');
@@ -133,7 +134,9 @@ async function until<T>(read: () => T, what: string, ms = 10000, every = 20): Pr
 
 /**
  * A wait on process liveness: each read runs `ps`, so it polls every 200 ms, and the 30 s ceiling is a bound for a loaded
- * machine, not the expected time (review B-04). The order of events is asserted by the caller, not the time.
+ * machine, not the expected time (review B-04). The order of events is asserted by the caller, not the time. Its `ms` also
+ * bounds a detached supervisor's start: two cold node processes (the supervisor, then the harness it spawns) before the
+ * first record, which is the slow step when the whole worker folder runs at once (test/guards/no-real-harness.test.ts).
  */
 const PROCESS_WAIT = Object.freeze({ ms: 30000, every: 200 });
 
@@ -423,6 +426,8 @@ test('no orphan: SIGKILL of the supervisor closes the harness stdin, so the supe
   // The run never ended: a reader says why, and an operator cancel ends it and removes the spool.
   const [item] = channelsBody({ root: f.root, now: Date.now(), cache: new Map() }).items;
   assert.deepEqual([item.runId, item.turn.reason], [runId, 'supervisor-gone']);
+  // The kill can land inside a store write: the cancel's write then needs the dead supervisor's lock reclaimable.
+  await untilLockReclaimable(f.file);
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'supervisor killed', env: f.env, cwd: f.root });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
   assert.equal(fs.existsSync(dir), false);
@@ -432,7 +437,7 @@ test('R-9: a harness that ignores its closed stdin outlives the killed superviso
   const f = fixture(t);
   const runId = seed(f, 'stubborn first prompt');
   const supervisor = detachedSupervisor(f, runId, { ...f.env, FAKE_CHANNEL_MODE: 'ignore-eof' });
-  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'waiting', 'the turn waiting');
+  await until(() => runOf(f, runId)?.channel?.state === 'open' && runOf(f, runId).channel.turn.state === 'waiting', 'the turn waiting', PROCESS_WAIT.ms);
   const worker = runOf(f, runId).worker;
   process.kill(supervisor.pid, 'SIGKILL');
   await until(() => tree.alive(supervisor) === false, 'the supervisor gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
@@ -443,6 +448,8 @@ test('R-9: a harness that ignores its closed stdin outlives the killed superviso
   const [item] = channelsBody({ root: f.root, now: Date.now(), cache: new Map() }).items;
   assert.deepEqual([item.channel, item.turn], ['open', { observed: false, reason: 'supervisor-gone', since: null }]);
 
+  // The kill can land inside a store write: the cancel's write then needs the dead supervisor's lock reclaimable.
+  await untilLockReclaimable(f.file);
   const cancel = await executeWorkerCommand({ action: 'cancel', slug: 'started-sessions', workerRun: runId, operator: true, via: 'console', reason: 'stubborn harness', env: f.env, cwd: f.root });
   assert.equal(cancel.body.disposition, 'cancelled', JSON.stringify(cancel.body));
   await until(() => gone(worker), 'the stubborn group gone', PROCESS_WAIT.ms, PROCESS_WAIT.every);
