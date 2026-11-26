@@ -490,12 +490,9 @@ function linkDecisions({ featureDir, slug, from, to, kind, fsImpl = nodeFs }: an
     }
     if ((source[linkKind] || []).includes(toId)) return { ...base, changed: false, superseded: [], replaced: null };
     if (target.status === 'superseded') throw new DecisionUsageError(`${toId} is not live (it was superseded by ${target.supersededBy})`);
-    if (linkKind === 'narrows') {
-      if (source.status === 'superseded') throw new DecisionUsageError(`--kind narrows needs a live --from; ${fromId} was superseded by ${source.supersededBy}`);
-      for (const d of [source, target]) {
-        if (d.retired) throw new DecisionUsageError(`--kind narrows needs both decisions in the live view; ${d.id} is retired`);
-      }
-    }
+    if (source.status === 'superseded') throw new DecisionUsageError(`--from ${fromId} is not live (it was superseded by ${source.supersededBy})`);
+    if (source.retired) throw new DecisionUsageError(`--from ${fromId} is retired (in force, out of the live view); only a live decision can supersede or reopen another`);
+    if (linkKind === 'narrows' && target.retired) throw new DecisionUsageError(`--kind narrows needs both decisions in the live view; ${toId} is retired`);
     const cycle = linkPath(register, toId, fromId);
     if (cycle) {
       return {
@@ -505,8 +502,6 @@ function linkDecisions({ featureDir, slug, from, to, kind, fsImpl = nodeFs }: an
         cycle,
       };
     }
-    if (source.status === 'superseded') throw new DecisionUsageError(`--from ${fromId} is not live (it was superseded by ${source.supersededBy})`);
-    if (source.retired) throw new DecisionUsageError(`--from ${fromId} is retired (in force, out of the live view); only a live decision can supersede or reopen another`);
     let replaced: string | null = null;
     source[linkKind] = [...(source[linkKind] || []), toId];
     const superseded: any[] = [];

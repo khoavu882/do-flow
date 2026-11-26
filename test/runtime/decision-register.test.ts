@@ -866,7 +866,7 @@ test('IC-001: a link across topics is fine and leaves topics alone; a source tha
   for (const kind of ['supersedes', 'reopens']) {
     assertUsage(r, link(r, 'DEC-001', 'DEC-003', kind), '--from DEC-001 is not live (it was superseded by DEC-002)', before);
   }
-  assertUsage(r, link(r, 'DEC-001', 'DEC-003', 'narrows'), 'DEC-001 was superseded by DEC-002', before);
+  assertUsage(r, link(r, 'DEC-001', 'DEC-003', 'narrows'), '--from DEC-001 is not live (it was superseded by DEC-002)', before);
   assert.deepEqual(dec(r, 'DEC-001').supersedes, []);
   assert.equal(dec(r, 'DEC-003').status, 'live');
 });
@@ -1014,19 +1014,19 @@ test('IC-001 row 10: a target that is already superseded is refused, naming who 
   }
 });
 
-test('IC-001 row 11: narrows needs a live source', () => {
+test('IC-001 row 11: narrows needs a live source, refused as for every kind', () => {
   const r = seeded();
   assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
-  assertUsage(r, link(r, 'DEC-001', 'DEC-003', 'narrows'), '--kind narrows needs a live --from; DEC-001 was superseded by DEC-002');
+  assertUsage(r, link(r, 'DEC-001', 'DEC-003', 'narrows'), '--from DEC-001 is not live (it was superseded by DEC-002)');
 });
 
-test('IC-001 row 12: narrows needs both ends in the live view, the source checked first', () => {
+test('IC-001 row 12: narrows needs a retired-free target; a retired source is refused first as --from', () => {
   const r = seeded();
   assert.equal(retire(r, 'DEC-001').exitCode, 0);
   assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'narrows'), '--kind narrows needs both decisions in the live view; DEC-001 is retired');
-  assertUsage(r, link(r, 'DEC-001', 'DEC-002', 'narrows'), '--kind narrows needs both decisions in the live view; DEC-001 is retired');
+  assertUsage(r, link(r, 'DEC-001', 'DEC-002', 'narrows'), '--from DEC-001 is retired (in force, out of the live view)');
   assert.equal(retire(r, 'DEC-002').exitCode, 0);
-  assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'narrows'), '--kind narrows needs both decisions in the live view; DEC-002 is retired');
+  assertUsage(r, link(r, 'DEC-002', 'DEC-001', 'narrows'), '--from DEC-002 is retired (in force, out of the live view)');
 });
 
 test('IC-001: a retired decision can still be the target of supersedes and reopens, and stays retired', () => {
@@ -1043,7 +1043,8 @@ test('IC-001: a retired decision can still be the target of supersedes and reope
 
 test('IC-012: a direct reverse link is link-cycle with the path in order, and nothing is written', () => {
   const r = seeded(2);
-  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  // Both decisions stay live: DEC-002 narrows DEC-001, so a cycle can only close through a live source.
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'narrows').exitCode, 0);
   const before = snapshot(r.featureDir);
   const run = link(r, 'DEC-001', 'DEC-002', 'supersedes');
   assertFinding(r, run, 'link-cycle', before);
@@ -1071,13 +1072,24 @@ test('IC-012: a two-step reverse link, through an intermediate decision, is link
 
 test('IC-012: edges made by add (supersedes) count, and reopens and narrows edges count too', () => {
   const r = seeded(3);
+  assert.equal(link(r, 'DEC-001', 'DEC-003', 'narrows').exitCode, 0);
   assert.equal(add(r, [item({ topic: 't4', supersedes: ['DEC-001'] })]).exitCode, 0);
-  // DEC-004 -> DEC-001 exists; linking DEC-001 -> DEC-004 with reopens would close it.
-  const run = link(r, 'DEC-001', 'DEC-004', 'reopens');
+  // DEC-004 -> DEC-001 (made by add) -> DEC-003 exists; linking DEC-003 -> DEC-004 would close it.
+  const run = link(r, 'DEC-003', 'DEC-004', 'reopens');
   assertFinding(r, run, 'link-cycle');
-  assert.deepEqual(run.result.cycle, ['DEC-004', 'DEC-001']);
-  assert.equal(link(r, 'DEC-003', 'DEC-002', 'reopens').exitCode, 0);
-  assert.deepEqual(link(r, 'DEC-002', 'DEC-003', 'supersedes').result.cycle, ['DEC-003', 'DEC-002']);
+  assert.deepEqual(run.result.cycle, ['DEC-004', 'DEC-001', 'DEC-003']);
+  const r2 = seeded(3);
+  assert.equal(link(r2, 'DEC-002', 'DEC-003', 'narrows').exitCode, 0);
+  assert.equal(link(r2, 'DEC-001', 'DEC-002', 'reopens').exitCode, 0);
+  assert.deepEqual(link(r2, 'DEC-003', 'DEC-001', 'supersedes').result.cycle, ['DEC-001', 'DEC-002', 'DEC-003']);
+});
+
+test('IC-012: a superseded --from whose link would also close a cycle is refused as not live (exit 2), not link-cycle', () => {
+  const r = seeded(2);
+  assert.equal(link(r, 'DEC-002', 'DEC-001', 'supersedes').exitCode, 0);
+  for (const kind of ['supersedes', 'narrows', 'reopens']) {
+    assertUsage(r, link(r, 'DEC-001', 'DEC-002', kind), '--from DEC-001 is not live (it was superseded by DEC-002)');
+  }
 });
 
 test('IC-012: a link that only shares a target with an existing link is not a cycle', () => {
