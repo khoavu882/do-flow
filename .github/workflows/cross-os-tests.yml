@@ -26,12 +26,18 @@ on:
         type: string
         default: '["ubuntu-latest", "macos-latest", "windows-latest"]'
 
-# A new push to a PR cancels that PR's older run (the pattern prettier, vite and pnpm use).
-# Every other event gets a group of its own (run_id), so a main push or a release tag is never
-# cancelled, and a workflow_call cannot collide with its caller.
+# One group per event and ref: a newer push to a branch or PR cancels that ref's older run, so
+# a stack of pushes costs one finished run (the pattern prettier, vite and pnpm use). A tag is
+# never cancelled (release.yml calls this workflow on `v*`; there github.ref is the tag), and a
+# dispatch is an explicit request, so it queues instead of cancelling a push run.
+# The group name starts with this workflow's own prefix rather than github.workflow, because in a
+# workflow_call github.workflow is the caller's name and could collide with a group the caller adds.
+# A release push to main is NOT skipped: the tag usually arrives after the main push, so at
+# main-push time nothing says release.yml will test that commit, and a skip rule keyed on the tag
+# would pass untested commits whenever the order flips. The duplicate costs one run per release.
 concurrency:
-  group: cross-os-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: cross-os-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) }}
 
 jobs:
   # The runtime executes by type-stripping, so a type error fails no test; this job is where it fails.
