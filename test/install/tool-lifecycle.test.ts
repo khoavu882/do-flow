@@ -267,7 +267,8 @@ for (const [name, signal, toGroup] of [['SIGINT to the foreground group', 'SIGIN
     const exited = new Promise((resolve) => node.on('exit', (code: any, sig: any) => resolve({ code, sig })));
     // Bounded by the probe's own 20 s timeout: two cold processes (node, then the shell) start before the pid is written.
     for (const end = Date.now() + 20000; Date.now() < end && !(Number(fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8')) > 1);) await new Promise((resolve) => setTimeout(resolve, 50));
-    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    // A pid file that never appeared fails here with the assertion's message, not as a bare ENOENT.
+    const pid = fs.existsSync(pidFile) ? Number(fs.readFileSync(pidFile, 'utf8')) : NaN;
     assert.ok(pid > 1, 'the wrapper started its child');
     const alive = () => processRunning(pid);
     assert.equal(alive(), true, 'the child is running before the signal');
