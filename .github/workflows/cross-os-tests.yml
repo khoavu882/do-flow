@@ -32,9 +32,11 @@ on:
 # dispatch is an explicit request, so it queues instead of cancelling a push run.
 # The group name starts with this workflow's own prefix rather than github.workflow, because in a
 # workflow_call github.workflow is the caller's name and could collide with a group the caller adds.
-# A release push to main is NOT skipped: the tag usually arrives after the main push, so at
-# main-push time nothing says release.yml will test that commit, and a skip rule keyed on the tag
-# would pass untested commits whenever the order flips. The duplicate costs one run per release.
+# A release push to main is NOT skipped. The main reason: release.yml calls this workflow with
+# ubuntu and macOS only, so the push-to-main run is the only Windows run a release commit gets.
+# Also, the tag usually arrives after the main push, so at main-push time nothing says release.yml
+# will test that commit, and a skip rule keyed on the tag would pass untested commits whenever
+# the order flips.
 concurrency:
   group: cross-os-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) }}
