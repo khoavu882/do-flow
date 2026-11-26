@@ -352,6 +352,16 @@ test('R15 reads the run of the step that runs release:rehearse, not other job te
     ['a flag taking a value that swallows a skip flag', '      - run: npm run release:rehearse -- --ref --skip-preflight --skip-suite', /rejects.*usage:/],
     ['|| true on the step', goodStep + ' || true', /must not mask the rehearsal failure/],
     ['; true on the step', goodStep + '; true', /must not mask the rehearsal failure/],
+    ['|| : on the step', goodStep + ' || :', /must not mask the rehearsal failure/],
+    ['|| exit 0 on the step', goodStep + ' || exit 0', /must not mask the rehearsal failure/],
+    ['; : on the step', goodStep + '; :', /must not mask the rehearsal failure/],
+    ['; exit 0 on the step', goodStep + '; exit 0', /must not mask the rehearsal failure/],
+    ['|| true after a pipe', goodStep + ' 2>&1 | tee rehearse.log || true', /must not mask the rehearsal failure/],
+    ['|| true after a continuation line', '      - run: |\n          npm run release:rehearse -- --skip-preflight \\\n            --skip-suite \\\n            || true', /must not mask the rehearsal failure/],
+    ['the command only inside a quoted comment', '      - run: "true # npm run release:rehearse -- --skip-preflight --skip-suite"', /must run release:rehearse/],
+    ['the command only as echo arguments', '      - run: echo npm run release:rehearse -- --skip-preflight --skip-suite', /must run release:rehearse/],
+    ['the command only inside quotes', '      - run: echo "x" && echo \'npm run release:rehearse -- --skip-preflight --skip-suite\'', /must run release:rehearse/],
+    ['a flag taking a value, after a pipe-free redirect', goodStep + ' --ref --keep > rehearse.log', /rejects.*usage:/],
   ];
   for (const [name, step, message] of cases) {
     const mutated = withStep(step);
@@ -370,9 +380,30 @@ test('R15 reads the run of the step that runs release:rehearse, not other job te
     '      - run: |\n          echo start\n          npm run release:rehearse -- --skip-preflight \\\n            --skip-suite',
     '      - run: npm run release:rehearse -- --skip-preflight --skip-suite --keep',
     '      - name: the rehearsal\n        run: "npm run release:rehearse -- --skip-preflight --skip-suite"',
+    goodStep + ' 2>&1 | tee rehearse.log',
+    goodStep + ' > rehearse.log',
+    goodStep + ' >> rehearse.log 2>&1',
+    goodStep + ' && echo done',
+    goodStep + ' # the rehearsal',
+    goodStep + ' --ref ${{ github.sha }}',
+    goodStep + ' --ref "$GITHUB_SHA"',
+    goodStep + ' --node "$(command -v node)"',
+    goodStep + ' --node "${NODE_BIN}"',
+    '      - run: echo start && npm run release:rehearse -- --skip-preflight --skip-suite',
+    '      - run: |\n          npm run release:rehearse -- --skip-preflight --skip-suite\n          rm -rf scratch || true',
+    '      - run: |\n          npm run release:rehearse -- --skip-preflight --skip-suite\n          echo done; true',
+    '      - env:\n          FOO: bar\n        working-directory: .\n        run: FOO=1 npm run release:rehearse -- --skip-preflight --skip-suite',
+    '      - run: >-\n          npm run release:rehearse --\n          --skip-preflight --skip-suite',
   ]) {
     assert.deepEqual(releaseWorkflowFindings(withStep(step)), [], step);
   }
+  // An indentless sequence (`steps:` and `- run:` at one indent) is read, in both directions.
+  const indentless = (text: string) => text.replace(/(  rehearse:\n[\s\S]*?\n    steps:\n)([\s\S]*?)(\n  verify-artifact:)/,
+    (_match, head: string, steps: string, tail: string) => head + steps.split('\n').map((line) => line.replace(/^  /, '')).join('\n') + tail);
+  assert.notEqual(indentless(workflow), workflow);
+  assert.deepEqual(r15(indentless(workflow)), []);
+  assert.match(r15(indentless(withStep('      - run: npm run release:rehearse')))[0], bothMissing);
+  assert.match(r15(indentless(withStep(goodStep + ' || true')))[0], /must not mask/);
 });
 
 test('yamlKeys reads keys however spelled and treats block scalar bodies as text', () => {

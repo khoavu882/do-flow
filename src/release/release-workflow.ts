@@ -236,7 +236,9 @@ function jobStepRuns(job: WorkflowJob): string[] {
   if (start < 0) return [];
   const body: string[] = [];
   for (let index = start + 1; index < lines.length; index++) {
-    if (lines[index].trim() && indentation(lines[index]) <= 4) break;
+    // A sequence may sit at the key's own indent (`steps:` and `- run:` aligned).
+    if (lines[index].trim() && (indentation(lines[index]) < 4
+      || (indentation(lines[index]) === 4 && !/^\s*-(?:\s|$)/.test(lines[index])))) break;
     body.push(lines[index]);
   }
   const first = body.find((line) => line.trim());
@@ -269,39 +271,150 @@ function jobStepRuns(job: WorkflowJob): string[] {
   return runs;
 }
 
+type ShellToken = { op: string } | { word: string };
+
 /**
- * What is wrong with the steps of the rehearse job that run `release:rehearse`: each such step's
- * command must pass both skip flags after `--`, once, in arguments the rehearsal itself accepts,
- * and must not mask its exit status. Every problem is returned, not only the first.
+ * Splits shell text into words and operators. Quotes, `${{ }}`, `$(...)` and `${...}` stay inside
+ * one word; a `#` that starts a word comments out the rest of the line; `|`, `||`, `&&`, `;`, `&`,
+ * a newline, parentheses and the redirections (`>`, `>>`, `<`, `2>&1`) are operators.
+ */
+function shellTokens(text: string): ShellToken[] {
+  const source = String(text).replace(/\\\r?\n/g, ' ');
+  const tokens: ShellToken[] = [];
+  let word: string | null = null;
+  const flush = () => {
+    if (word !== null) tokens.push({ word });
+    word = null;
+  };
+  const closing = (from: number, open: string, close: string): number => {
+    let depth = 0;
+    for (let at = from; at < source.length; at++) {
+      if (source[at] === open) depth++;
+      else if (source[at] === close && --depth === 0) return at;
+    }
+    return source.length - 1;
+  };
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (character === '\\' && index + 1 < source.length) {
+      word = (word ?? '') + source[++index];
+    } else if (character === ' ' || character === '\t' || character === '\r') {
+      flush();
+    } else if (character === '\n') {
+      flush();
+      tokens.push({ op: '\n' });
+    } else if (character === '#' && word === null) {
+      while (index + 1 < source.length && source[index + 1] !== '\n') index++;
+    } else if (character === "'" || character === '"') {
+      let end = index + 1;
+      while (end < source.length && source[end] !== character) end += character === '"' && source[end] === '\\' ? 2 : 1;
+      word = (word ?? '') + source.slice(index + 1, end);
+      index = end;
+    } else if (character === '$' && source.startsWith('${{', index)) {
+      const end = source.indexOf('}}', index + 3);
+      const stop = end < 0 ? source.length : end + 2;
+      word = (word ?? '') + source.slice(index, stop);
+      index = stop - 1;
+    } else if (character === '$' && (source[index + 1] === '(' || source[index + 1] === '{')) {
+      const end = source[index + 1] === '(' ? closing(index + 1, '(', ')') : closing(index + 1, '{', '}');
+      word = (word ?? '') + source.slice(index, end + 1);
+      index = end;
+    } else if (character === '|' || character === '&') {
+      flush();
+      if (source[index + 1] === character) {
+        tokens.push({ op: character + character });
+        index++;
+      } else {
+        tokens.push({ op: character });
+      }
+    } else if (character === ';' || character === '(' || character === ')') {
+      flush();
+      tokens.push({ op: character });
+    } else if (character === '>' || character === '<') {
+      if (word !== null && /^\d+$/.test(word)) word = null; // the fd of `2>&1`
+      flush();
+      let end = index;
+      if (source[end + 1] === character) end++;
+      if (character === '>' && source[end + 1] === '&') {
+        end++;
+        while (/[\d-]/.test(source[end + 1] || '')) end++;
+      }
+      tokens.push({ op: source.slice(index, end + 1) });
+      index = end;
+    } else {
+      word = (word ?? '') + character;
+    }
+  }
+  flush();
+  return tokens;
+}
+
+/**
+ * What is wrong with the steps of the rehearse job that run `release:rehearse`: each such command
+ * must pass both skip flags after `--`, once, in arguments the rehearsal itself accepts, and must
+ * not mask its exit status. The rehearsal is a command (at the start of a command, after `&&`,
+ * `;`, `|` or the like), never text inside quotes, a comment or another command's arguments; its
+ * arguments end at the first shell operator. Every problem is returned, not only the first.
  */
 function rehearseStepViolations(job: WorkflowJob): string[] {
   const { parseArgs } = require('./rehearse.ts');
-  const command = /npm\s+run\s+release:rehearse(?=\s|$)([^\n;&|]*)([\s\S]*)/;
   const violations: string[] = [];
-  const runs = jobStepRuns(job).map((run) => run.replace(/\\\r?\n/g, ' ')).filter((run) => command.test(run));
-  if (!runs.length) return ['rehearse must run release:rehearse'];
-  for (const run of runs) {
-    const [, args, after] = command.exec(run) as RegExpExecArray;
-    const tokens = args.trim().split(/\s+/).filter(Boolean).map(unquote);
-    // Without a bare `--` before them the flags are npm's own and never reach the rehearsal.
-    const flags = tokens[0] === '--' ? tokens.slice(1) : [];
-    // On a tag run the rehearsal's own preflight stage can never pass (tag-unused, stable-allowed); the preflight job owns it.
-    if (!flags.includes('--skip-preflight')) violations.push('rehearse must pass --skip-preflight to release:rehearse');
-    // The test job in this workflow already runs the full suite on both OSes; a second unsharded run only doubles the flake exposure.
-    if (!flags.includes('--skip-suite')) violations.push('rehearse must pass --skip-suite to release:rehearse');
-    if (flags.length) {
-      try {
-        parseArgs(flags);
-      } catch (error: any) {
-        violations.push('rehearse passes arguments release:rehearse rejects (a repeated flag, or a flag without its value): '
-          + String(error.message).split('\n')[0]);
+  let found = 0;
+  for (const run of jobStepRuns(job)) {
+    const tokens = shellTokens(run);
+    let atStart = true;
+    for (let index = 0; index < tokens.length; index++) {
+      const token = tokens[index];
+      if ('op' in token) {
+        atStart = ['\n', ';', '&&', '||', '|', '&', '(', ')'].includes(token.op);
+        continue;
+      }
+      if (!atStart) continue;
+      if (/^[A-Za-z_]\w*=/.test(token.word)) continue; // FOO=bar npm run ...
+      atStart = false;
+      const head = tokens.slice(index, index + 3).map((entry) => ('word' in entry ? entry.word : null));
+      if (head.join(' ') !== 'npm run release:rehearse') continue;
+      found++;
+      let end = index + 3;
+      const args: string[] = [];
+      for (; end < tokens.length && 'word' in tokens[end]; end++) args.push((tokens[end] as { word: string }).word);
+      // Without a bare `--` before them the flags are npm's own and never reach the rehearsal.
+      const flags = args[0] === '--' ? args.slice(1) : [];
+      // On a tag run the rehearsal's own preflight stage can never pass (tag-unused, stable-allowed); the preflight job owns it.
+      if (!flags.includes('--skip-preflight')) violations.push('rehearse must pass --skip-preflight to release:rehearse');
+      // The test job in this workflow already runs the full suite on both OSes; a second unsharded run only doubles the flake exposure.
+      if (!flags.includes('--skip-suite')) violations.push('rehearse must pass --skip-suite to release:rehearse');
+      if (flags.length) {
+        try {
+          parseArgs(flags);
+        } catch (error: any) {
+          violations.push('rehearse passes arguments release:rehearse rejects (a repeated flag, or a flag without its value): '
+            + String(error.message).split('\n')[0]);
+        }
+      }
+      // Anything after the command up to the end of its line or its `;`: a `||` or a `; true`, `; :`, `; exit 0` hides a failed rehearsal.
+      for (let next = end; next < tokens.length; next++) {
+        const follow = tokens[next];
+        if (!('op' in follow) || follow.op === '\n') {
+          if ('op' in follow) break;
+          continue;
+        }
+        if (follow.op === '||') {
+          violations.push('rehearse must not mask the rehearsal failure with ||, ; true, ; : or ; exit 0');
+          break;
+        }
+        if (follow.op === ';') {
+          const rest: string[] = [];
+          for (let word = next + 1; word < tokens.length && 'word' in tokens[word]; word++) rest.push((tokens[word] as { word: string }).word);
+          if (['true', ':', 'exit 0'].includes(rest.join(' '))) {
+            violations.push('rehearse must not mask the rehearsal failure with ||, ; true, ; : or ; exit 0');
+          }
+          break;
+        }
       }
     }
-    if (/(?:\|\||;)\s*true\s*(?:$|[\n;&|])/.test(after)) {
-      violations.push('rehearse must not mask the rehearsal failure with || true or ; true');
-    }
   }
-  return violations;
+  return found ? violations : ['rehearse must run release:rehearse'];
 }
 
 function shellCommands(text: string): string[] {

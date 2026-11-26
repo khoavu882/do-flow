@@ -231,6 +231,21 @@ test('G51: each seeded workflow fault reports its IC-004 rule', () => {
       '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
       '      - run: npm run release:rehearse -- --skip-preflight --skip-suite; true',
     ) },
+    { name: 'R15 the rehearsal is only echoed', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: echo npm run release:rehearse -- --skip-preflight --skip-suite',
+    ) },
+    { name: 'R15 the rehearsal step masks its failure with || exit 0', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite 2>&1 | tee rehearse.log || exit 0',
+    ) },
+    { name: 'R15 the rehearsal step masks its failure with ; :', rules: ['R15'], text: replaceOnce(
+      workflow,
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite',
+      '      - run: npm run release:rehearse -- --skip-preflight --skip-suite; :',
+    ) },
     { name: 'R15 rehearse job continues on error', rules: ['R15'], text: replaceOnce(
       workflow,
       '  rehearse:\n    runs-on: ubuntu-latest\n',
