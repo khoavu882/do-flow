@@ -223,15 +223,26 @@ function sourceFor(kind: any, fields: any, label: any, problems: any) {
 function buildItems({ cwd, items, defaults }: any) {
   const problems: any[] = [];
   let featureSlug: any;
+  let featureRefused = false;
+  // A feature that cannot be resolved is one more problem on the list, not a throw that hides the other fields.
   const feature = () => {
-    if (featureSlug === undefined) featureSlug = resolveFeatureSlug({ cwd, slug: defaults.slug });
+    if (featureSlug === undefined) {
+      try { featureSlug = resolveFeatureSlug({ cwd, slug: defaults.slug }); } catch (error: any) {
+        if (!(error instanceof FollowupUsageError)) throw error;
+        featureSlug = null;
+        featureRefused = true;
+        problems.push(error.message);
+      }
+    }
     return featureSlug;
   };
   const built: any[] = [];
   items.forEach((raw: any, index: any) => {
     const label = items.length > 1 || defaults.batch ? `item ${index + 1}` : 'the follow-up';
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { problems.push(`${label} must be an object`); return; }
-    const statement = oneLine(raw.statement, `${label}: statement`, problems);
+    const statement = raw.statement === undefined || raw.statement === null
+      ? (problems.push(`${label}: statement is required${defaults.batch ? '' : ' (--statement, or pass --batch <file.json>)'}`), null)
+      : oneLine(raw.statement, `${label}: statement`, problems);
     const stage = raw.stage ?? defaults.stage;
     const given = raw.source ?? defaults.source;
     const sourceObject = given && typeof given === 'object' ? given : null;
@@ -241,13 +252,14 @@ function buildItems({ cwd, items, defaults }: any) {
       return;
     }
     const resolvedKind = kind || 'stage';
+    // A bad stage is recorded and the rest of the item is still checked, so one error names every field (FU-t8dbet).
     if ((resolvedKind === 'stage' || resolvedKind === 'run') && !STAGES.includes(stage)) {
       problems.push(`${label}: stage must be one of ${STAGES.join(', ')}${stage ? ` (got '${stage}')` : ''}`);
-      return;
     }
     let source;
     if (resolvedKind === 'stage') {
       const slug = sourceObject && sourceObject.feature ? sourceObject.feature : feature();
+      if (!slug && featureRefused) return;
       if (!slug) { problems.push(`${label}: no feature resolved from the branch; pass --slug, or --source run|release|manual`); return; }
       source = sourceFor('stage', { feature: slug, stage }, label, problems);
     } else {
