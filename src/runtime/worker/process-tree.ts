@@ -274,13 +274,27 @@ function harnessBinaries(fsImpl: any = fs): string[] | null {
  * because its /proc directory is owned by this uid, and a third mechanism would otherwise block every user who has one. It is
  * skipped when its cmdline reads, is non-empty and no argv element has a harness binary as its basename (`node .../claude` and
  * `timeout 30 claude` count); an unreadable registry or cmdline, or an empty argv, leaves it unknown. The registry lists no
- * binary for a harness's child processes, so only `worker.cli.binary` is compared. Trade-off: a privileged non-harness child
- * of a harness (a file-capability binary run as a tool) is skipped too, which can read a run as dead while that child runs; a
- * harness itself never gains privilege, so it is never skipped here.
+ * binary for a harness's child processes (kiro-cli runs kiro-cli-chat), so a skipped entry is kept with its process group and
+ * session (`Skipped`; one whose stat cannot be read stays the blocker), and a run whose recorded process led either reads it
+ * as unknown (FU-r39mbk, start-session.ts `namingScan`).
+ * Trade-off: a privileged non-harness process that left the run's group and session (a daemon) is still skipped.
  */
 function uninspectableNonHarness(argv: string[] | null, binaries: string[] | null): boolean {
   if (argv === null || argv.length === 0 || binaries === null) return false;
   return !argv.some((arg) => binaries.includes(path.basename(arg)));
+}
+
+/** An entry the uninspectable rule skipped: its process group and session (fields 5 and 6 of /proc/<pid>/stat, which stays
+ * readable when environ does not), and the blocker it is for a run it belongs to. */
+type Skipped = { pgid: number; sid: number; unreadable: Unreadable };
+
+/** The process group and session /proc/<pid>/stat shows (counted after the command's last `)`); null when it cannot be read. */
+function procGroup(fsImpl: any, pid: string): { pgid: number; sid: number } | null {
+  try {
+    const stat = fsImpl.readFileSync(`/proc/${pid}/stat`).toString('utf8');
+    const [, , pgid, sid] = stat.slice(stat.lastIndexOf(')') + 2).split(' ').map(Number);
+    return Number.isInteger(pgid) && pgid > 0 && Number.isInteger(sid) && sid > 0 ? { pgid, sid } : null;
+  } catch { return null; }
 }
 
 /**
@@ -288,18 +302,20 @@ function uninspectableNonHarness(argv: string[] | null, binaries: string[] | nul
  * null when the listing cannot be read (win32, another platform, `ps` failing, a /proc entry of this user that cannot be read),
  * which a caller reads as unknown, and `unreadable` then names the first blocker. darwin: one `ps -wwAE -o command=`
  * (environments of other users and of platform binaries are not shown, so such a process is read from its command line alone).
- * linux: `/proc/<pid>/cmdline` and `environ` of every process this user owns. Writes nothing and signals nothing.
+ * linux: `/proc/<pid>/cmdline` and `environ` of every process this user owns, and in `skipped` the entries the uninspectable
+ * rule skipped (empty elsewhere). Writes nothing and signals nothing.
  */
-function readProcessTexts({ platform = process.platform, run = runPs, fsImpl = fs, uid = typeof process.getuid === 'function' ? process.getuid() : null, binaries }: any = {}): { texts: string[] | null; unreadable: Unreadable | null } {
-  const blocked = (unreadable: Unreadable) => ({ texts: null, unreadable });
+function readProcessTexts({ platform = process.platform, run = runPs, fsImpl = fs, uid = typeof process.getuid === 'function' ? process.getuid() : null, binaries }: any = {}): { texts: string[] | null; unreadable: Unreadable | null; skipped: Skipped[] } {
+  const blocked = (unreadable: Unreadable) => ({ texts: null, unreadable, skipped: [] });
   if (platform === 'darwin') {
     const out = run(['-wwAE', '-o', 'command='], { maxBuffer: TEXTS_MAX_BYTES });
     if (out == null) return blocked({ reason: 'ps-failed', pid: null, file: null, errno: null });
-    return { texts: String(out).split('\n').filter((line) => line.trim() !== ''), unreadable: null };
+    return { texts: String(out).split('\n').filter((line) => line.trim() !== ''), unreadable: null, skipped: [] };
   }
   if (platform !== 'linux') return blocked({ reason: 'platform', pid: null, file: null, errno: null });
   if (uid === null) return blocked({ reason: 'no-uid', pid: null, file: null, errno: null });
   const texts: string[] = [];
+  const skipped: Skipped[] = [];
   let names: string[];
   try { names = fsImpl.readdirSync('/proc').filter((name: string) => /^[0-9]+$/.test(name)); } catch (error: any) {
     return blocked({ reason: 'proc-list', pid: null, file: '/proc', errno: typeof error?.code === 'string' ? error.code : null });
@@ -335,12 +351,13 @@ function readProcessTexts({ platform = process.platform, run = runPs, fsImpl = f
       if (error?.code === 'ESRCH') continue;
       if (error?.code === 'EACCES' && file === `/proc/${name}/environ`) {
         if (registryBinaries === undefined) registryBinaries = harnessBinaries();
-        if (uninspectableNonHarness(argv, registryBinaries)) continue;
+        const group = uninspectableNonHarness(argv, registryBinaries) ? procGroup(fsImpl, name) : null;
+        if (group) { skipped.push({ ...group, unreadable: entry(procState(fsImpl, name), procThreads(fsImpl, name)).unreadable }); continue; }
       }
       return entry(procState(fsImpl, name), procThreads(fsImpl, name));
     }
   }
-  return { texts, unreadable: null };
+  return { texts, unreadable: null, skipped };
 }
 
 /** `readProcessTexts`' texts alone: the listing, or null when it cannot be read. */

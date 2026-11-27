@@ -776,6 +776,35 @@ test('A-1: when the process table is why a run reads unknown, checkout-busy-unkn
   assert.doesNotMatch(plain.body.message, /process table/);
 });
 
+// FU-r39mbk: a harness's child under another binary name (kiro-cli runs kiro-cli-chat) whose environ the kernel hides is not
+// skipped for a run whose recorded process led its process group or session: the reading is unknown, with that child named.
+// The child is a synthetic /proc entry read through readProcessTexts' fsImpl; no harness binary runs.
+test('FU-r39mbk: an uninspectable non-harness process in the group or session a run\'s recorded worker led keeps that run unknown', POSIX, (t: any) => {
+  const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
+  const { liveness, namingScan } = require(path.join(SRC, 'worker', 'start-session.ts'));
+  const real = tree.readProcessTexts;
+  t.after(() => { tree.readProcessTexts = real; });
+  const worker = spawnSync(process.execPath, ['-e', '0']).pid; // recorded, and gone
+  const run = { runId: 'w-aaaabbbbcccc', kind: 'started-session', phase: 'running', createdAt: '2026-01-01T00:00:00.000Z', worker: { pid: worker, pgid: worker, start: 'Thu Jan  1 00:00:00 2026' } };
+  const child = (pgid: number, sid: number) => ({
+    readdirSync: () => ['7'],
+    statSync: () => ({ uid: process.getuid!() }),
+    readFileSync: (p: string) => {
+      if (p === '/proc/7/cmdline') return Buffer.from('/opt/kiro/bin/kiro-cli-chat\0chat\0');
+      if (p === '/proc/7/stat') return Buffer.from(`7 (kiro-cli-chat) S 1 ${pgid} ${sid}`);
+      if (p === '/proc/7/status') return Buffer.from('Name:\tkiro-cli-chat\nThreads:\t4\n');
+      const e: any = new Error('denied'); e.code = 'EACCES'; throw e;
+    },
+  });
+  const blocker = { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 4, command: 'kiro-cli-chat' };
+  for (const [label, pgid, sid, state] of [['its group', worker, 99, 'unknown'], ['its session', 99, worker, 'unknown'], ['neither', 99, 99, 'dead']] as const) {
+    tree.readProcessTexts = (options: any = {}) => real({ ...options, platform: 'linux', uid: process.getuid!(), fsImpl: child(pgid, sid) });
+    const named = namingScan('linux');
+    assert.equal(liveness(run, 'linux', Date.now(), named), state, label);
+    assert.deepEqual(named.unreadableFor(run.runId), state === 'unknown' ? blocker : null, `${label}: the blocker`);
+  }
+});
+
 // ---- 165 review A-3: only a missing dispatch directory means "no dispatch records" -----------------------------------------------
 
 test('A-3: a dispatch directory that cannot be listed (EACCES) refuses the start and marks the options running; a missing one does not', { ...POSIX, skip: POSIX.skip || (process.getuid?.() === 0 && 'root reads a mode-000 directory') }, async (t: any) => {
