@@ -13,6 +13,6 @@ Each row states one fact and names the file that owns it. Guard G46 in `test/gua
 | Typecheck command | `npx -y -p typescript@5.7.2 tsc -p tsconfig.json` | `package.json` `scripts.typecheck` |
 | Harnesses | 7: claude, codex, opencode, pi, copilot, kiro, antigravity | `core/registry/harnesses.json` |
 | Implement gate | advises, never denies | `core/harnesses/shared/hooks/policies/pre-implementation-gate.sh` |
-| Suites outside npm test | `test/code-review-fixtures.sh`, `test/verify-hooks.sh`, `npm run bench` | `package.json` `scripts.test` scope |
+| Suites outside npm test | `test/doflow-chain-test.sh`, `test/hooks/test-hooks.sh`, `test/verify-hooks.sh`, `test/code-review-fixtures.sh`, `npm run bench` | `package.json` `scripts.test` scope; the shell suites are the ones `.github/workflows/cross-os-tests.yml` `shell-suites` runs |
 
 `npm run typecheck` runs the typecheck command, and `npm test` runs the test command.
