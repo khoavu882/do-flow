@@ -11,6 +11,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { parseArgs, nodeRefusal, shellSuites, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
+const { TEST_GLOB, dockerArgs } = require('../../scripts/linux-run.ts');
 
 const SCRIPT = path.join(REPO_ROOT, 'scripts', 'gate.ts');
 
@@ -117,4 +118,13 @@ test('gate: the shell suites are the workflow\'s `run: bash test/*.sh` steps, in
     'test/doflow-chain-test.sh', 'test/hooks/test-hooks.sh', 'test/verify-hooks.sh', 'test/code-review-fixtures.sh',
   ]);
   assert.deepEqual(shellSuites('steps:\n  - run: npm install\n  - run: bash test/a.sh\n  - run: bash scripts/b.sh\n  - run: bash test/c.sh  \n'), ['test/a.sh', 'test/c.sh']);
+});
+
+test('gate: the Linux run is a docker run of the release Node on the worker test folder, with no host path in the container script', () => {
+  const args = dockerArgs('/some/checkout', '24.22.1');
+  assert.deepEqual(args.slice(0, 6), ['run', '--rm', '-v', '/some/checkout:/src:ro', 'node:24.22.1', 'sh']);
+  assert.match(args[args.length - 1], /node --test "test\/runtime\/worker\/\*\.test\.ts"/);
+  assert.equal(TEST_GLOB, 'test/runtime/worker/*.test.ts');
+  assert.ok(fs.existsSync(path.join(REPO_ROOT, 'test', 'runtime', 'worker', 'process-tree.test.ts')));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).scripts['test:linux'], 'node scripts/linux-run.ts');
 });

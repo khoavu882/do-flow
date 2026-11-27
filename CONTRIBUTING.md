@@ -17,4 +17,4 @@ Each row states one fact and names the file that owns it. Guard G46 in `test/gua
 
 `npm run typecheck` runs the typecheck command, and `npm test` runs the test command.
 
-`npm run gate` runs, on a clean export of HEAD, install, typecheck, `npm test`, the Console suite, the shell suites CI blocks on (read from `cross-os-tests.yml`, in its order) and a `bash -n` and conflict-marker scan.
+`npm run gate` runs, on a clean export of HEAD, install, typecheck, `npm test`, the Console suite, the shell suites CI blocks on (read from `cross-os-tests.yml`, in its order) a Linux run of the worker tests and a `bash -n` and conflict-marker scan. A change to the worker or process-table code (`src/runtime/worker/`) should also get `npm run test:linux`: it runs `test/runtime/worker/*.test.ts` in a `node:24.22.1` container, needs docker, and the gate states that step as skipped when no docker daemon answers.

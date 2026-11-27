@@ -4,7 +4,8 @@
 // so the history is there for the tests that read it) into a fresh temp directory, checks out HEAD's
 // commit detached and runs, there and in order, the checks a release leans on: install, typecheck,
 // the suite, the Console suite, the shell suites CI blocks on (read from cross-os-tests.yml, in its
-// order), `bash -n` over the shell scripts and a conflict-marker scan. It
+// order), a Linux run of the worker tests in a container (skipped, and said so, when docker is not there),
+// `bash -n` over the shell scripts and a conflict-marker scan. It
 // refuses to run on any Node but the one release.yml pins, so a pass here cannot be a pass that CI
 // would not repeat. It never edits the working tree. Contract: IC-003 of row 181.
 // Exit 0 all green, 1 the first red step (named), 2 usage.
@@ -13,6 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { workflowNodePins } = require('../src/release/release-workflow.ts');
+const { linuxRun } = require('./linux-run.ts');
 
 const USAGE = 'usage: node scripts/gate.ts [--keep]';
 // A conflict marker git leaves behind: seven < or > at the start of a line, then a space or the end.
@@ -59,7 +61,7 @@ function exportHead(root: string, dir: string): boolean {
     && run(['checkout', '--quiet', '--detach', head.stdout.trim()], dir);
 }
 
-type Step = { name: string, run: () => boolean };
+type Step = { name: string, run: () => boolean | 'skipped' };
 
 function main(argv: string[]): number {
   const options = parseArgs(argv);
@@ -109,6 +111,10 @@ function main(argv: string[]): number {
         return sh('bash', [suite]);
       });
     } },
+    { name: 'linux worker tests (docker)', run: () => {
+      const result = linuxRun(dir, pin);
+      return result === 'ok' ? true : result === 'skipped' ? 'skipped' : false;
+    } },
     { name: 'bash -n over tracked *.sh', run: () => tracked().filter((file) => file.endsWith('.sh'))
       .every((file) => sh('bash', ['-n', file])) },
     { name: 'conflict-marker scan', run: () => {
@@ -123,7 +129,7 @@ function main(argv: string[]): number {
     for (const step of steps) {
       process.stdout.write(`gate: ${step.name} ...\n`);
       const ok = step.run();
-      process.stdout.write(`gate: ${step.name} ${ok ? 'ok' : 'FAILED'}\n`);
+      process.stdout.write(`gate: ${step.name} ${ok === 'skipped' ? 'SKIPPED (no docker daemon answered; no Linux run happened)' : ok ? 'ok' : 'FAILED'}\n`);
       if (!ok) {
         failed = step.name;
         break;

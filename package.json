@@ -42,6 +42,7 @@
     "release:preflight": "node src/release/preflight.ts",
     "release:rehearse": "node src/release/rehearse.ts",
     "gate": "node scripts/gate.ts",
+    "test:linux": "node scripts/linux-run.ts",
     "version": "node src/release/sync-plugin-versions.ts && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json core/registry/packages/doflow/doflow-package.json core/registry/contribution-points.json"
   },
   "files": [
