@@ -771,3 +771,18 @@ test('dead-owner rule: a queued attempt removes a contender that died, instead o
   assert.ok(!owners(file).includes(contender));
   mine();
 });
+
+// FU-yn87fj: `ownerGone` never judges an entry naming this process's own pid, whatever `kill` answers: with every pid
+// answering ESRCH, a young lock holding such an entry keeps the age rule while one naming another pid is taken.
+test('dead-owner rule: a process never judges its own entry dead, even when kill answers ESRCH for it', (t) => {
+  t.mock.method(process, 'kill', () => { const error: any = new Error('no such process'); error.code = 'ESRCH'; throw error; });
+  const own = storeFile(t);
+  plant(own, [ownerEntry(process.pid)]);
+  assert.equal(tryAcquireLock(fs, own), null, 'its own entry keeps the lock young');
+  assert.equal(owners(own).length, 1, 'and is left in place');
+  const other = storeFile(t);
+  plant(other, [ownerEntry(process.pid + 1)]);
+  const release = tryAcquireLock(fs, other);
+  assert.ok(release, 'the control: another pid answering ESRCH is gone');
+  release();
+});
