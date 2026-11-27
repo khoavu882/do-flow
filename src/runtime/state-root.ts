@@ -168,6 +168,8 @@ function sweepWorktreeRecords({ mainRoot, worktreeRoot, recordSlug = null, regis
       if (!rel.includes(path.sep)) {
         let bytes: Buffer | null = null;
         try { bytes = fsImpl.readFileSync(from); } catch { continue; }
+        // Shipped migration of on-disk state (kept by the no-legacy rule): a flat record a worktree still holds is moved
+        // under the feature it names, else the call's, though the runtime no longer reads a flat record that names none.
         const slug = ownSlugOf(bytes as Buffer) || slugOfCall();
         if (slug && slug !== taskIdOf(rel)) toRel = path.join(slug, rel);
       }

@@ -417,8 +417,8 @@ function findNamespacedRun({ stateRoot, taskId, exec, withFlat = false }: any) {
       return { readable: Boolean(record) && typeof record === 'object', ...(named !== undefined ? { feature: named } : {}) };
     } catch { return { readable: false }; }
   };
-  // A flat run in another checkout that names no feature is any feature's, so `list` shows it and
-  // `status` opens it.
+  // A flat run in another checkout that names no feature is no feature's (FU-e2khrt): `list` shows it and
+  // a `status` with no feature opens it.
   const flatInRoot = (root: string): Entry[] => runFilesAt(root).filter((entry) => {
     if (entry.namespace !== null || path.basename(entry.file) !== name) return false;
     const record = recordedFeature(root, entry.file);
