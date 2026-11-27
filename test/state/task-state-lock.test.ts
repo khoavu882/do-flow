@@ -835,3 +835,31 @@ test('dead-owner rule: an EPERM pid (another user\'s process) whose start time d
     if (release) release();
   }
 });
+
+// FU-3w64md review: a start time is recorded and compared only when <proc>/self names this process. A /proc mounted for
+// another pid namespace (an unshared one that did not remount it) shows other processes under these pids. A fake /proc
+// tree stands in for both cases, so this runs on every POSIX host.
+test('dead-owner rule: with a /proc whose self is another process, no start is recorded and a reused start keeps the age rule', POSIX, (t) => {
+  const taskState = require(TASK_STATE);
+  const child = liveChild(t);
+  t.after(() => { taskState.procRoot = '/proc'; });
+  for (const [self, recorded] of [[String(child.pid + 100000), false], [String(process.pid), true]] as const) {
+    const fake = tempDir(t, 'doflow-fake-proc-'); // a fresh root per case: the own start is read once per root
+    for (const pid of [process.pid, child.pid]) {
+      fs.mkdirSync(path.join(fake, String(pid)));
+      fs.writeFileSync(path.join(fake, String(pid), 'stat'), `${pid} (node) S 1 ${pid} ${pid} ${'0 '.repeat(15)}500 0 0\n`);
+    }
+    fs.symlinkSync(self, path.join(fake, 'self'));
+    taskState.procRoot = fake;
+    const mine = storeFile(t);
+    const release = tryAcquireLock(fs, mine);
+    assert.ok(release);
+    assert.match(owners(mine)[0], recorded ? /-500-[0-9a-f]{12}$/ : new RegExp(`^owner-${process.pid}-${hostTag()}-[0-9a-f]{12}$`), `self -> ${self}: ${recorded ? 'the fake start is recorded' : 'no start is recorded'}`);
+    release();
+    const file = storeFile(t);
+    plant(file, [ownerEntry(child.pid, { start: '501' })]);
+    const taken = tryAcquireLock(fs, file);
+    assert.equal(Boolean(taken), recorded, `self -> ${self}: a reused start is ${recorded ? 'taken at once' : 'kept young (the age rule)'}`);
+    if (taken) taken(); else { age(file); const stale = tryAcquireLock(fs, file); assert.ok(stale, 'and taken once stale'); stale(); }
+  }
+});

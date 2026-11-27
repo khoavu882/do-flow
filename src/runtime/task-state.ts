@@ -109,7 +109,8 @@ function sleep(ms: number): void {
 // The dead-owner rule (FU-128npa). An entry is `owner-<pid>-<host tag>[-<start>[t<time ns>]]-<12 hex>`; the host
 // tag (src/helper/host-tag.ts) names this host and pid namespace, and `<start>` (FU-3w64md) is the owner's start
 // time in clock ticks since boot (field 22 of Linux's /proc/self/stat, read once per process), recorded only where
-// it is free to read: on macOS and anywhere else without a /proc that shows this process, an entry has none. /proc
+// it is free to read: on macOS and anywhere else without a /proc whose `self` names this process (a /proc of
+// another pid namespace shows other processes under these pids), an entry has none and none is compared. /proc
 // shows a start time shifted by the reader's time namespace (Linux 5.6+), whose inode `t<time ns>` names, so a
 // start time is compared only by a process in the same time namespace as its recorder. A
 // reclaim also goes ahead, at any age, when the lock holds at least one entry and every entry's owner is provably
@@ -343,32 +344,43 @@ let host: string | null = null;
 /** This host's tag, read once. */
 const ownHost = (): string => (host ??= hostTag());
 
+/** The /proc this module reads: `module.exports.procRoot` (tests point it at a fake tree), else /proc. */
+const procRoot = (): string => module.exports.procRoot ?? '/proc';
+
 /**
- * The start time of `pid` in clock ticks since boot (field 22 of /proc/<pid>/stat; the command name in field 2 may
+ * The start time of `pid` in clock ticks since boot (field 22 of <root>/<pid>/stat; the command name in field 2 may
  * hold spaces and parentheses, so fields are counted after its last `)`), or null when it cannot be read or the
- * file names another pid (a /proc that is not this pid namespace's). Reads a file; spawns nothing.
+ * file names another pid. Reads a file; spawns nothing.
  */
-function procStartTicks(pid: number): string | null {
+function procStartTicks(root: string, pid: number): string | null {
   try {
-    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const stat = fs.readFileSync(`${root}/${pid}/stat`, 'utf8');
     const start = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
     return stat.slice(0, stat.indexOf(' ')) === String(pid) && /^\d+$/.test(start) ? start : null;
   } catch { return null; }
 }
 
-/** The inode of this process's time namespace (`/proc/self/ns/time`, Linux 5.6+), or the empty string. */
-function timeNamespace(): string {
-  try { return /^time:\[(\d+)\]$/.exec(fs.readlinkSync('/proc/self/ns/time'))?.[1] ?? ''; } catch { return ''; }
+/** The inode of this process's time namespace (`<root>/self/ns/time`, Linux 5.6+), or the empty string. */
+function timeNamespace(root: string): string {
+  try { return /^time:\[(\d+)\]$/.exec(fs.readlinkSync(`${root}/self/ns/time`))?.[1] ?? ''; } catch { return ''; }
 }
 
-let started: { ticks: string; timeNs: string } | null | undefined;
-/** This process's start time and time namespace, read once (neither changes); null where no /proc shows this process. */
+let started: { root: string; own: { ticks: string; timeNs: string } | null } | undefined;
+/**
+ * This process's start time and time namespace, read once per /proc root (neither changes), or null. A start is
+ * read only when `<root>/self` names this process's pid: a /proc mounted for another pid namespace (an unshared pid
+ * namespace that did not remount it) shows other processes under these pids, so no start is recorded and none is
+ * compared, and the age rule stays.
+ */
 function ownStart(): { ticks: string; timeNs: string } | null {
-  if (started === undefined) {
-    const ticks = procStartTicks(process.pid);
-    started = ticks === null ? null : { ticks, timeNs: timeNamespace() };
+  const root = procRoot();
+  if (started?.root !== root) {
+    let self = '';
+    try { self = fs.readlinkSync(`${root}/self`); } catch { /* no /proc here */ }
+    const ticks = self === String(process.pid) ? procStartTicks(root, process.pid) : null;
+    started = { root, own: ticks === null ? null : { ticks, timeNs: timeNamespace(root) } };
   }
-  return started;
+  return started.own;
 }
 
 /** The `<start>[t<time ns>]-` part of this process's entry names, or the empty string where none is recorded. */
@@ -392,7 +404,7 @@ function ownerGone(name: string): boolean {
   }
   const own = ownStart();
   if (match[3] === undefined || own === null || (match[4] ?? '') !== own.timeNs) return false;
-  const live = procStartTicks(pid);
+  const live = procStartTicks(procRoot(), pid);
   return live !== null && live !== match[3];
 }
 
@@ -639,4 +651,5 @@ module.exports = {
   readTaskState,
   mergeRecords,
   SCHEMA_VERSION,
+  procRoot: '/proc',
 };
