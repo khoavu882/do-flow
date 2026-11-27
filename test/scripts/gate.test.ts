@@ -10,8 +10,9 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { parseArgs, nodeRefusal, shellSuites, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
+const { parseArgs, nodeRefusal, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
 const { TEST_GLOB, dockerArgs } = require('../../scripts/linux-run.ts');
+const { parseShellSuites } = require('../../scripts/shell-suites.ts');
 
 const SCRIPT = path.join(REPO_ROOT, 'scripts', 'gate.ts');
 
@@ -112,12 +113,12 @@ test('gate: the export step is a shared clone at HEAD that still holds the histo
   assert.equal(git(['status', '--porcelain=v1', '--branch'], repo), before, 'the source repository is untouched');
 });
 
-test('gate: the shell suites are the workflow\'s `run: bash test/*.sh` steps, in its order', () => {
+test('gate: the shell suites are the workflow\'s, in its order, and the workflow has none the parser cannot read', () => {
   const workflow = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'cross-os-tests.yml'), 'utf8');
-  assert.deepEqual(shellSuites(workflow), [
-    'test/doflow-chain-test.sh', 'test/hooks/test-hooks.sh', 'test/verify-hooks.sh', 'test/code-review-fixtures.sh',
-  ]);
-  assert.deepEqual(shellSuites('steps:\n  - run: npm install\n  - run: bash test/a.sh\n  - run: bash scripts/b.sh\n  - run: bash test/c.sh  \n'), ['test/a.sh', 'test/c.sh']);
+  assert.deepEqual(parseShellSuites(workflow), {
+    suites: ['test/doflow-chain-test.sh', 'test/hooks/test-hooks.sh', 'test/verify-hooks.sh', 'test/code-review-fixtures.sh'],
+    unreadable: [],
+  });
 });
 
 test('gate: the Linux run is a docker run of the release Node on the worker test folder, with no host path in the container script', () => {

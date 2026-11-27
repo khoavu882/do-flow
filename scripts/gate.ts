@@ -15,6 +15,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { workflowNodePins } = require('../src/release/release-workflow.ts');
 const { linuxRun } = require('./linux-run.ts');
+const { parseShellSuites } = require('./shell-suites.ts');
 
 const USAGE = 'usage: node scripts/gate.ts [--keep]';
 // A conflict marker git leaves behind: seven < or > at the start of a line, then a space or the end.
@@ -23,11 +24,6 @@ const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |$)/m;
 function parseArgs(argv: string[]): { keep: boolean } | null {
   if (argv.length === 0) return { keep: false };
   return argv.length === 1 && argv[0] === '--keep' ? { keep: true } : null;
-}
-
-/** The shell suites a workflow runs, in order: its `run: bash test/<suite>.sh` steps. */
-function shellSuites(workflow: string): string[] {
-  return [...workflow.matchAll(/run: +bash +(test\/\S+\.sh) *$/gm)].map(([, suite]) => suite);
 }
 
 /** The refusal line when the running Node is not the pinned release Node, else null. */
@@ -104,9 +100,10 @@ function main(argv: string[]): number {
     { name: 'console npm test', run: () => sh('npm', ['test'], path.join(dir, 'console')) },
     { name: 'shell suites CI blocks on', run: () => {
       const workflow = path.join(dir, '.github', 'workflows', 'cross-os-tests.yml');
-      const suites = fs.existsSync(workflow) ? shellSuites(fs.readFileSync(workflow, 'utf8')) : [];
+      const { suites, unreadable } = fs.existsSync(workflow) ? parseShellSuites(fs.readFileSync(workflow, 'utf8')) : { suites: [], unreadable: [] };
+      unreadable.forEach((line: string) => process.stdout.write(`gate: cannot read a shell suite in .github/workflows/cross-os-tests.yml, ${line}\n`));
       if (!suites.length) process.stdout.write('gate: no shell suite found in .github/workflows/cross-os-tests.yml\n');
-      return suites.length > 0 && suites.every((suite) => {
+      return unreadable.length === 0 && suites.length > 0 && suites.every((suite: string) => {
         process.stdout.write(`gate: bash ${suite}\n`);
         return sh('bash', [suite]);
       });
@@ -145,4 +142,4 @@ function main(argv: string[]): number {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { parseArgs, nodeRefusal, shellSuites, findConflictMarkers, exportHead };
+module.exports = { parseArgs, nodeRefusal, findConflictMarkers, exportHead };

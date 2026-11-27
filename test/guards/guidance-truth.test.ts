@@ -15,6 +15,7 @@ const GATE_REL = 'core/harnesses/shared/hooks/policies/pre-implementation-gate.s
 const GATE_FILE = path.join(REPO, GATE_REL);
 const CONTRIBUTING_REL = 'CONTRIBUTING.md';
 const SHELL_SUITES_REL = '.github/workflows/cross-os-tests.yml';
+const { parseShellSuites } = require('../../scripts/shell-suites.ts');
 const DO_SKILL_FILE = path.join(REPO, 'core/shared/skills/do/SKILL.md');
 const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/assets.json'), 'utf8')).assets;
 const CODE_RE = /^[a-z]+(-[a-z]+)+$/;
@@ -432,9 +433,11 @@ function suiteFindings({ items, pkg, root }: any) {
   }
   // Every shell suite CI blocks on is in the row: a suite the workflow runs but the row omits is stale.
   const ci = fs.existsSync(path.join(root, SHELL_SUITES_REL)) ? readUnder(root, SHELL_SUITES_REL) : '';
-  for (const [, suite] of ci.matchAll(/run:\s*bash\s+(test\/\S+\.sh)\s*$/gm)) {
+  const { suites, unreadable } = parseShellSuites(ci);
+  for (const suite of suites) {
     if (!items.includes(suite)) findings.push(`${suite} is run by ${SHELL_SUITES_REL} but not listed`);
   }
+  for (const line of unreadable) findings.push(`${SHELL_SUITES_REL} ${line} mentions a shell suite scripts/shell-suites.ts cannot read`);
   return findings;
 }
 
@@ -778,4 +781,12 @@ test('G46.7 control: a shell suite that CI runs and the row omits is caught', (t
     [CONTRIBUTING_REL]: (text: any) => replaceOnce(text, '`test/hooks/test-hooks.sh`, ', ''),
   }, (root: any) => checkFact(spec, root));
   assert.ok(findings.some((finding: any) => finding.includes('test/hooks/test-hooks.sh') && finding.includes('not listed')), findings.join('\n'));
+});
+
+test('G46.7 control: a shell suite step in a shape the parser cannot read fails the guard instead of being missed', (t) => {
+  const spec = FACTS.find(({ fact }: any) => fact === 'Suites outside npm test');
+  const findings = withFactTree(t, {
+    [SHELL_SUITES_REL]: (text: any) => `${text}\n      - name: odd\n        run: bash test/a.sh && bash test/b.sh\n`,
+  }, (root: any) => checkFact(spec, root));
+  assert.ok(findings.some((finding: any) => finding.includes('cannot read') && finding.includes('test/a.sh && bash test/b.sh')), findings.join('\n'));
 });
