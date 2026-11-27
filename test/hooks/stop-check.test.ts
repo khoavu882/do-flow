@@ -291,7 +291,7 @@ test('two fixers in one Stop that both fail keep both outputs, each under its ow
   assert.equal(r.code, 0);
   settled(log);
   assert.equal(fs.readFileSync(log, 'utf8'), '== eslint ==\na.js:1:1 eslint problem\n== gradlew ==\nspotless problem\n');
-  assert.equal(fs.readdirSync(path.dirname(log)).filter((f) => f.startsWith('lint-last.log.')).length, 0, 'no temp file is left');
+  assert.equal(fs.readdirSync(path.dirname(log)).filter((f: string) => f.startsWith('lint-last.log.')).length, 0, 'no temp file is left');
 
   // One passes (exit 0, with output), one fails: only the failing one is kept.
   fakeEslint(path.join(dir, 'gradlew'), 'echo "spotless fine"');
