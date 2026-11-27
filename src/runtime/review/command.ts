@@ -101,7 +101,8 @@ function handleReviewInput({ slug, base, json, cwd, env, resolve, out }: any): n
     return finishRuntime(1);
   };
   let feature: any = null;
-  try { feature = (resolve as FeatureResolver)({ projectRoot: cwd, slug }); } catch { feature = null; }
+  // The one resolver the review pack uses: a feature that lives in another checkout of this repository resolves too.
+  try { feature = require('../review-pack.ts').resolveFeature(cwd, slug, resolve as FeatureResolver); } catch { feature = null; }
   const resolved = feature && !feature.error && typeof feature.featureFolder === 'string' && feature.featureFolder ? feature : null;
   const taskId: string | null = slug ?? (validSlug(feature?.paths?.feature_slug) ? feature.paths.feature_slug : null);
   if (!taskId) return usage('--slug is required when no active feature resolves', json, out);
@@ -115,7 +116,7 @@ function handleReviewInput({ slug, base, json, cwd, env, resolve, out }: any): n
   let baseSha: string | null = null;
   let reason = '';
   if (base !== null) {
-    const explicit = resolveExplicitBaseline({ cwd, ref: base });
+    const explicit = resolveExplicitBaseline({ cwd, ref: base, flag: '--base' });
     baseSha = explicit.ok ? explicit.sha : null;
     reason = explicit.ok ? '' : String(explicit.reason);
   } else {

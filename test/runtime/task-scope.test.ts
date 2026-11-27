@@ -233,7 +233,7 @@ test('readiness resolves the feature from the branch when no --slug is given', (
   assert.equal(affectedCode(res).satisfied, false, 'on the register feature\'s branch the flat record is not visible');
 });
 
-test('FU-c9agck: a register feature reads only a flat record that names it; a register-less feature also reads an identity-less one', () => {
+test('FU-c9agck, FU-e2khrt: a feature reads only a flat record that names it, with or without a register', () => {
   const root = project('flat-identity');
   const { flatRecordIsOurs, recordIn } = require('../../src/runtime/task-scope.ts');
   const base = path.join(root, '.doflow', 'state', 'evidence');
@@ -241,14 +241,14 @@ test('FU-c9agck: a register feature reads only a flat record that names it; a re
   const flat = (name: any, body: any) => { const file = path.join(base, name); fs.writeFileSync(file, JSON.stringify(body)); return file; };
   const anonymous = flat('anon.json', { taskId: 'A.1' });
   assert.equal(flatRecordIsOurs(anonymous, WITH), false, 'the register feature does not borrow an identity-less record');
-  assert.equal(flatRecordIsOurs(anonymous, WITHOUT), true, 'a feature without a register keeps the compatibility read');
+  assert.equal(flatRecordIsOurs(anonymous, WITHOUT), false, 'nor does a feature without a register');
   const named = flat('named.json', { taskId: 'A.1', featureSlug: WITH });
   assert.equal(flatRecordIsOurs(named, WITH), true, 'a record that names the feature is its own');
   assert.equal(flatRecordIsOurs(named, WITHOUT), false, 'and nobody else\'s');
   assert.equal(flatRecordIsOurs(flat('slugged.json', { slug: WITH }), WITH), true);
-  // recordIn: a register feature skips the identity-less flat file; the namespaced file wins when it exists.
+  // recordIn: a feature skips the identity-less flat file; the namespaced file wins when it exists.
   assert.equal(recordIn({ base, namespace: WITH, name: 'anon.json' }).read, path.join(base, WITH, 'anon.json'));
-  assert.equal(recordIn({ base, namespace: WITHOUT, name: 'anon.json' }).read, anonymous);
+  assert.equal(recordIn({ base, namespace: WITHOUT, name: 'anon.json' }).read, path.join(base, WITHOUT, 'anon.json'));
   assert.equal(recordIn({ base, namespace: WITH, name: 'named.json' }).read, named);
   fs.mkdirSync(path.join(base, WITHOUT), { recursive: true });
   fs.writeFileSync(path.join(base, WITHOUT, 'anon.json'), '{}');

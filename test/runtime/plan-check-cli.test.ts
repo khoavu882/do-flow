@@ -71,6 +71,18 @@ test('a clean plan exits 0 with the one-line text and the verdict JSON', (t) => 
   assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], findings: [], file: 'plan.md' });
 });
 
+test('FU-8a9r11: plan-check accepts `depends-on: none` and refuses it beside another value', (t) => {
+  const s = scratch(t);
+  s.write('ok.md', plan(['- [ ] A.1 First', '- [ ] D.1 Lane root; depends-on: none']));
+  const ok = s.cli(['ok.md']);
+  assert.equal(ok.status, 0, ok.stderr + ok.stdout);
+  assert.equal(ok.stdout, 'plan-check: ok.md: ok, 2 tasks\n');
+  s.write('mixed.md', plan(['- [ ] A.1 First', '- [ ] D.1 Lane root; depends-on: none, A.1']));
+  const mixed = s.cli(['mixed.md', '--json']);
+  assert.equal(mixed.status, 1, mixed.stderr);
+  assert.deepEqual(JSON.parse(mixed.stdout).problems, [{ kind: 'bad-dependency', ids: ['D.1'], value: 'none, A.1' }]);
+});
+
 for (const kind of KINDS) {
   test(`plan-check exits 1 with the IC-002 JSON for ${kind.name}`, (t) => {
     const s = scratch(t);

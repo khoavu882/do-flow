@@ -541,6 +541,21 @@ test('followup propose and decide answer through the CLI with the IC-014 and IC-
   for (const member of ids) assert.ok(built.stdout.includes(member), `${member} is settled fix`);
 });
 
+test('--check=<value> on a verb whose --check is a switch is a usage error, not a stored checkPath (FU-t5vtp0)', () => {
+  const { repo } = newRepo();
+  for (const verb of [['route', '--intent', 'locate-concept'], ['capabilities'], ['roadmap', '--action', 'status']]) {
+    const spaced = run(repo.dir, [...verb, '--check']);
+    const inline = run(repo.dir, [...verb, '--check=foo.txt']);
+    assert.doesNotMatch(spaced.stderr, /unknown flag/i, `${verb[0]} --check is a switch`);
+    assert.notEqual(inline.status, 0, `${verb[0]} --check=foo.txt: ${inline.stdout}${inline.stderr}`);
+    assert.match(inline.stderr, /unknown flag '--check=foo\.txt'/);
+  }
+  // On followup the =-form still parses like the space form.
+  const list = run(repo.dir, ['followup', '--action', 'list', '--check=a.txt', '--json']);
+  assert.equal(list.status, 2);
+  assert.match(list.json.summary, /--check applies to --action decide only/);
+});
+
 test('the check-proposal flags are refused on the other followup actions, with exit 2', () => {
   const { repo } = newRepo();
   for (const flags of [['--record'], ['--proposal', 'CP-aaaaaa'], ['--decision', 'accept'], ['--alternative', 'x'], ['--check', 'a.txt']]) {

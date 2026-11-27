@@ -43,7 +43,7 @@ function outEdges(tasks: any[], byId: Map<string, any>) {
     const out: Array<{ to: string, phase: boolean }> = [];
     if (task.taskDeps.length) {
       for (const dep of [...new Set(task.taskDeps as string[])]) if (byId.has(dep)) out.push({ to: dep, phase: false });
-    } else {
+    } else if (!task.root) {
       for (const other of tasks) {
         if (other.phaseIndex < task.phaseIndex && !out.some((e) => e.to === other.id)) out.push({ to: other.id, phase: true });
       }
@@ -145,6 +145,8 @@ function buildGraph(parsed: any) {
   }
 
   for (const task of tasks) {
+    // `depends-on: none` stands alone: beside another value it is contradictory (FU-8a9r11).
+    if (task.root && task.dependsOn.length) problems.push({ kind: 'bad-dependency', ids: [task.id], value: ['none', ...task.dependsOn].join(', ') });
     for (const dep of task.taskDeps) {
       if (!byId.has(dep)) problems.push({ kind: 'unknown-dependency', ids: [task.id, dep] });
     }
@@ -194,9 +196,10 @@ function planVerdict(text: string): {
 }
 
 /** IC-004: one tuple per task in plan order — the structure and declared files, never the
- * description or the checkbox. */
+ * description or the checkbox. A lane root (`depends-on: none`) adds a trailing `true`, so a plan
+ * without one keeps its digest and adding or removing the marker changes it (FU-8a9r11). */
 function graphTuples(graph: any) {
-  return graph.tasks.map((t: any) => [t.id, t.phase, t.owner, t.taskDeps, t.parallel, t.acceptance, t.budget, t.files]);
+  return graph.tasks.map((t: any) => [t.id, t.phase, t.owner, t.taskDeps, t.parallel, t.acceptance, t.budget, t.files, ...(t.root ? [true] : [])]);
 }
 
 /** IC-004: `sha256:` over the tuples' canonical JSON (arrays and one-key objects only, so
@@ -288,6 +291,7 @@ function readinessOf(task: any, tasks: any[], states: Map<string, string>) {
     if (unmet.length) return { reason: 'unmet-dependency', unmet };
     return { reason: 'ready' };
   }
+  if (task.root) return { reason: 'ready' };
   const earlier = tasks.filter((o: any) => o.phaseIndex < task.phaseIndex);
   const unmet = earlier.filter((o: any) => states.get(o.id) !== 'SUCCEEDED').map((o: any) => o.id);
   if (!unmet.length) return { reason: 'ready' };

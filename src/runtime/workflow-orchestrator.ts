@@ -333,7 +333,7 @@ class WorkflowOrchestrator {
 
   /** The task's run (115 C-1): `<stateDir>/<featureSlug>/<taskId>.json` for a task id other than its
    * feature's slug, else `<stateDir>/<taskId>.json`; a flat run of a namespaced id is read, and copied
-   * into the namespace on its next write, only when it is this feature's or names none (D-3). */
+   * into the namespace on its next write, only when it names this feature (D-3, FU-e2khrt). */
   runRecord(taskId: any) {
     const id = assertSafeId(taskId, 'taskId');
     const namespace = isSafeSlug(this.featureSlug) && this.featureSlug !== id ? this.featureSlug : null;

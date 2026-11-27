@@ -666,6 +666,12 @@ test('resolveScopeBound with explicit baseline pins commit and reports baseline:
   assert.equal(nonAncestor.bound, null);
   assert.equal(nonAncestor.reason, 'baseline-invalid');
   assert.match(nonAncestor.unresolvedReason, /is not an ancestor of HEAD/);
+  // FU-6f542n: the refusal names the exact next command for the ref that was given.
+  assert.ok(nonAncestor.unresolvedReason.includes(`pass --baseline-ref $(git merge-base HEAD ${sideSha})`), nonAncestor.unresolvedReason);
+  const named = resolveScopeBound({ projectRoot: root, baselineRef: 'side-branch' });
+  assert.equal(named.reason, 'baseline-invalid');
+  assert.ok(named.unresolvedReason.includes('--baseline-ref $(git merge-base HEAD side-branch)'), named.unresolvedReason);
+  assert.equal(named.bound, null, 'the verdict is unchanged: still unresolved');
 });
 
 test('explicit baseline diff collection captures committed, staged, unstaged, untracked, renames, and unicode/spaces', () => {

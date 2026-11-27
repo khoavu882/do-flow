@@ -302,7 +302,6 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
     } else if (action === 'add') {
       const batch = flags.batch !== undefined;
       if (batch && flags.statement !== undefined) throw new followup.FollowupUsageError('--batch cannot be combined with --statement');
-      if (!batch && flags.statement === undefined) throw new followup.FollowupUsageError('--statement is required for --action add (or pass --batch <file.json>)');
       result = followup.addFollowups({
         root, cwd: cwd || process.cwd(), channel: flags.channel,
         items: batch ? followup.readBatchFile(flags.batch) : [{ statement: flags.statement }],

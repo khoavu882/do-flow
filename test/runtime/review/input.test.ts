@@ -97,6 +97,25 @@ test('--json answers head, base, whatRan and notRun, and exits 0', (t) => {
   assert.deepEqual(json.notRun, [{ id: 'export', title: 'A user exports' }]);
 });
 
+test('a feature only another checkout resolves is resolved as the review pack resolves it (FU-3jpwq6)', (t) => {
+  const { handleReviewCommand } = require('../../../src/runtime/review/command.ts');
+  const { resolveActiveFeature } = require('../../../src/runtime/feature-resolve.ts');
+  const r = repo(t, { flows: false, evidence: false });
+  const worktree = path.join(r.dir, 'wt');
+  git(r.cwd, r.env, ['worktree', 'add', '-q', '-b', `feat/${SLUG}`, worktree]);
+  put(worktree, `agent-docs/doflow/${SLUG}/test/feature-map.json`, JSON.stringify({ version: 1, flows: [
+    { id: 'login', title: 'A user logs in', expect: 'the dashboard shows' } ] }));
+  // The resolver answers an error for the checkout the verb runs in and the feature for the other one.
+  const resolve = (options: any) => (fs.realpathSync(options.projectRoot) === fs.realpathSync(worktree) ? resolveActiveFeature(options) : { error: 'no-feature', message: 'not here' });
+  const lines: string[] = [];
+  const saved = process.exit;
+  const code = handleReviewCommand({ action: 'input', slug: SLUG, base: r.base, json: true, cwd: r.cwd, env: r.env, resolve, out: (line: string) => lines.push(line) });
+  process.exit = saved;
+  assert.equal(code, 0, lines.join('\n'));
+  const json = JSON.parse(lines.join('\n'));
+  assert.deepEqual(json.notRun, [{ id: 'login', title: 'A user logs in' }]);
+});
+
 test('text prints What ran, then Not run, each item with its command, result and commit', (t) => {
   const r = repo(t);
   const res = input(r, ['--base', r.base]);

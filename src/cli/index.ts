@@ -541,6 +541,8 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
   const inline = eq === -1 ? null : arg.slice(eq + 1);
   const key = RUNTIME_STRING_FLAGS.get(name) || RUNTIME_LIST_FLAGS.get(name) || RUNTIME_INT_FLAGS.get(name);
   if (!key) return null;
+  // `--check` takes a value only on followup (decide --decision built); elsewhere it is a switch, so `--check=<x>` is an unknown flag, as every other switch's `=` form is (FU-t5vtp0).
+  if (name === '--check' && o.cmd !== 'followup') return null;
   if ((name === '--listen-address' || name === '--tls-cert' || name === '--tls-key' || name === '--device') && o.cmd !== 'ui') return null;
 
   let value: any = inline;

@@ -180,11 +180,11 @@ test('two sweeps at once both exit 0 and every record ends in the main checkout 
   assert.equal(filesUnder(state(main, `evidence/${SLUG}`)).filter((f: any) => f.endsWith('.json')).length, 12);
 });
 
-test('flat records of a feature without a register (096-114 style) are still read, and the first write lands in the namespace', (t) => {
+test('an identity-less flat record is no feature\'s: it is not read and does not seed the namespace, register or not (FU-e2khrt)', (t) => {
   const { main, wt, doflow, state } = linkedWorld(t);
-  // A feature without a register: only it reads an identity-less flat record (FU-c9agck).
+  // A feature without a register, as before; the register no longer decides anything here.
   for (const root of [main, wt]) fs.rmSync(path.join(root, 'agent-docs', 'doflow', SLUG, 'decisions'), { recursive: true });
-  // Written before C-1 by a feature without a register: flat, naming no feature.
+  // Flat and naming no feature (an evidence file never records one).
   const flat = state(main, 'evidence/A.1.json');
   ok(doflow(main, 'evidence', '--task-id', 'A.1', '--action', 'add', '--kind', 'exact-search', '--provenance', 'extracted',
     '--provider', 'semble', '--capability', 'code.exact-search', '--locator', 'src/a.js:1', '--establishes', 'affected_code'), 'seed');
@@ -195,12 +195,12 @@ test('flat records of a feature without a register (096-114 style) are still rea
   fs.mkdirSync(state(main, 'readiness'), { recursive: true });
   fs.writeFileSync(state(main, 'readiness/A.1.json'), JSON.stringify({ version: 1, taskId: 'A.1', slug: '999-else', taskClass: 'bug', state: 'READY', evaluatedAt: '2026-01-01T00:00:00.000Z' }));
 
-  assert.deepEqual(ok(doflow(main, 'evidence', '--task-id', 'A.1', '--action', 'list', '--slug', SLUG), 'list reads through').evidence.map((e: any) => e.id), [old.id]);
+  assert.deepEqual(ok(doflow(main, 'evidence', '--task-id', 'A.1', '--action', 'list', '--slug', SLUG), 'list').evidence, [], 'the feature does not read the flat record');
   assert.ok(!fs.existsSync(state(main, `evidence/${SLUG}/A.1.json`)), 'a read writes nothing');
   const added = ok(doflow(main, 'evidence', '--task-id', 'A.1', '--action', 'add', '--slug', SLUG, '--kind', 'structural', '--provenance', 'extracted',
     '--provider', 'graph', '--capability', 'code.structural', '--locator', 'src/a.js:1', '--content', 'x', '--establishes', 'affected_components'), 'add').evidence[0];
   const namespaced = JSON.parse(fs.readFileSync(state(main, `evidence/${SLUG}/A.1.json`), 'utf8'));
-  assert.deepEqual(namespaced.evidence.map((e: any) => e.id).sort(), [old.id, added.id].sort(), 'the namespaced file starts from the flat one');
+  assert.deepEqual(namespaced.evidence.map((e: any) => e.id), [added.id], 'the namespaced file does not start from the flat one');
   assert.deepEqual(fs.readFileSync(flat), legacy, 'the flat record is left as it was');
   const readiness = ok(doflow(main, 'readiness', '--task-id', 'A.1', '--task-class', 'feature', '--slug', SLUG), 'readiness');
   assert.equal(readiness.record.file, state(main, `readiness/${SLUG}/A.1.json`), 'written in the namespace, not over the other feature\'s flat record');

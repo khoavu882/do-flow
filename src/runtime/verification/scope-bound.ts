@@ -381,10 +381,11 @@ function resolveIntegrationBase({ cwd, exec = spawnSync }: { cwd: string; exec?:
  * @param {Object} options
  * @param {string} options.cwd
  * @param {string} options.ref commit or ref the caller pinned
+ * @param {string} [options.flag] the flag the refusal's next command names
  * @param {Function} [options.exec] spawnSync-compatible
  * @returns {{ok: true, ref: string, sha: string}|{ok: false, ref: string, reason: string}}
  */
-function resolveExplicitBaseline({ cwd, ref, exec = spawnSync }: { cwd: string; ref: string; exec?: any }): any {
+function resolveExplicitBaseline({ cwd, ref, flag = '--baseline-ref', exec = spawnSync }: { cwd: string; ref: string; flag?: string; exec?: any }): any {
   const fail = (reason: string) => ({ ok: false, ref, reason });
   if (typeof ref !== 'string' || ref.trim() === '' || ref.startsWith('-')) {
     return fail(`baseline ref '${ref}' is not a usable commit or ref`);
@@ -399,7 +400,11 @@ function resolveExplicitBaseline({ cwd, ref, exec = spawnSync }: { cwd: string; 
   if (!ancestry || ancestry.error || (ancestry.status !== 0 && ancestry.status !== 1)) {
     return fail(`could not check whether ${sha} is an ancestor of HEAD`);
   }
-  if (ancestry.status === 1) return fail(`baseline ${sha} is not an ancestor of HEAD, so the change since it cannot be measured`);
+  if (ancestry.status === 1) {
+    // The ref was given by name, so the way forward names it: measure from where this branch left it (FU-6f542n).
+    const shown = /^[\w./@{}+-]+$/.test(ref) ? ref : `'${ref.replace(/'/g, `'\\''`)}'`;
+    return fail(`baseline ${sha} is not an ancestor of HEAD, so the change since it cannot be measured. To measure from where this branch left it, pass ${flag} $(git merge-base HEAD ${shown})`);
+  }
   return { ok: true, ref, sha };
 }
 

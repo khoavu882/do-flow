@@ -282,13 +282,13 @@ test('issue-9 C3: a packs item whose id or digest is not a string never throws a
   }
 });
 
-test('issue-9 C4: a legacy flat task run gets the pack, not the feature run', (t) => {
+test('issue-9 C4: a flat task run that names no feature is no feature\'s: the pack goes to the feature run (FU-e2khrt)', (t) => {
   const { dir, orch } = project(t);
   orch.start({ taskId: 'T.1', taskClass: 'trivial-edit' }); // flat T.1.json, names no feature
   orch.start({ taskId: 'feat', taskClass: 'trivial-edit' });
-  assert.deepEqual(recordStagePack({ stateRoot: dir, taskId: 'T.1', slug: 'feat', digest: DIGEST }), { runTaskId: 'T.1', stage: current(orch, 'T.1').id });
-  assert.deepEqual(packsOf(runFile(dir, 'T.1')), [[{ taskId: 'T.1', digest: DIGEST }]]);
-  assert.deepEqual(packsOf(runFile(dir, 'feat')), []);
+  assert.deepEqual(recordStagePack({ stateRoot: dir, taskId: 'T.1', slug: 'feat', digest: DIGEST }), { runTaskId: 'feat', stage: current(orch, 'feat').id });
+  assert.deepEqual(packsOf(runFile(dir, 'T.1')), []);
+  assert.deepEqual(packsOf(runFile(dir, 'feat')), [[{ taskId: 'T.1', digest: DIGEST }]]);
 });
 
 test('issue-9 C4: a flat run that names another feature is not taken for this one', (t) => {

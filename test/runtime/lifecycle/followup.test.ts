@@ -140,6 +140,28 @@ test('add: a runtime with no bash helpers anywhere says so, instead of "no featu
   assert.equal(eventCount(repo.dir), 0);
 });
 
+test('add: one usage error lists every missing or invalid field (FU-t8dbet)', () => {
+  const repo = FIXTURES.noTag(scratch).repo;
+  const cli = (...args: string[]) => spawnSync(process.execPath, [path.join(__dirname, '..', '..', '..', 'bin', 'doflow.js'), 'followup', '--action', 'add', '--json', ...args], { cwd: repo.dir, encoding: 'utf8', env: scratch.env() });
+  const none = cli();
+  assert.equal(none.status, 2, none.stdout + none.stderr);
+  assert.match(none.stdout, /statement is required/);
+  assert.match(none.stdout, /stage must be one of/);
+  assert.match(none.stdout, /no feature resolved/);
+  repo.checkout('-b', 'feat/052-no-folder');
+  const long = cli('--statement', 'x'.repeat(300), '--stage', 'bogus');
+  assert.equal(long.status, 2, long.stdout + long.stderr);
+  assert.match(long.stdout, /limit is 280/);
+  assert.match(long.stdout, /stage must be one of/);
+  assert.match(long.stdout, /has no feature folder/);
+  const run = cli('--statement', 'ok', '--stage', 'bogus', '--source', 'run');
+  assert.equal(run.status, 2, run.stdout + run.stderr);
+  assert.match(run.stdout, /stage must be one of/);
+  assert.match(run.stdout, /--task-class/);
+  assert.match(run.stdout, /--task-id/);
+  assert.equal(eventCount(repo.dir), 0);
+});
+
 test('add: a batch writes one event per item; an item stage overrides the default; an item source object is honoured', () => {
   const root = plainRoot();
   const out = addFollowups({

@@ -71,11 +71,11 @@ function assertSlug(slug: any) {
 
 // ── plan.md ────────────────────────────────────────────────────────────────────────────────────
 
-/** The hash a claim records and `finish` compares: everything about the task's plan line except
+/** The hash a claim records and `finish` compares: everything about the task's plan line (`depends-on` as written, `none` included) except
  * its checkbox, so ticking the box after a finish is not an edit of the task. A line with neither
  * `acceptance:` nor `budget:` hashes exactly as before IC-002; `parallel` is never hashed. */
 function taskLineHash(task: any) {
-  const legacy = [task.id, task.description, task.stories, task.owner, task.files, task.dependsOn, task.externalContract];
+  const legacy = [task.id, task.description, task.stories, task.owner, task.files, task.dependsOnDeclared || task.dependsOn, task.externalContract];
   const extended = (task.acceptance && task.acceptance.length) || task.budget ? [...legacy, task.acceptance, task.budget] : legacy;
   const material = JSON.stringify(extended);
   return `sha256:${crypto.createHash('sha256').update(material).digest('hex')}`;
@@ -644,7 +644,7 @@ function cancel({ file, fsImpl, roots, slug, task, token, by, reason, adoptUnown
 }
 
 /** Task ids that depend on `taskId`, directly or through another dependent: an explicit
- * `depends-on:` naming it, or no `depends-on:` and a later phase. */
+ * `depends-on:` naming it, or no `depends-on:` (and no `depends-on: none`) and a later phase. */
 function dependentsOf(graph: any, taskId: string) {
   const found = new Set<string>();
   const queue = [taskId];
@@ -653,7 +653,7 @@ function dependentsOf(graph: any, taskId: string) {
     const of = graph.tasks.find((t: any) => t.id === id);
     for (const t of graph.tasks) {
       if (found.has(t.id) || t.id === taskId) continue;
-      const waits = t.taskDeps.length ? t.taskDeps.includes(id) : t.phaseIndex > of.phaseIndex;
+      const waits = t.taskDeps.length ? t.taskDeps.includes(id) : !t.root && t.phaseIndex > of.phaseIndex;
       if (waits) { found.add(t.id); queue.push(t.id); }
     }
   }

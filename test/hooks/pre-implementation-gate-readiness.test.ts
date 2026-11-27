@@ -162,9 +162,9 @@ function writeFeature(checkout: any, slug: any, { register = true, design = true
 const recordPath = (checkout: any, rel: any) => path.join(checkout, '.doflow', 'state', 'readiness', rel);
 
 /** A readiness record as the runtime writes it, at `.doflow/state/readiness/<rel>`. */
-function writeRecord(checkout: any, rel: any, { taskId, taskClass, state }: any) {
+function writeRecord(checkout: any, rel: any, { taskId, taskClass, state, slug = null }: any) {
   write(recordPath(checkout, rel), `${JSON.stringify({
-    version: 1, taskId, slug: null, taskClass, templateName: taskClass, state, stageEntry: 'ENTER', executionMode: 'workflow',
+    version: 1, taskId, slug, taskClass, templateName: taskClass, state, stageEntry: 'ENTER', executionMode: 'workflow',
     inputs: {}, declaredScope: null, unmet: [], evidenceCount: 1, evaluatedAt: EVALUATED_AT,
   }, null, 2)}\n`);
 }
@@ -353,9 +353,11 @@ HOOK_TEST('the hook reads records where the runtime does, and another feature\'s
   const { root, main } = makeRepo('feat/900-demo');
   writeFeature(main, '900-demo');
   const envelope = envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1');
-  // `readiness` on a branch with no feature writes the record flat; the namespaced path is read
-  // first and the flat one after, by the runtime and the hook alike.
+  // A flat record that names this feature is read after the namespaced path, by the runtime and the
+  // hook alike; one that names no feature is no feature's (FU-e2khrt).
   writeRecord(main, 'A.1.json', { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
+  expectHook({ cwd: main, caseRoot: root, event: envelope, code: 0, stderr: `${refusalText('missing', { taskId: 'A.1', slug: '900-demo', template: 'feature' })}\n` });
+  writeRecord(main, 'A.1.json', { taskId: 'A.1', taskClass: 'feature', state: 'READY', slug: '900-demo' });
   expectHook({ cwd: main, caseRoot: root, event: envelope, code: 0, stderr: '' });
 
   const other = makeRepo('fix/901-bug');
