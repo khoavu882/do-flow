@@ -779,7 +779,7 @@ test('A-1: when the process table is why a run reads unknown, checkout-busy-unkn
 // FU-r39mbk: a harness's child under another binary name (kiro-cli runs kiro-cli-chat) whose environ the kernel hides is not
 // skipped for a run whose recorded process led its process group or session: the reading is unknown, with that child named.
 // The child is a synthetic /proc entry read through readProcessTexts' fsImpl; no harness binary runs.
-test('FU-r39mbk: an uninspectable non-harness process in the group or session a run\'s recorded worker led keeps that run unknown', POSIX, (t: any) => {
+test('FU-r39mbk: an uninspectable non-harness process in the group or session a run\'s recorded process led keeps that run unknown, one or both recorded', POSIX, (t: any) => {
   const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
   const { liveness, namingScan } = require(path.join(SRC, 'worker', 'start-session.ts'));
   const real = tree.readProcessTexts;
@@ -797,11 +797,19 @@ test('FU-r39mbk: an uninspectable non-harness process in the group or session a 
     },
   });
   const blocker = { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 4, command: 'kiro-cli-chat' };
-  for (const [label, pgid, sid, state] of [['its group', worker, 99, 'unknown'], ['its session', 99, worker, 'unknown'], ['neither', 99, 99, 'dead']] as const) {
+  // The usual shape records both, and both gone: the scan is consulted all the same (FU-r39mbk review).
+  const supervisor = spawnSync(process.execPath, ['-e', '0']).pid;
+  const both = { ...run, supervisor: { pid: supervisor, pgid: supervisor, start: 'Thu Jan  1 00:00:00 2026' } };
+  const cases = [
+    ['worker only, its group', run, worker, 99, 'unknown'], ['worker only, its session', run, 99, worker, 'unknown'], ['worker only, neither', run, 99, 99, 'dead'],
+    ['both gone, the worker\'s group', both, worker, worker, 'unknown'], ['both gone, the supervisor\'s session', both, 99, supervisor, 'unknown'],
+    ['both gone, neither (no such child)', both, 99, 99, 'dead'],
+  ] as const;
+  for (const [label, judged, pgid, sid, state] of cases) {
     tree.readProcessTexts = (options: any = {}) => real({ ...options, platform: 'linux', uid: process.getuid!(), fsImpl: child(pgid, sid) });
     const named = namingScan('linux');
-    assert.equal(liveness(run, 'linux', Date.now(), named), state, label);
-    assert.deepEqual(named.unreadableFor(run.runId), state === 'unknown' ? blocker : null, `${label}: the blocker`);
+    assert.equal(liveness(judged, 'linux', Date.now(), named), state, label);
+    assert.deepEqual(named.unreadableFor(judged.runId), state === 'unknown' ? blocker : null, `${label}: the blocker`);
   }
 });
 

@@ -357,8 +357,9 @@ function namingScan(platform: string) {
 
 /**
  * R5, 165 review A-1: `live`, `dead` or `unknown` for a non-ended main-session run. It is dead only on positive evidence: every
- * process it records (supervisor, worker; pid and start, as `processTree.alive` reads them) is seen gone, and when it records
- * fewer than both, no process of this user names it (`named`). With neither recorded it is `live` for UNSUPERVISED_GRACE_MS
+ * process it records (supervisor, worker; pid and start, as `processTree.alive` reads them) is seen gone, and no process of
+ * this user names it or hides in a group or session a recorded process led (`named`; FU-r39mbk: also when both are recorded,
+ * as a harness's child can outlive them). With neither recorded it is `live` for UNSUPERVISED_GRACE_MS
  * after its creation, while the spawn is in flight. A reading that is neither true nor false is `unknown`. Reads `ps`; never
  * under a lock.
  */
@@ -367,7 +368,6 @@ function liveness(run: any, platform: string, nowMs: number, named: (run: any) =
   const reads = recorded.map((proc: any) => processTree.alive(proc, { platform }));
   if (reads.includes(true)) return 'live';
   if (reads.some((read: any) => read !== false)) return 'unknown';
-  if (recorded.length === 2) return 'dead';
   if (recorded.length === 0 && Date.parse(run.createdAt) > nowMs - UNSUPERVISED_GRACE_MS) return 'live';
   const seen = named(run);
   return seen === 'none' ? 'dead' : seen === 'found' ? 'live' : 'unknown';
