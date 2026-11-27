@@ -22,10 +22,10 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 #   3. Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain
 #      artifact names) reaching files that ship. Warns, never blocks.
 #
-# Multi-session safe: reads/writes only from sessions/{session_id}/ (and the project's
-# own .doflow/state/hooks/lint-last.log for the async fixers' output, below).
-# Async lint uses </dev/null >/dev/null to avoid holding stdin fd; the fixers' own output goes to
-# lint-last.log instead of away, and the next Stop prints what they left (181 IC-017, advisory only).
+# Multi-session safe: reads/writes only from sessions/{session_id}/, including lint-last.log, the output of
+# the last async fixer run that failed.
+# Async lint uses </dev/null >/dev/null to avoid holding stdin fd; a failing fixer's own output goes to
+# lint-last.log instead of away, and the next Stop of the same session prints it (181 IC-017, advisory only).
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here)
@@ -113,10 +113,10 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
   # go to a fresh edited-files.txt, not the file we're about to process.
   mv "$EDITED_FILES" "$PROC_FILE" 2>/dev/null || true
 
-  # What the async fixers of an earlier Stop left (181 IC-017): printed once, at most 20 lines, then removed.
-  # The log lives in the project's own state folder, which only exists once DoFlow's runtime has used the
-  # project; elsewhere the fixers' output is still discarded, as before. Builtins only: this runs on every Stop.
-  LINT_LOG=.doflow/state/hooks/lint-last.log
+  # What the last failing async fixer of an earlier Stop in this session left (181 IC-017): printed once, at most
+  # 20 lines, then removed. The log is keyed by session like the edited-files queue, so another session in the
+  # same project neither prints nor overwrites it. Builtins only: this runs on every Stop.
+  LINT_LOG="$SESSION_PATH/lint-last.log"
   LINT_LOG_CAP=65536
   # A regular file only: a directory (or anything else) there is left alone, so the read cannot fail the hook.
   if [ -f "$LINT_LOG" ]; then
@@ -131,18 +131,43 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
     fi
     rm -f "$LINT_LOG"
   fi
-  # The target of an async fixer's output: the log when the state folder exists, else nowhere.
-  lint_target() {
-    if [ -d .doflow/state ] && mkdir -p .doflow/state/hooks 2>/dev/null; then LINT_OUT=$LINT_LOG; else LINT_OUT=/dev/null; fi
-  }
-  # Runs the rest of its arguments as an async fixer with its output kept in $LINT_OUT, capped at LINT_LOG_CAP.
+  # The async fixers of this Stop are queued by lint_async and started together by lint_flush, which keeps the
+  # output of every one that failed: each writes its own temp file in the session folder, and once all have
+  # finished the failing ones are joined, each under a header naming the fixer, and moved over the log in one
+  # step, cut to LINT_LOG_CAP. A Stop whose fixers all pass leaves an earlier log as it was.
+  lint_queue=
   lint_async() {
-    lint_target
+    local quoted
+    printf -v quoted '%q ' "$@"
+    lint_queue+="$quoted"$'\n'
+  }
+  lint_flush() {
+    [ -n "$lint_queue" ] || return 0
+    local queue=$lint_queue base="$LINT_LOG.$$"
     (
-      nohup "$@" >>"$LINT_OUT" 2>&1
-      if [ "$LINT_OUT" != /dev/null ] && [ "$(wc -c < "$LINT_OUT")" -gt "$LINT_LOG_CAP" ]; then
-        head -c "$LINT_LOG_CAP" "$LINT_OUT" > "$LINT_OUT.tmp" && mv "$LINT_OUT.tmp" "$LINT_OUT"
+      count=0
+      while IFS= read -r command_line; do
+        [ -n "$command_line" ] || continue
+        count=$((count + 1))
+        ( eval "nohup $command_line" >"$base.$count" 2>&1 </dev/null; echo $? >"$base.$count.rc" ) &
+      done <<<"$queue"
+      wait
+      : >"$base.all"
+      index=0
+      while IFS= read -r command_line; do
+        [ -n "$command_line" ] || continue
+        index=$((index + 1))
+        if [ "$(cat "$base.$index.rc" 2>/dev/null)" != 0 ] && [ -s "$base.$index" ]; then
+          label=${command_line%% *}
+          printf '== %s ==\n' "${label##*/}" >>"$base.all"
+          head -c "$LINT_LOG_CAP" "$base.$index" >>"$base.all"
+          [ -z "$(tail -c 1 "$base.$index")" ] || echo >>"$base.all"
+        fi
+      done <<<"$queue"
+      if [ -s "$base.all" ] && [ ! -d "$LINT_LOG" ]; then
+        head -c "$LINT_LOG_CAP" "$base.all" > "$base.cut" && mv "$base.cut" "$LINT_LOG"
       fi
+      rm -f "$base".*
     ) </dev/null >/dev/null 2>&1 3>&- 5>&- &
   }
 
@@ -215,6 +240,8 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
         lint_async ./gradlew spotlessApply
       fi
     fi
+
+    lint_flush
 
     # Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain
     # artifact names) reaching files that ship. Warns, never blocks — a

@@ -14,6 +14,8 @@ const CHAIN_FILE = path.join(REPO, CHAIN_REL);
 const GATE_REL = 'core/harnesses/shared/hooks/policies/pre-implementation-gate.sh';
 const GATE_FILE = path.join(REPO, GATE_REL);
 const CONTRIBUTING_REL = 'CONTRIBUTING.md';
+const SHELL_SUITES_REL = '.github/workflows/cross-os-tests.yml';
+const { parseShellSuites } = require('../../scripts/shell-suites.ts');
 const DO_SKILL_FILE = path.join(REPO, 'core/shared/skills/do/SKILL.md');
 const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/assets.json'), 'utf8')).assets;
 const CODE_RE = /^[a-z]+(-[a-z]+)+$/;
@@ -429,11 +431,18 @@ function suiteFindings({ items, pkg, root }: any) {
       findings.push(`${item} is run by npm test`);
     }
   }
+  // Every shell suite CI blocks on is in the row: a suite the workflow runs but the row omits is stale.
+  const ci = fs.existsSync(path.join(root, SHELL_SUITES_REL)) ? readUnder(root, SHELL_SUITES_REL) : '';
+  const { suites, unreadable } = parseShellSuites(ci);
+  for (const suite of suites) {
+    if (!items.includes(suite)) findings.push(`${suite} is run by ${SHELL_SUITES_REL} but not listed`);
+  }
+  for (const line of unreadable) findings.push(`${SHELL_SUITES_REL} ${line} mentions a shell suite scripts/shell-suites.ts cannot read`);
   return findings;
 }
 
 // Findings for one fact: the row is missing, its Owner cell does not name the owner file, or its value differs from the owner's.
-// Ceiling: a suite that exists outside npm test but is not listed in the row is not noticed.
+// Ceiling: a suite outside npm test that CI does not run and the row omits is not noticed.
 function checkFact({ fact, file, key }: any, root: any = REPO) {
   const label = `G46.7: fact "${fact}" (owner ${file} ${key})`;
   const table = factRows(readUnder(root, CONTRIBUTING_REL));
@@ -467,7 +476,7 @@ function checkFact({ fact, file, key }: any, root: any = REPO) {
 function withFactTree(t: any, edits: any, fn: any) {
   const scratch = tempDir(t, 'doflow-g46-facts-');
   const suites = [...(factRows(read(CONTRIBUTING_REL)).rows.get('Suites outside npm test')?.value ?? '').matchAll(/`(test\/[^`]+)`/g)].map(([, item]) => item);
-  for (const rel of [CONTRIBUTING_REL, 'package.json', HARNESSES_REL, GATE_REL, ...suites]) {
+  for (const rel of [CONTRIBUTING_REL, 'package.json', HARNESSES_REL, GATE_REL, SHELL_SUITES_REL, ...suites]) {
     fs.mkdirSync(path.dirname(path.join(scratch, rel)), { recursive: true });
     fs.copyFileSync(path.join(REPO, rel), path.join(scratch, rel));
   }
@@ -764,4 +773,20 @@ test('G46.7 control: a suite that npm test already runs is caught by the scope c
     'package.json': (text: any) => replaceOnce(text, '\\"test/**/*.test.ts\\"', '\\"test/**/*.test.ts\\" \\"test/*.sh\\"'),
   }, (root: any) => checkFact(spec, root));
   assert.ok(findings.some((finding: any) => finding.includes('is run by npm test') && finding.includes('package.json')), findings.join('\n'));
+});
+
+test('G46.7 control: a shell suite that CI runs and the row omits is caught', (t) => {
+  const spec = FACTS.find(({ fact }: any) => fact === 'Suites outside npm test');
+  const findings = withFactTree(t, {
+    [CONTRIBUTING_REL]: (text: any) => replaceOnce(text, '`test/hooks/test-hooks.sh`, ', ''),
+  }, (root: any) => checkFact(spec, root));
+  assert.ok(findings.some((finding: any) => finding.includes('test/hooks/test-hooks.sh') && finding.includes('not listed')), findings.join('\n'));
+});
+
+test('G46.7 control: a shell suite step in a shape the parser cannot read fails the guard instead of being missed', (t) => {
+  const spec = FACTS.find(({ fact }: any) => fact === 'Suites outside npm test');
+  const findings = withFactTree(t, {
+    [SHELL_SUITES_REL]: (text: any) => `${text}\n      - name: odd\n        run: bash test/a.sh && bash test/b.sh\n`,
+  }, (root: any) => checkFact(spec, root));
+  assert.ok(findings.some((finding: any) => finding.includes('cannot read') && finding.includes('test/a.sh && bash test/b.sh')), findings.join('\n'));
 });

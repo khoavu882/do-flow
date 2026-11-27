@@ -163,6 +163,21 @@ function coverageViolations(verbs: ReadonlySet<string>, measured: ReadonlySet<st
   return out;
 }
 
+/**
+ * What a wrong exit needs to be read: the report's `findings` and `warnings` sections when stdout is a JSON report
+ * (doctor exits 1 on any finding, and they sit far past the first bytes of a 28 KB report), else the head of
+ * stdout; and the tail of stderr, where the last thing the verb said is.
+ */
+function exitDetail(row: { stdout: string, stderr: string }) {
+  const quote = (value: unknown) => JSON.stringify(value);
+  let report = `stdout head ${quote(row.stdout.slice(0, 800))} tail ${quote(row.stdout.slice(-400))}`;
+  try {
+    const parsed = JSON.parse(row.stdout);
+    if (parsed && (parsed.findings || parsed.warnings)) report = `findings ${quote(parsed.findings)} warnings ${quote(parsed.warnings)}`;
+  } catch { /* not JSON: the excerpts above stand */ }
+  return `${report}; stderr tail ${quote(row.stderr.slice(-800))}`;
+}
+
 let fixture: any;
 const results: { argv: string; status: number | null; bytes: number; stdout: string; stderr: string }[] = [];
 const byArgv = new Map<string, any>();
@@ -182,12 +197,20 @@ test('G80: the measured rows are the IC-009 rows, in order', () => {
 });
 
 test('G80: every measured verb answers with its expected exit', () => {
-  const excerpt = (text: string) => JSON.stringify(text.slice(0, 800));
   const wrong = CEILINGS.filter(([argv, exit]) => byArgv.get(argv).status !== exit).map(([argv, exit]) => {
     const row = byArgv.get(argv);
-    return `${argv}: exit ${row.status}, expected ${exit}; stdout ${excerpt(row.stdout)}; stderr ${excerpt(row.stderr)}`;
+    return `${argv}: exit ${row.status}, expected ${exit}; ${exitDetail(row)}`;
   });
   assert.deepEqual(wrong, []);
+});
+
+test('G80 control: a wrong exit names the report\'s findings and the stderr tail, not only the head of stdout', () => {
+  const stdout = JSON.stringify({ padding: 'x'.repeat(5000), findings: [{ kind: 'provider-unhealthy', subject: 'p1', detail: 'timed out' }], warnings: [] });
+  const detail = exitDetail({ stdout, stderr: `${'e'.repeat(2000)}the last line` });
+  assert.match(detail, /provider-unhealthy.*p1.*timed out/);
+  assert.match(detail, /stderr tail .*the last line/);
+  assert.ok(!detail.includes('x'.repeat(100)), 'the padding before the findings is not printed');
+  assert.match(exitDetail({ stdout: 'plain text', stderr: '' }), /stdout head "plain text"/);
 });
 
 test('G80: every measured verb stays within its ceiling', () => {

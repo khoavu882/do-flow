@@ -228,6 +228,12 @@ test('G13: controls — the overhead bound binds (a bound of 0 turns the real re
 // kilobytes, not a paragraph. Raising a rail is a deliberate one-line commit that states the new
 // measured number — the same RK4 ritual, at a coarser grain.
 //
+// Standing rule (FU-1ta0mx): a rail that equals its measured number has no headroom on purpose. Prose added
+// to a class's loaded set first removes as many bytes from that set, in the same commit, and a rail is raised
+// only with the new measured number stated. A survey of WORKFLOW_HANDOFF.md, EVIDENCE_LEDGER.md and
+// ARTIFACT_VOICE.md (2026-11-27) found each sentence to be an instruction; the rules ledger (G71) also holds
+// their rule lines, so no byte was cut to make room.
+//
 // Measured 2026-09-07 (bytes, skills only, always-loaded guidance excluded):
 // Shared guidance references were previously omitted. With those included once per workflow,
 // feature measured 207,705 before handoff consolidation and 197,864 after (2026-09-07).

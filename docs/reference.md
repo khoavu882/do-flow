@@ -1256,7 +1256,6 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `sessions-log` | `~/.config/doflow/sessions.log` | keep last 500 lines |
 | `failure-events` | `~/.config/doflow/failures` | keep 4 rotated files |
 | `autopilot-switch` | `~/.config/doflow/autopilot/off` | one sentinel file; only a person removes it |
-| `hook-lint-log` | `.doflow/state/hooks/lint-last.log` | one file of the async fixers' output, cut to 64 KiB and removed after the next Stop prints it |
 | `roadmap-audit` | `.doflow/state/roadmap/audit.jsonl` | keep the last 10000 gate, merge, render and cleanup entries |
 | `install-ledger-user-state` | `~/.doflow/state/ledger.json` | one file, overwritten |
 | `install-ledger-project-state` | `.doflow/state/ledger.json` | one file, overwritten |

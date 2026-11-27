@@ -10,7 +10,9 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { parseArgs, nodeRefusal, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
+const { parseArgs, nodeRefusal, summaryLine, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
+const { TEST_GLOB, DOCKER_INFO_TIMEOUT_MS, dockerArgs, dockerUnavailable } = require('../../scripts/linux-run.ts');
+const { parseShellSuites } = require('../../scripts/shell-suites.ts');
 
 const SCRIPT = path.join(REPO_ROOT, 'scripts', 'gate.ts');
 
@@ -109,4 +111,53 @@ test('gate: the export step is a shared clone at HEAD that still holds the histo
   assert.equal(fs.readFileSync(path.join(clone, 'a.txt'), 'utf8'), 'two\n');
   assert.match(fs.readFileSync(path.join(clone, '.git', 'objects', 'info', 'alternates'), 'utf8'), /\.git[\\/]objects/);
   assert.equal(git(['status', '--porcelain=v1', '--branch'], repo), before, 'the source repository is untouched');
+});
+
+test('gate: the shell suites are the workflow\'s, in its order, and the workflow has none the parser cannot read', () => {
+  const workflow = fs.readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'cross-os-tests.yml'), 'utf8');
+  assert.deepEqual(parseShellSuites(workflow), {
+    suites: ['test/doflow-chain-test.sh', 'test/hooks/test-hooks.sh', 'test/verify-hooks.sh', 'test/code-review-fixtures.sh'],
+    unreadable: [],
+  });
+});
+
+test('gate: the summary line names every skipped step and why, and a red step wins', () => {
+  assert.equal(summaryLine(null, []), 'gate: green');
+  assert.equal(summaryLine(null, ['linux worker tests — no docker daemon answered']), 'gate: green (skipped: linux worker tests — no docker daemon answered)');
+  assert.equal(summaryLine(null, ['a — x', 'b — y']), 'gate: green (skipped: a — x; b — y)');
+  assert.equal(summaryLine('npm test', ['a — x']), 'gate: red at npm test');
+});
+
+test('gate: the Linux run is a docker run of the release Node on the worker test folder, with no host path in the container script', () => {
+  const args = dockerArgs('/some/checkout', '24.22.1');
+  assert.deepEqual(args.slice(0, 7), ['run', '--rm', '--init', '-v', '/some/checkout:/src:ro', 'node:24.22.1', 'sh']);
+  assert.match(args[args.length - 1], /node --test "test\/runtime\/worker\/\*\.test\.ts"/);
+  assert.equal(TEST_GLOB, 'test/runtime/worker/*.test.ts');
+  assert.ok(fs.existsSync(path.join(REPO_ROOT, 'test', 'runtime', 'worker', 'process-tree.test.ts')));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).scripts['test:linux'], 'node scripts/linux-run.ts');
+});
+
+test('gate: docker info has a 10 s timeout and a missing docker is a named skip, not a failure', (t) => {
+  assert.equal(DOCKER_INFO_TIMEOUT_MS, 10000);
+  const empty = tempDir(t, 'doflow-gate-nodocker-');
+  const before = process.env.PATH;
+  process.env.PATH = empty;
+  try {
+    assert.equal(dockerUnavailable(), 'no docker command');
+  } finally {
+    process.env.PATH = before;
+  }
+  if (process.platform === 'win32') return;
+  const slow = tempDir(t, 'doflow-gate-slowdocker-');
+  fs.writeFileSync(path.join(slow, 'docker'), '#!/bin/sh\nexec sleep 30\n', { mode: 0o755 });
+  process.env.PATH = `${slow}${path.delimiter}${before}`;
+  try {
+    // A hung docker is reported after the timeout, not waited on: use a 1 s stand-in through the same code path.
+    const started = Date.now();
+    const reason = dockerUnavailable(1000);
+    assert.match(reason, /did not answer in 1 s/);
+    assert.ok(Date.now() - started < 10000);
+  } finally {
+    process.env.PATH = before;
+  }
 });
