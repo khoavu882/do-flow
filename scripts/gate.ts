@@ -59,6 +59,12 @@ function exportHead(root: string, dir: string): boolean {
 
 type Step = { name: string, run: () => boolean | { skipped: string } };
 
+/** The last line: red at the failed step, else green, naming each skipped step and why it did not run. */
+function summaryLine(failed: string | null, skipped: string[]): string {
+  if (failed) return `gate: red at ${failed}`;
+  return skipped.length ? `gate: green (skipped: ${skipped.join('; ')})` : 'gate: green';
+}
+
 function main(argv: string[]): number {
   const options = parseArgs(argv);
   if (!options) {
@@ -122,11 +128,13 @@ function main(argv: string[]): number {
   ];
 
   let failed: string | null = null;
+  const skipped: string[] = [];
   try {
     for (const step of steps) {
       process.stdout.write(`gate: ${step.name} ...\n`);
       const ok = step.run();
       if (typeof ok === 'object') {
+        skipped.push(`${step.name} — ${ok.skipped}`);
         process.stdout.write(`gate: ${step.name} SKIPPED (${ok.skipped}; no Linux run happened)\n`);
         continue;
       }
@@ -140,10 +148,10 @@ function main(argv: string[]): number {
     if (options.keep) process.stdout.write(`gate: export kept at ${dir}\n`);
     else fs.rmSync(dir, { recursive: true, force: true });
   }
-  process.stdout.write(failed ? `gate: red at ${failed}\n` : 'gate: green\n');
+  process.stdout.write(`${summaryLine(failed, skipped)}\n`);
   return failed ? 1 : 0;
 }
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { parseArgs, nodeRefusal, findConflictMarkers, exportHead };
+module.exports = { parseArgs, nodeRefusal, summaryLine, findConflictMarkers, exportHead };

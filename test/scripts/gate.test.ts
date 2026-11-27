@@ -10,7 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { parseArgs, nodeRefusal, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
+const { parseArgs, nodeRefusal, summaryLine, findConflictMarkers, exportHead } = require('../../scripts/gate.ts');
 const { TEST_GLOB, DOCKER_INFO_TIMEOUT_MS, dockerArgs, dockerUnavailable } = require('../../scripts/linux-run.ts');
 const { parseShellSuites } = require('../../scripts/shell-suites.ts');
 
@@ -119,6 +119,13 @@ test('gate: the shell suites are the workflow\'s, in its order, and the workflow
     suites: ['test/doflow-chain-test.sh', 'test/hooks/test-hooks.sh', 'test/verify-hooks.sh', 'test/code-review-fixtures.sh'],
     unreadable: [],
   });
+});
+
+test('gate: the summary line names every skipped step and why, and a red step wins', () => {
+  assert.equal(summaryLine(null, []), 'gate: green');
+  assert.equal(summaryLine(null, ['linux worker tests — no docker daemon answered']), 'gate: green (skipped: linux worker tests — no docker daemon answered)');
+  assert.equal(summaryLine(null, ['a — x', 'b — y']), 'gate: green (skipped: a — x; b — y)');
+  assert.equal(summaryLine('npm test', ['a — x']), 'gate: red at npm test');
 });
 
 test('gate: the Linux run is a docker run of the release Node on the worker test folder, with no host path in the container script', () => {
