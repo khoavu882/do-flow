@@ -261,9 +261,13 @@ test('at most 20 lines are printed and the log is capped at 64 KiB', () => {
   const lines = stopIn(dir, []).stderr.trimEnd().split('\n');
   assert.deepEqual([lines.length, lines[0], lines[1], lines[20]], [21, LINT_HEADER, 'problem 1', 'problem 20']);
 
-  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'yes "x: a long lint message that fills the log" | head -c 200000');
+  // The fixer's output passes through a 64 KiB pipe, so the log can sit at exactly 65536 B before the cap has run.
+  // The fixer marks its own exit: after the mark the log holds all 200000 B until the cap shrinks it.
+  const done = path.join(dir, 'fixer-done');
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), `yes "x: a long lint message that fills the log" | head -c 200000\ntouch '${done}'`);
   stopIn(dir, ['c.js']);
-  settled(log);
+  waitFor(() => fs.existsSync(done));
+  waitFor(() => sizeOf(log) <= 65536);
   assert.equal(sizeOf(log), 65536);
 });
 
