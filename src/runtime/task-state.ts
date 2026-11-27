@@ -24,6 +24,7 @@
 //   - `readTaskState` validates the schema version and refuses a file from a future schema with
 //     the version named, instead of guessing at its shape.
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
@@ -105,20 +106,27 @@ function sleep(ms: number): void {
 // way. Whatever a process leaves when it dies is reclaimed once LOCK_STALE_MS old, and at once when every
 // entry in the lock names an owner that is gone (below).
 //
-// The dead-owner rule (FU-128npa). An entry is `owner-<pid>-<host tag>-<12 hex>`; the host tag
-// (src/helper/host-tag.ts) names this host and pid namespace. A reclaim also goes ahead, at any age, when
-// the lock holds at least one entry and every entry's owner is provably gone (`ownerGone`): the entry names
-// this host tag and its pid answers `kill(pid, 0)` with ESRCH. A dead process never acts on its entry
-// again, and its tmp file is never renamed, so taking its lock at once loses nothing. It changes only which
-// locks are judged stale, never how a reclaim acts on one: the listing re-check, the pinned entry, removal
-// by name and the election are the same. An empty lock keeps the age rule (it is also what an acquire in
-// progress looks like: PUBLISH_BOUND_MS), and so does any entry this rule cannot judge: another host's, a
-// pid that answers (alive, EPERM under another user, a zombie, or a reused pid: no start time is recorded,
-// as reading one costs a `ps` per writing process), and the `owner-<pid>-<12 hex>` entries of runtimes
-// before it. Those runtimes judge every entry by age, so they never act on a lock this rule takes early;
-// the two meet only as two reclaimers.
+// The dead-owner rule (FU-128npa). An entry is `owner-<pid>-<host tag>[-<start>[t<time ns>]]-<12 hex>`; the host
+// tag (src/helper/host-tag.ts) names this host and pid namespace, and `<start>` (FU-3w64md) is the owner's start
+// time in clock ticks since boot (field 22 of Linux's /proc/self/stat, read once per process), recorded only where
+// it is free to read: on macOS and anywhere else without a /proc that shows this process, an entry has none. /proc
+// shows a start time shifted by the reader's time namespace (Linux 5.6+), whose inode `t<time ns>` names, so a
+// start time is compared only by a process in the same time namespace as its recorder. A
+// reclaim also goes ahead, at any age, when the lock holds at least one entry and every entry's owner is provably
+// gone (`ownerGone`): the entry names this host tag and its pid answers `kill(pid, 0)` with ESRCH, or the entry
+// records a start time, this process can read its own, and the live pid's /proc start time is another (the pid
+// was reused; a process's start time never changes while it runs). A dead process never acts on its entry
+// again, and its tmp file is never renamed, so taking its lock at once loses nothing. It changes only which locks
+// are judged stale, never how a reclaim acts on one: the listing re-check, the pinned entry, removal by name and
+// the election are the same. An empty lock keeps the age rule (it is also what an acquire in progress looks like:
+// PUBLISH_BOUND_MS), and so does any entry this rule cannot judge: another host's, a pid that answers (alive,
+// EPERM under another user, a zombie) when no start time is recorded or none can be read for it, an entry naming
+// this process's own pid (its own entries carry its own start time or none), and the `owner-<pid>-<12 hex>`
+// entries of runtimes before the rule. Those runtimes judge every entry by age, and the runtimes of the rule
+// before FU-3w64md do not parse an entry with a start time, so they judge it by age too: neither acts on a lock
+// this rule takes early, and they meet it only as reclaimers.
 const OWNER_PREFIX = 'owner-';
-const OWNER_ENTRY = /^owner-(\d+)-([0-9a-f]{8})-[0-9a-f]{12}$/;
+const OWNER_ENTRY = /^owner-(\d+)-([0-9a-f]{8})-(?:(\d+)(?:t(\d+))?-)?[0-9a-f]{12}$/;
 // The longest a fresh acquire may take from its mkdir to its entry and still trust the directory is
 // its own: half the stale age, so a process that judged it stale cannot have done so before the
 // entry landed, with room for coarse file timestamps.
@@ -335,19 +343,57 @@ let host: string | null = null;
 /** This host's tag, read once. */
 const ownHost = (): string => (host ??= hostTag());
 
-const newToken = () => `${OWNER_PREFIX}${process.pid}-${ownHost()}-${randomBytes(6).toString('hex')}`;
+/**
+ * The start time of `pid` in clock ticks since boot (field 22 of /proc/<pid>/stat; the command name in field 2 may
+ * hold spaces and parentheses, so fields are counted after its last `)`), or null when it cannot be read or the
+ * file names another pid (a /proc that is not this pid namespace's). Reads a file; spawns nothing.
+ */
+function procStartTicks(pid: number): string | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const start = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+    return stat.slice(0, stat.indexOf(' ')) === String(pid) && /^\d+$/.test(start) ? start : null;
+  } catch { return null; }
+}
+
+/** The inode of this process's time namespace (`/proc/self/ns/time`, Linux 5.6+), or the empty string. */
+function timeNamespace(): string {
+  try { return /^time:\[(\d+)\]$/.exec(fs.readlinkSync('/proc/self/ns/time'))?.[1] ?? ''; } catch { return ''; }
+}
+
+let started: { ticks: string; timeNs: string } | null | undefined;
+/** This process's start time and time namespace, read once (neither changes); null where no /proc shows this process. */
+function ownStart(): { ticks: string; timeNs: string } | null {
+  if (started === undefined) {
+    const ticks = procStartTicks(process.pid);
+    started = ticks === null ? null : { ticks, timeNs: timeNamespace() };
+  }
+  return started;
+}
+
+/** The `<start>[t<time ns>]-` part of this process's entry names, or the empty string where none is recorded. */
+const startPart = (): string => { const own = ownStart(); return own === null ? '' : `${own.ticks}${own.timeNs ? `t${own.timeNs}` : ''}-`; };
+
+const newToken = () => `${OWNER_PREFIX}${process.pid}-${ownHost()}-${startPart()}${randomBytes(6).toString('hex')}`;
 
 /**
- * True only when the entry's owner is provably gone (the dead-owner rule above): the entry names this host
- * tag and a pid other than this process's, and `kill(pid, 0)` answers ESRCH. Anything else is not gone.
+ * True only when the entry's owner is provably gone (the dead-owner rule above): the entry names this host tag and
+ * a pid other than this process's, and `kill(pid, 0)` answers ESRCH, or it answers (or EPERM) and the start time the
+ * entry records, in this process's time namespace, differs from the live pid's. Anything else is not gone.
  */
 function ownerGone(name: string): boolean {
   const match = OWNER_ENTRY.exec(name);
   if (!match || match[2] !== ownHost()) return false;
   const pid = Number(match[1]);
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false;
-  try { process.kill(pid, 0); } catch (error: any) { return error?.code === 'ESRCH'; }
-  return false;
+  try { process.kill(pid, 0); } catch (error: any) {
+    if (error?.code === 'ESRCH') return true;
+    if (error?.code !== 'EPERM') return false;
+  }
+  const own = ownStart();
+  if (match[3] === undefined || own === null || (match[4] ?? '') !== own.timeNs) return false;
+  const live = procStartTicks(pid);
+  return live !== null && live !== match[3];
 }
 
 /** The default stale rule of a reclaim: the age rule, or a lock with entries whose owners are all gone. */

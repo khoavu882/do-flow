@@ -20,6 +20,9 @@ All notable changes to DoFlow are documented here. Format follows
 ### Added
 - **Decision register: link, retire, list by state and move settled open points (FU-9mkc1h, FU-x73ff7, FU-aseqah):** `decision --action link --from <id> --to <id> --kind supersedes|narrows|reopens` records a relation between two registered decisions without a new `add` (exit 1 `link-cycle` when it would close a cycle); `decision --action retire --ids <id>[,<id>…] --reason <text>` takes settled decisions out of the live view while they keep `status: live` (exit 1 `linked-from-live` while a `narrows` link joins one to a decision that stays live); `decision --action list --status live|superseded|retired[,…]` selects by state; `decision --action compact --mode closed-points` moves labelled settled bullets of `Open Points for Review` from `design.md`, `specs.md` and `data-model.md` to `decisions/history/<artifact>-closed.md`. The guidance now says where History rows are written, also after compaction, and how a settled open point is labelled (`ARTIFACT_FORMAT.md` §3 and §12, `WORKFLOW_HANDOFF.md`, the design template).
 
+### Fixed
+- **A crashed writer's task-state lock is taken at once even when its process id was reused (FU-3w64md):** on Linux an owner entry records the owner's start time from `/proc`, and an entry whose process id now belongs to a process that started at another time counts as gone, instead of holding the lock until it is 10 s old. macOS and other systems without `/proc` record nothing and keep the 10 s rule; no process is spawned. See [What the locks assume](docs/reference.md#what-the-locks-assume).
+
 ## [2.5.1] - 2026-11-27
 
 ### Fixed

@@ -35,10 +35,10 @@ const owners = (file: any) => (entries(file) || []).filter((name: any) => name.s
 const siblings = (file: any) => fs.readdirSync(path.dirname(file)).filter((name: any) => name.startsWith(`${path.basename(file)}.`));
 const DEAD = 'owner-999999-dead00000000';
 let planted = 0;
-/** An entry as the current runtime names it. */
-function ownerEntry(pid: number, { host = hostTag() } = {}) {
+/** An entry as the current runtime names it; `start` is its start part (`startPart`), none by default. */
+function ownerEntry(pid: number, { host = hostTag(), start = '' } = {}) {
   planted += 1;
-  return `owner-${pid}-${host}-${String(planted).padStart(12, '0')}`;
+  return `owner-${pid}-${host}-${start ? `${start}-` : ''}${String(planted).padStart(12, '0')}`;
 }
 /** A young lock holding `names`, as a holder that died (or lives) leaves it. */
 function plant(file: string, names: string[]) {
@@ -653,6 +653,14 @@ function liveChild(t: any) {
   t.after(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } });
   return child;
 }
+/** The start time /proc/<pid>/stat gives (field 22, counted after the command's last `)`), or '' where there is none. */
+function startOf(pid: number): string {
+  try { const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]; } catch { return ''; }
+}
+/** This process's time namespace inode (Linux 5.6+), or ''. */
+const TIME_NS = (() => { try { return /\[(\d+)\]/.exec(fs.readlinkSync('/proc/self/ns/time'))?.[1] ?? ''; } catch { return ''; } })();
+/** The start part of an entry for a process of this time namespace started at `ticks` ('' for none). */
+const startPart = (ticks: string, timeNs = TIME_NS) => (ticks ? `${ticks}${timeNs ? `t${timeNs}` : ''}` : '');
 /** A child process that takes the store's lock with the product code, says so, and keeps it. */
 function holder(t: any, file: string): Promise<any> {
   const script = "require(process.argv[1]).acquireLock(require('node:fs'), process.argv[2]); process.stdout.write('held\\n'); setInterval(() => {}, 1000);";
@@ -675,7 +683,7 @@ test('dead-owner rule: a holder SIGKILLed inside its lock leaves a young lock th
   const file = storeFile(t);
   const child = await holder(t, file);
   const [entry] = owners(file);
-  assert.match(entry, new RegExp(`^owner-${child.pid}-${hostTag()}-[0-9a-f]{12}$`), 'the entry names its owner');
+  assert.match(entry, new RegExp(`^owner-${child.pid}-${hostTag()}-${startOf(child.pid) ? `${startPart(startOf(child.pid))}-` : ''}[0-9a-f]{12}$`), 'the entry names its owner');
   assert.equal(tryAcquireLock(fs, file), null, 'a live holder keeps its young lock');
   process.kill(child.pid, 'SIGKILL');
   await exited(child);
@@ -785,4 +793,45 @@ test('dead-owner rule: a process never judges its own entry dead, even when kill
   const release = tryAcquireLock(fs, other);
   assert.ok(release, 'the control: another pid answering ESRCH is gone');
   release();
+});
+
+// FU-3w64md: an entry records its owner's /proc start time where one is free to read, and a pid that answers but started
+// at another time is a reused pid: its entry's owner is gone. Without /proc (macOS) nothing is recorded and both keep the
+// age rule.
+const PROC = fs.existsSync(`/proc/${process.pid}/stat`);
+test('dead-owner rule: an entry whose recorded start time is not the live pid\'s is a reused pid, taken at once where /proc shows it', POSIX, (t) => {
+  const child = liveChild(t);
+  const ticks = startOf(child.pid) || '12345';
+  const start = startPart(ticks);
+  const reused = startPart(String(BigInt(ticks) + 1n));
+  const cases: Array<[string, string[], boolean]> = [
+    ['another start time recorded in another time namespace', [ownerEntry(child.pid, { start: startPart(String(BigInt(ticks) + 1n), `${TIME_NS}9`) })], false],
+    ['the live start time', [ownerEntry(child.pid, { start })], false],
+    ['another start time (a reused pid)', [ownerEntry(child.pid, { start: reused })], PROC],
+    ['a reused pid beside a dead owner', [ownerEntry(child.pid, { start: reused }), ownerEntry(deadPid())], PROC],
+    ['a reused pid beside a live owner with no start time', [ownerEntry(child.pid, { start: reused }), ownerEntry(child.pid)], false],
+    ['this process\'s own pid with another start time', [ownerEntry(process.pid, { start: reused })], false],
+  ];
+  for (const [label, names, taken] of cases) {
+    const file = storeFile(t);
+    plant(file, names);
+    const release = tryAcquireLock(fs, file);
+    assert.equal(Boolean(release), taken, `${label}: ${taken ? 'taken at once' : 'kept young'} (${PROC ? '/proc' : 'no /proc'})`);
+    if (release) { assert.equal(owners(file).length, 1, `${label}: only our entry is left`); release(); }
+    else assert.deepEqual(entries(file), [...names].sort(), `${label}: the refused attempt changed nothing`);
+  }
+});
+
+test('dead-owner rule: an EPERM pid (another user\'s process) whose start time differs is a reused pid; with its own start it lives', POSIX, (t) => {
+  let code = null;
+  try { process.kill(1, 0); } catch (error: any) { code = error.code; }
+  if (code !== 'EPERM' || !PROC) { t.skip(`kill(1, 0) answers ${code ?? 'success'}${PROC ? '' : ', no /proc'} here`); return; }
+  const ticks = startOf(1);
+  for (const [entry, taken] of [[ownerEntry(1, { start: startPart(ticks) }), false], [ownerEntry(1, { start: startPart(String(BigInt(ticks) + 1n)) }), true]] as const) {
+    const file = storeFile(t);
+    plant(file, [entry]);
+    const release = tryAcquireLock(fs, file);
+    assert.equal(Boolean(release), taken, entry);
+    if (release) release();
+  }
 });
