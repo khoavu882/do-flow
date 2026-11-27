@@ -20,6 +20,9 @@ All notable changes to DoFlow are documented here. Format follows
 ### Added
 - **Decision register: link, retire, list by state and move settled open points (FU-9mkc1h, FU-x73ff7, FU-aseqah):** `decision --action link --from <id> --to <id> --kind supersedes|narrows|reopens` records a relation between two registered decisions without a new `add` (exit 1 `link-cycle` when it would close a cycle); `decision --action retire --ids <id>[,<id>…] --reason <text>` takes settled decisions out of the live view while they keep `status: live` (exit 1 `linked-from-live` while a `narrows` link joins one to a decision that stays live); `decision --action list --status live|superseded|retired[,…]` selects by state; `decision --action compact --mode closed-points` moves labelled settled bullets of `Open Points for Review` from `design.md`, `specs.md` and `data-model.md` to `decisions/history/<artifact>-closed.md`. The guidance now says where History rows are written, also after compaction, and how a settled open point is labelled (`ARTIFACT_FORMAT.md` §3 and §12, `WORKFLOW_HANDOFF.md`, the design template).
 
+### Fixed
+- **The Stop hook's lint log is per session and keeps only a failing run (FU-z7bc88):** the async fixers' output moves from the shared `.doflow/state/hooks/lint-last.log` to `lint-last.log` in the session's own folder, so another session in the same project no longer prints or deletes it. A fixer that exits 0 leaves nothing, and a later failing run replaces an earlier one instead of appending to it.
+
 ## [2.5.1] - 2026-11-27
 
 ### Fixed

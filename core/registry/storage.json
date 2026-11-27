@@ -999,27 +999,6 @@
       }
     },
     {
-      "id": "hook-lint-log",
-      "root": "project-state",
-      "path": "hooks/lint-last.log",
-      "entry": "file",
-      "match": "^lint-last\\.log$",
-      "rule": "existing",
-      "bound": {
-        "value": 65536,
-        "text": "one file of the async fixers' output, cut to 64 KiB and removed after the next Stop prints it"
-      },
-      "protect": null,
-      "moments": [],
-      "writers": [
-        "core/harnesses/shared/hooks/policies/stop-check.sh"
-      ],
-      "source": {
-        "file": "core/harnesses/shared/hooks/policies/stop-check.sh",
-        "pattern": "LINT_LOG_CAP={value}"
-      }
-    },
-    {
       "id": "roadmap-audit",
       "root": "project-state",
       "path": "roadmap/audit.jsonl",

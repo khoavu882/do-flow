@@ -181,23 +181,24 @@ test('linter output reaches the caller on stderr, so a Codex Stop prints only {}
   assert.match(r.stderr, /expected declaration/);
 });
 
-// 181 IC-017: the async fixers' output is kept in the project's lint-last.log and the next Stop prints what is left.
+// 181 IC-017: a failing async fixer's output is kept in the session's lint-last.log and the next Stop of that session prints it.
 const LINT_HEADER = 'doflow: lint problems left by the last fix (advisory):';
 let projectSeq = 0;
-/** A project folder with the project-local `node_modules/.bin` and, unless `state` is false, the runtime's `.doflow/state`. */
-function lintProject({ state = true }: any = {}) {
+/** A project folder with the project-local `node_modules/.bin`, and the session whose lint-last.log it uses. */
+function lintProject() {
   const dir = path.join(scratch.dir, `lint-project-${projectSeq++}`);
   fs.mkdirSync(path.join(dir, 'node_modules', '.bin'), { recursive: true });
-  if (state) fs.mkdirSync(path.join(dir, '.doflow', 'state'), { recursive: true });
-  return { dir, log: path.join(dir, '.doflow', 'state', 'hooks', 'lint-last.log') };
+  const session = sid();
+  return { dir, session, log: sessionLog(session) };
 }
+const sessionLog = (session: string) => path.join(scratch.xdg, 'doflow', 'session-env', 'sessions', session, 'lint-last.log');
 function fakeEslint(file: any, body: string) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 }
-/** One Stop in `dir` after editing `files`; `path` is the PATH the hook sees. */
+/** One Stop in `dir` after editing `files`; `path` is the PATH the hook sees. The session is `extra.session_id` or a new one. */
 function stopIn(dir: any, files: string[], pathValue = process.env.PATH, extra: any = {}) {
-  const session = sid();
+  const session = extra.session_id ?? sid();
   const queueDir = path.join(scratch.xdg, 'doflow', 'session-env', 'sessions', session);
   fs.mkdirSync(queueDir, { recursive: true });
   if (files.length) fs.writeFileSync(path.join(queueDir, 'edited-files.txt'), `${files.join('\n')}\n`);
@@ -219,12 +220,12 @@ function settled(file: string) {
   waitFor(() => { const now = sizeOf(file); const done = now > 0 && now === last; last = now; return done; });
 }
 
-test('the project-local eslint runs before one on PATH, and its output is kept in lint-last.log', () => {
-  const { dir, log } = lintProject();
-  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error no-fetch: Do not call fetch. Use the http client instead. [local]"');
+test('the project-local eslint runs before one on PATH, and its failing output is kept in lint-last.log', () => {
+  const { dir, session, log } = lintProject();
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error no-fetch: Do not call fetch. Use the http client instead. [local]"\nexit 1');
   const onPath = path.join(scratch.dir, 'eslint-on-path');
-  fakeEslint(path.join(onPath, 'eslint'), 'echo "[path eslint]"');
-  const r = stopIn(dir, ['a.js'], `${onPath}${path.delimiter}${process.env.PATH}`);
+  fakeEslint(path.join(onPath, 'eslint'), 'echo "[path eslint]"\nexit 1');
+  const r = stopIn(dir, ['a.js'], `${onPath}${path.delimiter}${process.env.PATH}`, { session_id: session });
   assert.equal(r.code, 0);
   assert.equal(r.stderr, '', 'nothing is printed by the Stop that started the fixer');
   settled(log);
@@ -234,65 +235,102 @@ test('the project-local eslint runs before one on PATH, and its output is kept i
 });
 
 test('eslint on PATH runs when the project has none', () => {
-  const { dir, log } = lintProject();
+  const { dir, session, log } = lintProject();
   const onPath = path.join(scratch.dir, 'eslint-on-path-only');
-  fakeEslint(path.join(onPath, 'eslint'), 'echo "[path eslint] b.js:2:1 error"');
-  assert.equal(stopIn(dir, ['b.js'], `${onPath}${path.delimiter}${process.env.PATH}`).code, 0);
+  fakeEslint(path.join(onPath, 'eslint'), 'echo "[path eslint] b.js:2:1 error"\nexit 1');
+  assert.equal(stopIn(dir, ['b.js'], `${onPath}${path.delimiter}${process.env.PATH}`, { session_id: session }).code, 0);
   settled(log);
   assert.match(fs.readFileSync(log, 'utf8'), /\[path eslint\] b\.js:2:1 error/);
 });
 
 test('the next Stop prints the kept lines under the advisory header, then removes the log; the Stop after prints nothing', () => {
-  const { dir, log } = lintProject();
-  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error left behind"');
-  stopIn(dir, ['a.js']);
+  const { dir, session, log } = lintProject();
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error left behind"\nexit 1');
+  stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
   settled(log);
-  const next = stopIn(dir, []);
+  const next = stopIn(dir, [], process.env.PATH, { session_id: session });
   assert.equal(next.code, 0);
   assert.equal(next.stderr, `${LINT_HEADER}\na.js:1:1 error left behind\n`);
   assert.equal(fs.existsSync(log), false);
-  assert.equal(stopIn(dir, []).stderr, '');
+  assert.equal(stopIn(dir, [], process.env.PATH, { session_id: session }).stderr, '');
+});
+
+test('a fixer that exits 0 leaves no log, even with output', () => {
+  const { dir, session, log } = lintProject();
+  const done = path.join(dir, 'fixer-done');
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), `echo "a.js:1:1 warning only"\ntouch '${done}'`);
+  stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
+  waitFor(() => fs.existsSync(done));
+  // the fixer's own temp output goes away once the run has ended
+  waitFor(() => fs.readdirSync(path.dirname(log)).every((f) => !f.startsWith('lint-last.log')));
+  assert.equal(fs.existsSync(log), false);
+  assert.equal(stopIn(dir, [], process.env.PATH, { session_id: session }).stderr, '');
+});
+
+test('a later failing run replaces the earlier failure instead of appending to it', () => {
+  const { dir, session, log } = lintProject();
+  const eslint = path.join(dir, 'node_modules', '.bin', 'eslint');
+  fakeEslint(eslint, 'echo "first failure"\nexit 1');
+  stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
+  settled(log);
+  fakeEslint(eslint, 'echo "second failure"\nexit 1');
+  // the Stop prints and removes the first failure, then starts the second run
+  const second = stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
+  assert.equal(second.stderr, `${LINT_HEADER}\nfirst failure\n`);
+  waitFor(() => fs.existsSync(log));
+  settled(log);
+  assert.equal(fs.readFileSync(log, 'utf8'), 'second failure\n');
+});
+
+test('the log is per session: another session neither prints nor removes it', () => {
+  const { dir, session, log } = lintProject();
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error mine"\nexit 1');
+  stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
+  settled(log);
+  assert.equal(stopIn(dir, [], process.env.PATH, { session_id: sid() }).stderr, '');
+  assert.equal(fs.existsSync(log), true);
+  assert.equal(stopIn(dir, [], process.env.PATH, { session_id: session }).stderr, `${LINT_HEADER}\na.js:1:1 error mine\n`);
 });
 
 test('at most 20 lines are printed and the log is capped at 64 KiB', () => {
-  const { dir, log } = lintProject();
+  const { dir, session, log } = lintProject();
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(log, Array.from({ length: 30 }, (_, i) => `problem ${i + 1}`).join('\n') + '\n');
-  const lines = stopIn(dir, []).stderr.trimEnd().split('\n');
+  const lines = stopIn(dir, [], process.env.PATH, { session_id: session }).stderr.trimEnd().split('\n');
   assert.deepEqual([lines.length, lines[0], lines[1], lines[20]], [21, LINT_HEADER, 'problem 1', 'problem 20']);
 
-  // The fixer's output passes through a 64 KiB pipe, so the log can sit at exactly 65536 B before the cap has run.
-  // The fixer marks its own exit: after the mark the log holds all 200000 B until the cap shrinks it.
+  // The fixer's output passes through a 64 KiB pipe, so the output can sit at exactly 65536 B before the cap has run.
+  // The cap is on the finished log: the fixer marks its own exit, and the log only appears, cut, after it.
   const done = path.join(dir, 'fixer-done');
-  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), `yes "x: a long lint message that fills the log" | head -c 200000\ntouch '${done}'`);
-  stopIn(dir, ['c.js']);
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), `yes "x: a long lint message that fills the log" | head -c 200000\ntouch '${done}'\nexit 1`);
+  stopIn(dir, ['c.js'], process.env.PATH, { session_id: session });
   waitFor(() => fs.existsSync(done));
-  waitFor(() => sizeOf(log) <= 65536);
+  waitFor(() => fs.existsSync(log));
   assert.equal(sizeOf(log), 65536);
 });
 
-test('without the runtime state folder nothing is written into the project', () => {
-  const { dir } = lintProject({ state: false });
-  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error"');
-  const r = stopIn(dir, ['a.js']);
+test('without the runtime state folder nothing is written into the project, and the log is still kept for the session', () => {
+  const { dir, session, log } = lintProject();
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 error"\nexit 1');
+  const r = stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
   assert.equal(r.code, 0);
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
-  assert.equal(fs.existsSync(path.join(dir, '.doflow')), false);
+  settled(log);
+  assert.deepEqual(fs.readdirSync(dir), ['node_modules']);
 });
 
 test('the Stop that prints lint problems still advises only: exit 0 and no deny decision', () => {
-  const { dir, log } = lintProject();
+  const { dir, session, log } = lintProject();
   fs.mkdirSync(path.dirname(log), { recursive: true });
   fs.writeFileSync(log, 'a.js:1:1 error\n');
-  const r = stopIn(dir, []);
+  const r = stopIn(dir, [], process.env.PATH, { session_id: session });
   assert.equal(r.code, 0);
   assert.doesNotMatch(r.stdout, /"decision"\s*:\s*"(block|deny)"|permissionDecision/);
 });
 
 test('a directory at lint-last.log is left alone: exit 0, no advisory deny, and the stub check still runs', () => {
-  const { dir, log } = lintProject();
+  const { dir, session, log } = lintProject();
   fs.mkdirSync(log, { recursive: true });
-  const r = stopIn(dir, [], process.env.PATH, { last_assistant_message: '// TODO: finish' });
+  const r = stopIn(dir, [], process.env.PATH, { session_id: session, last_assistant_message: '// TODO: finish' });
   assert.equal(r.code, 0, r.stderr);
   assert.doesNotMatch(r.stdout, /"decision"\s*:\s*"(block|deny)"|permissionDecision/);
   assert.equal(flagged(r), true, r.stdout);
