@@ -50,6 +50,9 @@ const SCHEMA_VERSION = 1;
 const LOCK_STALE_MS = 10_000;
 const LOCK_RETRIES = 250;
 const LOCK_WAIT_MS = 20;
+// acquireLock's yield in a run of `again` steps: AGAIN_WAIT_MS after every AGAIN_RUN in a row (churn runs showed at most 3).
+const AGAIN_RUN = 8;
+const AGAIN_WAIT_MS = 1;
 
 /** Synchronous sleep without spinning: Atomics.wait on a throwaway buffer. */
 function sleep(ms: number): void {
@@ -150,7 +153,8 @@ type LockStep = 'held' | 'busy' | 'again' | 'queued';
  *   - `entryName` makes this process's entry name (default `owner-<pid>-<random>`); every name it
  *     makes must be unique.
  *   - `removeEntry` removes one judged entry by name (default rmdir); it throws as rmdir would.
- *   - `retries` is acquireLock's attempt budget (default LOCK_RETRIES, each LOCK_WAIT_MS apart).
+ *   - `retries` is acquireLock's budget of waits on a holder (default LOCK_RETRIES, each LOCK_WAIT_MS apart); a look that
+ *     finds the lock changed (`again`) is not counted, and the deadline of `retries` * LOCK_WAIT_MS still bounds the call.
  */
 type LockOptions = {
   stale?: (lock: { lockDir: string; entries: string[]; ageMs: number }) => boolean;
@@ -441,7 +445,8 @@ function tryAcquireLock(fsImpl: any, file: string, options: LockOptions = {}): (
 }
 
 /**
- * Takes the cross-process lock for one state file, waiting up to LOCK_RETRIES * LOCK_WAIT_MS (5 s).
+ * Takes the cross-process lock for one state file, waiting up to LOCK_RETRIES * LOCK_WAIT_MS (5 s): at most `retries`
+ * waits on a holder, and any number of immediate looks at a lock that changed meanwhile within that deadline.
  * A lock older than LOCK_STALE_MS is reclaimed (its holder died or stalled, and the rename-based write
  * keeps the file whole), and so is one whose owners are all gone, at any age.
  * @param {Object} fsImpl
@@ -457,14 +462,25 @@ function acquireLock(fsImpl: any, file: string, options: LockOptions = {}): () =
   const deadline = Date.now() + retries * LOCK_WAIT_MS;
   let step: LockStep = 'again';
   let me: Entry = { name: '' };
-  for (let attempt = 0; attempt < retries && (attempt === 0 || Date.now() < deadline); attempt += 1) {
+  // An `again` (the lock changed between two looks: a holder came or left) is looked at again at once and is not one of
+  // the `retries` (FU-g5frhm): under hot churn it is common and usually resolves on the next look. The deadline bounds
+  // a run of them, and every AGAIN_RUN in a row yield AGAIN_WAIT_MS, so a lock that keeps changing is never spun on.
+  let againRun = 0;
+  for (let tries = 0, first = true; tries < retries && (first || Date.now() < deadline); first = false) {
     if (step === 'queued') step = queuedStep(fsImpl, lockDir, me, options);
     else {
       me = { name: (options.entryName || newToken)() }; // a fresh entry name per attempt: an earlier one's name never comes back
       step = attemptLock(fsImpl, lockDir, me, options);
     }
     if (step === 'held') return ownedRelease(fsImpl, lockDir, me);
-    if (step === 'busy' || step === 'queued') sleep(LOCK_WAIT_MS);
+    if (step === 'again') {
+      againRun += 1;
+      if (againRun % AGAIN_RUN === 0) sleep(AGAIN_WAIT_MS);
+      continue;
+    }
+    againRun = 0;
+    tries += 1;
+    sleep(LOCK_WAIT_MS); // busy or queued
   }
   if (step === 'queued' && giveUp(fsImpl, lockDir, me, options) === 'held') return ownedRelease(fsImpl, lockDir, me);
   throw new Error(`Could not lock '${file}' after ${(retries * LOCK_WAIT_MS) / 1000}s — another writer holds '${lockDir}'. `

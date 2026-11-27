@@ -863,3 +863,27 @@ test('dead-owner rule: with a /proc whose self is another process, no start is r
     if (taken) taken(); else { age(file); const stale = tryAcquireLock(fs, file); assert.ok(stale, 'and taken once stale'); stale(); }
   }
 });
+
+// FU-g5frhm: a look that finds the lock changed (`again`) is not one of the 250 waits; the 5 s deadline bounds a run of them.
+test('acquireLock: a lock that answers again more than 250 times in a row, within the deadline, is still taken', (t) => {
+  const file = storeFile(t);
+  let agains = 0;
+  const churning = {
+    ...fs,
+    mkdirSync: (target: any, ...rest: any[]) => {
+      // The lock is removed between its mkdir and our entry, as an older runtime's release does: attemptLock answers again.
+      if (path.dirname(target) === lockOf(file) && agains < 300) {
+        agains += 1;
+        fs.rmdirSync(lockOf(file));
+        throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+      }
+      return fs.mkdirSync(target, ...rest);
+    },
+  };
+  const started = Date.now();
+  const release = acquireLock(churning, file);
+  assert.equal(agains, 300);
+  assert.ok(Date.now() - started < 5000, 'well inside the deadline');
+  assert.ok(release.held());
+  release();
+});
