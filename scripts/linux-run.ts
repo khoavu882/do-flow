@@ -16,9 +16,14 @@ const USAGE = 'usage: node scripts/linux-run.ts';
 // The folder under test, relative to the checkout; a glob the container's shell does not expand.
 const TEST_GLOB = 'test/runtime/worker/*.test.ts';
 
-/** True when a docker daemon answers. */
-function dockerReady(): boolean {
-  return spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0;
+const DOCKER_INFO_TIMEOUT_MS = 10000;
+
+/** Null when a docker daemon answers within the timeout, else why there is no Linux run. */
+function dockerUnavailable(timeoutMs: number = DOCKER_INFO_TIMEOUT_MS): string | null {
+  const info = spawnSync('docker', ['info'], { stdio: 'ignore', timeout: timeoutMs });
+  if (info.error && (info.error as any).code === 'ETIMEDOUT') return `docker info did not answer in ${timeoutMs / 1000} s`;
+  if (info.error) return 'no docker command';
+  return info.status === 0 ? null : 'no docker daemon answered';
 }
 
 /** The `docker run` arguments that test the checkout at `src` in a Linux container of Node `pin`. */
@@ -36,12 +41,16 @@ function dockerArgs(src: string, pin: string): string[] {
     'cd /work',
     `su node -c 'git init -q && npm install --no-audit --no-fund && node --test "${TEST_GLOB}"'`,
   ].join('\n');
-  return ['run', '--rm', '-v', `${src}:/src:ro`, `node:${pin}`, 'sh', '-c', script];
+  return ['run', '--rm', '--init', '-v', `${src}:/src:ro`, `node:${pin}`, 'sh', '-c', script];
 }
 
-/** Runs the Linux test run on the checkout at `src`: 'ok', 'failed' or 'skipped' (no docker daemon). */
-function linuxRun(src: string, pin: string): 'ok' | 'failed' | 'skipped' {
-  if (!dockerReady()) return 'skipped';
+/**
+ * Runs the Linux test run on the checkout at `src`: 'ok', 'failed', or `{ skipped: reason }` when there is no
+ * docker to run it in. Docker present but the pull, apt or the tests failing is 'failed', never skipped.
+ */
+function linuxRun(src: string, pin: string): 'ok' | 'failed' | { skipped: string } {
+  const reason = dockerUnavailable();
+  if (reason) return { skipped: reason };
   return spawnSync('docker', dockerArgs(src, pin), { stdio: 'inherit' }).status === 0 ? 'ok' : 'failed';
 }
 
@@ -57,10 +66,10 @@ function main(argv: string[]): number {
     return 1;
   }
   const result = linuxRun(root, pin);
-  process.stdout.write(`linux-run: ${result === 'skipped' ? 'nothing ran, no docker daemon answered' : result}\n`);
+  process.stdout.write(`linux-run: ${typeof result === 'object' ? `nothing ran, ${result.skipped}` : result}\n`);
   return result === 'ok' ? 0 : 1;
 }
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { TEST_GLOB, dockerArgs, linuxRun };
+module.exports = { TEST_GLOB, DOCKER_INFO_TIMEOUT_MS, dockerArgs, dockerUnavailable, linuxRun };

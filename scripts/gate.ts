@@ -57,7 +57,7 @@ function exportHead(root: string, dir: string): boolean {
     && run(['checkout', '--quiet', '--detach', head.stdout.trim()], dir);
 }
 
-type Step = { name: string, run: () => boolean | 'skipped' };
+type Step = { name: string, run: () => boolean | { skipped: string } };
 
 function main(argv: string[]): number {
   const options = parseArgs(argv);
@@ -108,9 +108,9 @@ function main(argv: string[]): number {
         return sh('bash', [suite]);
       });
     } },
-    { name: 'linux worker tests (docker)', run: () => {
+    { name: 'linux worker tests', run: () => {
       const result = linuxRun(dir, pin);
-      return result === 'ok' ? true : result === 'skipped' ? 'skipped' : false;
+      return result === 'ok' ? true : result === 'failed' ? false : result;
     } },
     { name: 'bash -n over tracked *.sh', run: () => tracked().filter((file) => file.endsWith('.sh'))
       .every((file) => sh('bash', ['-n', file])) },
@@ -126,7 +126,11 @@ function main(argv: string[]): number {
     for (const step of steps) {
       process.stdout.write(`gate: ${step.name} ...\n`);
       const ok = step.run();
-      process.stdout.write(`gate: ${step.name} ${ok === 'skipped' ? 'SKIPPED (no docker daemon answered; no Linux run happened)' : ok ? 'ok' : 'FAILED'}\n`);
+      if (typeof ok === 'object') {
+        process.stdout.write(`gate: ${step.name} SKIPPED (${ok.skipped}; no Linux run happened)\n`);
+        continue;
+      }
+      process.stdout.write(`gate: ${step.name} ${ok ? 'ok' : 'FAILED'}\n`);
       if (!ok) {
         failed = step.name;
         break;
