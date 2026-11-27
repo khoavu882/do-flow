@@ -262,7 +262,7 @@ test('a fixer that exits 0 leaves no log, even with output', () => {
   stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
   waitFor(() => fs.existsSync(done));
   // the fixer's own temp output goes away once the run has ended
-  waitFor(() => fs.readdirSync(path.dirname(log)).every((f) => !f.startsWith('lint-last.log')));
+  waitFor(() => fs.readdirSync(path.dirname(log)).every((f: string) => !f.startsWith('lint-last.log')));
   assert.equal(fs.existsSync(log), false);
   assert.equal(stopIn(dir, [], process.env.PATH, { session_id: session }).stderr, '');
 });
