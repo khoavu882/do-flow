@@ -225,3 +225,40 @@ test('FU-8a9r11: `depends-on: none` builds, adds no implicit phase edge, and com
     assert.deepEqual(mixed, { ok: false, problems: [{ kind: 'bad-dependency', ids: ['D.1'], value: 'none, A.1' }], warnings: [] });
   }
 });
+
+const MARKER_PLAN = (marker: string) => [
+  '- [ ] A.1 First; owner: core; files: src/a.ts',
+  '- [ ] A.2 Second; depends-on: A.1; files: src/b.ts',
+  '- [ ] B.1 Third [P]; owner: qa',
+  `- [ ] D.1 Lane root${marker}`,
+];
+
+test('FU-8a9r11: `depends-on: none` in any case is the marker', () => {
+  for (const marker of ['none', 'None', 'NONE']) {
+    const ok = build([...MARKER_PLAN(`; depends-on: ${marker}`)], GRAPH);
+    assert.equal(ok.ok, true, marker);
+    assert.deepEqual(ok.graph.tasks.find((t: any) => t.id === 'D.1').taskDeps, [], marker);
+    assert.equal(ok.graph.tasks.find((t: any) => t.id === 'D.1').root, true, marker);
+  }
+});
+
+test('FU-8a9r11: the marker leaves a plan without it with its 500d3bf8 digest, and adding it changes the digest', () => {
+  const digest = (marker: string) => graphDigest(build(MARKER_PLAN(marker), GRAPH).graph);
+  // Recorded from `graphDigest` on 500d3bf8, before the marker existed.
+  assert.equal(digest(''), 'sha256:d44091e039e2c912cb146ef9296fd09da2feae6f9e7b0783bd4f73359ceb9ae6');
+  assert.notEqual(digest('; depends-on: none'), digest(''));
+  assert.equal(digest('; depends-on: none'), digest('; depends-on: None'));
+});
+
+test('FU-8a9r11: a task line with the marker hashes as it did on 500d3bf8 (the claim hash does not move on upgrade)', (t: any) => {
+  const root = tempDir(t, 'doflow-none-hash-');
+  const dir = path.join(root, 'agent-docs', 'doflow', '900-g');
+  fs.mkdirSync(dir, { recursive: true });
+  const hashOf = (line: string) => {
+    fs.writeFileSync(path.join(dir, 'plan.md'), plan(['- [ ] A.1 First', line]));
+    return loadPlan({ roots: [root], slug: '900-g' }).tasks.find((task: any) => task.id === 'D.1').hash;
+  };
+  // Recorded from `taskLineHash` on 500d3bf8; the marker is hashed as written.
+  assert.ok(hashOf('- [ ] D.1 Lane root; depends-on: none').slice(7).startsWith('4ca220dce7cf'));
+  assert.ok(hashOf('- [ ] D.1 Lane root').slice(7).startsWith('ef041305d1ea'));
+});

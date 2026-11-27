@@ -196,9 +196,10 @@ function planVerdict(text: string): {
 }
 
 /** IC-004: one tuple per task in plan order — the structure and declared files, never the
- * description or the checkbox. */
+ * description or the checkbox. A lane root (`depends-on: none`) adds a trailing `true`, so a plan
+ * without one keeps its digest and adding or removing the marker changes it (FU-8a9r11). */
 function graphTuples(graph: any) {
-  return graph.tasks.map((t: any) => [t.id, t.phase, t.owner, t.taskDeps, t.parallel, t.acceptance, t.budget, t.files]);
+  return graph.tasks.map((t: any) => [t.id, t.phase, t.owner, t.taskDeps, t.parallel, t.acceptance, t.budget, t.files, ...(t.root ? [true] : [])]);
 }
 
 /** IC-004: `sha256:` over the tuples' canonical JSON (arrays and one-key objects only, so

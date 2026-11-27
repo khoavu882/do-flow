@@ -305,10 +305,12 @@ function parsePlan(text: string): any {
 
     const list = (value: string | undefined) => (value ? value.split(',').map((v) => v.replace(/`/g, '').trim()).filter(Boolean) : []);
     const declared = list(fields['depends-on']);
-    // `depends-on: none` marks a lane root: no implicit wait on earlier phases (FU-8a9r11). It is not a service, so it is
-    // dropped from `dependsOn`; any other value beside it stays in `dependsOn` and is refused by the graph check.
-    const root = declared.includes('none');
-    const dependsOn = root ? declared.filter((value) => value !== 'none') : declared;
+    // `depends-on: none` (any case) marks a lane root: no implicit wait on earlier phases (FU-8a9r11). It is not a task
+    // id, so it is dropped from `dependsOn`; any other value beside it stays in `dependsOn` and is refused by the graph
+    // check. `dependsOnDeclared` keeps the line as written, the task line hash's material, so a line hashes as it always did.
+    const isNone = (value: string) => value.toLowerCase() === 'none';
+    const root = declared.some(isNone);
+    const dependsOn = root ? declared.filter((value) => !isNone(value)) : declared;
     // A near-miss starts with a task id but carries more text (`A.1 (after review)`).
     const nearMiss = (value: string) => !TASK_ID.test(value) && TASK_ID.test(value.split(/[\s(]/)[0]);
 
@@ -323,7 +325,7 @@ function parsePlan(text: string): any {
       dependsOn,
       externalContract: fields['external-contract'] || null,
       parallel: /\[P\]/.test(head),
-      ...(root ? { root: true } : {}),
+      ...(root ? { root: true, dependsOnDeclared: declared } : {}),
       taskDeps: dependsOn.filter((value) => TASK_ID.test(value)),
       nearMissDeps: dependsOn.filter(nearMiss),
       acceptance: list(fields.acceptance),
