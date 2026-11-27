@@ -131,17 +131,43 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
     fi
     rm -f "$LINT_LOG"
   fi
-  lint_runs=0
-  # Runs the rest of its arguments as an async fixer. Only a failing run with output replaces the log, cut to
-  # LINT_LOG_CAP: a run that exits 0 leaves nothing, and an earlier failure is not appended to.
+  # The async fixers of this Stop are queued by lint_async and started together by lint_flush, which keeps the
+  # output of every one that failed: each writes its own temp file in the session folder, and once all have
+  # finished the failing ones are joined, each under a header naming the fixer, and moved over the log in one
+  # step, cut to LINT_LOG_CAP. A Stop whose fixers all pass leaves an earlier log as it was.
+  lint_queue=
   lint_async() {
-    lint_runs=$((lint_runs + 1))
-    local out="$LINT_LOG.$$.$lint_runs"
+    local quoted
+    printf -v quoted '%q ' "$@"
+    lint_queue+="$quoted"$'\n'
+  }
+  lint_flush() {
+    [ -n "$lint_queue" ] || return 0
+    local queue=$lint_queue base="$LINT_LOG.$$"
     (
-      if ! nohup "$@" >"$out" 2>&1 && [ -s "$out" ] && [ ! -d "$LINT_LOG" ]; then
-        head -c "$LINT_LOG_CAP" "$out" > "$out.cut" && mv "$out.cut" "$LINT_LOG"
+      count=0
+      while IFS= read -r command_line; do
+        [ -n "$command_line" ] || continue
+        count=$((count + 1))
+        ( eval "nohup $command_line" >"$base.$count" 2>&1 </dev/null; echo $? >"$base.$count.rc" ) &
+      done <<<"$queue"
+      wait
+      : >"$base.all"
+      index=0
+      while IFS= read -r command_line; do
+        [ -n "$command_line" ] || continue
+        index=$((index + 1))
+        if [ "$(cat "$base.$index.rc" 2>/dev/null)" != 0 ] && [ -s "$base.$index" ]; then
+          label=${command_line%% *}
+          printf '== %s ==\n' "${label##*/}" >>"$base.all"
+          head -c "$LINT_LOG_CAP" "$base.$index" >>"$base.all"
+          [ -z "$(tail -c 1 "$base.$index")" ] || echo >>"$base.all"
+        fi
+      done <<<"$queue"
+      if [ -s "$base.all" ] && [ ! -d "$LINT_LOG" ]; then
+        head -c "$LINT_LOG_CAP" "$base.all" > "$base.cut" && mv "$base.cut" "$LINT_LOG"
       fi
-      rm -f "$out" "$out.cut"
+      rm -f "$base".*
     ) </dev/null >/dev/null 2>&1 3>&- 5>&- &
   }
 
@@ -214,6 +240,8 @@ if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
         lint_async ./gradlew spotlessApply
       fi
     fi
+
+    lint_flush
 
     # Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain
     # artifact names) reaching files that ship. Warns, never blocks — a

@@ -230,6 +230,7 @@ test('the project-local eslint runs before one on PATH, and its failing output i
   assert.equal(r.stderr, '', 'nothing is printed by the Stop that started the fixer');
   settled(log);
   const kept = fs.readFileSync(log, 'utf8');
+  assert.match(kept, /^== eslint ==\n/);
   assert.match(kept, /Do not call fetch\. Use the http client instead\. \[local\]/);
   assert.doesNotMatch(kept, /path eslint/);
 });
@@ -250,7 +251,7 @@ test('the next Stop prints the kept lines under the advisory header, then remove
   settled(log);
   const next = stopIn(dir, [], process.env.PATH, { session_id: session });
   assert.equal(next.code, 0);
-  assert.equal(next.stderr, `${LINT_HEADER}\na.js:1:1 error left behind\n`);
+  assert.equal(next.stderr, `${LINT_HEADER}\n== eslint ==\na.js:1:1 error left behind\n`);
   assert.equal(fs.existsSync(log), false);
   assert.equal(stopIn(dir, [], process.env.PATH, { session_id: session }).stderr, '');
 });
@@ -276,10 +277,28 @@ test('a later failing run replaces the earlier failure instead of appending to i
   fakeEslint(eslint, 'echo "second failure"\nexit 1');
   // the Stop prints and removes the first failure, then starts the second run
   const second = stopIn(dir, ['a.js'], process.env.PATH, { session_id: session });
-  assert.equal(second.stderr, `${LINT_HEADER}\nfirst failure\n`);
+  assert.equal(second.stderr, `${LINT_HEADER}\n== eslint ==\nfirst failure\n`);
   waitFor(() => fs.existsSync(log));
   settled(log);
-  assert.equal(fs.readFileSync(log, 'utf8'), 'second failure\n');
+  assert.equal(fs.readFileSync(log, 'utf8'), '== eslint ==\nsecond failure\n');
+});
+
+test('two fixers in one Stop that both fail keep both outputs, each under its own header; a passing one adds nothing', (t) => {
+  const { dir, session, log } = lintProject();
+  fakeEslint(path.join(dir, 'node_modules', '.bin', 'eslint'), 'echo "a.js:1:1 eslint problem"\nexit 1');
+  fakeEslint(path.join(dir, 'gradlew'), 'echo "spotless problem"\nexit 1');
+  const r = stopIn(dir, ['a.js', 'B.java'], process.env.PATH, { session_id: session });
+  assert.equal(r.code, 0);
+  settled(log);
+  assert.equal(fs.readFileSync(log, 'utf8'), '== eslint ==\na.js:1:1 eslint problem\n== gradlew ==\nspotless problem\n');
+  assert.equal(fs.readdirSync(path.dirname(log)).filter((f) => f.startsWith('lint-last.log.')).length, 0, 'no temp file is left');
+
+  // One passes (exit 0, with output), one fails: only the failing one is kept.
+  fakeEslint(path.join(dir, 'gradlew'), 'echo "spotless fine"');
+  stopIn(dir, [], process.env.PATH, { session_id: session });
+  stopIn(dir, ['a.js', 'B.java'], process.env.PATH, { session_id: session });
+  settled(log);
+  assert.equal(fs.readFileSync(log, 'utf8'), '== eslint ==\na.js:1:1 eslint problem\n');
 });
 
 test('the log is per session: another session neither prints nor removes it', () => {
@@ -289,7 +308,7 @@ test('the log is per session: another session neither prints nor removes it', ()
   settled(log);
   assert.equal(stopIn(dir, [], process.env.PATH, { session_id: sid() }).stderr, '');
   assert.equal(fs.existsSync(log), true);
-  assert.equal(stopIn(dir, [], process.env.PATH, { session_id: session }).stderr, `${LINT_HEADER}\na.js:1:1 error mine\n`);
+  assert.equal(stopIn(dir, [], process.env.PATH, { session_id: session }).stderr, `${LINT_HEADER}\n== eslint ==\na.js:1:1 error mine\n`);
 });
 
 test('at most 20 lines are printed and the log is capped at 64 KiB', () => {
