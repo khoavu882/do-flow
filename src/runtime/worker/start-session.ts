@@ -330,45 +330,53 @@ function dispatchRunning(root: string, platform: string) {
 }
 
 /**
- * 165 review A-1: whether any process of this user names a run id in its command line or environment (the supervisor's argv
- * carries the run id, the harness's environment `DOFLOW_STARTED_RUN`): `found`, `none` or `unknown` when the listing cannot be
- * read. The listing is read once, on the first question, and only when one is asked.
+ * 165 review A-1: whether any process of this user names a run (the supervisor's argv carries the run id, the harness's
+ * environment `DOFLOW_STARTED_RUN`): `found`, `none` or `unknown` when the listing cannot be read. A process the listing
+ * skipped because its environment cannot be read is the run's own when its process group or session is one a recorded process
+ * of the run led (both are inherited and outlive their leader, so a child of a harness that has exited is still seen, kiro-cli's
+ * kiro-cli-chat included; FU-r39mbk): the reading is then `unknown`, with that process as the blocker. The listing is read
+ * once, on the first question, and only when one is asked.
  */
 function namingScan(platform: string) {
-  let reading: { texts: string[] | null; unreadable: any } | undefined;
-  const unknown = new Set<string>();
-  const named = (runId: string): 'found' | 'none' | 'unknown' => {
+  let reading: { texts: string[] | null; unreadable: any; skipped: any[] } | undefined;
+  const unknown = new Map<string, any>();
+  const named = (run: any): 'found' | 'none' | 'unknown' => {
     if (reading === undefined) reading = processTree.readProcessTexts({ platform });
-    if (!reading || reading.texts === null) { unknown.add(runId); return 'unknown'; }
-    return reading.texts.some((text) => text.includes(runId)) ? 'found' : 'none';
+    if (!reading || reading.texts === null) { unknown.set(run.runId, reading?.unreadable ?? null); return 'unknown'; }
+    if (reading.texts.some((text) => text.includes(run.runId))) return 'found';
+    const leaders = [run.supervisor, run.worker].map((proc: any) => proc?.pgid ?? proc?.pid).filter((id: any) => Number.isInteger(id) && id > 0);
+    const own = (reading.skipped ?? []).find((entry: any) => leaders.includes(entry.pgid) || leaders.includes(entry.sid));
+    if (!own) return 'none';
+    unknown.set(run.runId, own.unreadable);
+    return 'unknown';
   };
   /** What stopped the listing, when this run's reading was unknown because of it; null otherwise. */
-  named.unreadableFor = (runId: string) => (unknown.has(runId) ? reading?.unreadable ?? null : null);
+  named.unreadableFor = (runId: string) => unknown.get(runId) ?? null;
   return named;
 }
 
 /**
  * R5, 165 review A-1: `live`, `dead` or `unknown` for a non-ended main-session run. It is dead only on positive evidence: every
- * process it records (supervisor, worker; pid and start, as `processTree.alive` reads them) is seen gone, and when it records
- * fewer than both, no process of this user names it (`named`). With neither recorded it is `live` for UNSUPERVISED_GRACE_MS
+ * process it records (supervisor, worker; pid and start, as `processTree.alive` reads them) is seen gone, and no process of
+ * this user names it or hides in a group or session a recorded process led (`named`; FU-r39mbk: also when both are recorded,
+ * as a harness's child can outlive them). With neither recorded it is `live` for UNSUPERVISED_GRACE_MS
  * after its creation, while the spawn is in flight. A reading that is neither true nor false is `unknown`. Reads `ps`; never
  * under a lock.
  */
-function liveness(run: any, platform: string, nowMs: number, named: (runId: string) => string): 'live' | 'dead' | 'unknown' {
+function liveness(run: any, platform: string, nowMs: number, named: (run: any) => string): 'live' | 'dead' | 'unknown' {
   const recorded = [run.supervisor, run.worker].filter(Boolean);
   const reads = recorded.map((proc: any) => processTree.alive(proc, { platform }));
   if (reads.includes(true)) return 'live';
   if (reads.some((read: any) => read !== false)) return 'unknown';
-  if (recorded.length === 2) return 'dead';
   if (recorded.length === 0 && Date.parse(run.createdAt) > nowMs - UNSUPERVISED_GRACE_MS) return 'live';
-  const seen = named(run.runId);
+  const seen = named(run);
   return seen === 'none' ? 'dead' : seen === 'found' ? 'live' : 'unknown';
 }
 
 const isOpenShape = (run: any) => run && run.kind === KIND && run.phase !== 'ended';
 
 /** The open main-session runs of one store, each with its liveness read now: `[{ run, state }]`, the dead left out. */
-function openRuns(runs: Record<string, any>, platform: string, nowMs: number, named: (runId: string) => string): Array<{ run: any; state: string }> {
+function openRuns(runs: Record<string, any>, platform: string, nowMs: number, named: (run: any) => string): Array<{ run: any; state: string }> {
   return (Object.values(runs) as any[]).filter(isOpenShape)
     .map((run) => ({ run, state: liveness(run, platform, nowMs, named) }))
     .filter((entry) => entry.state !== 'dead');
@@ -388,7 +396,7 @@ function startsByActor(runs: Record<string, any>, nowMs: number, into: Map<strin
  * The open started sessions of every other indexed project: `{ total, byActor }`, and `startedByActor`, the creation
  * times of the sessions each actor started there in the last hour (R-5). An unreadable store counts nothing.
  */
-function elsewhere(others: any[], platform: string, nowMs: number, named: (runId: string) => string) {
+function elsewhere(others: any[], platform: string, nowMs: number, named: (run: any) => string) {
   const out = { total: 0, byActor: new Map<string, number>(), startedByActor: new Map<string, number[]>() };
   for (const project of others) {
     let runs: any = {};

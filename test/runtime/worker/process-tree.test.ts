@@ -339,9 +339,9 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   assert.deepEqual(tree.processTexts({ platform: 'linux', fsImpl: withStat('S', 1, {}, 'ESRCH'), uid: 501 }), [], 'ESRCH from an entry that is not a zombie is gone');
   // The A-1 diagnosis: a listing that cannot be read names its first blocker; a readable one names none.
   const blocker = (options: any) => tree.readProcessTexts({ platform: 'linux', uid: 501, ...options });
-  assert.deepEqual(blocker({ fsImpl: proc(501) }), { texts: ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc '], unreadable: null });
-  assert.deepEqual(blocker({ fsImpl: withStat('S') }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'S', threads: 1, command: null } });
-  assert.deepEqual(blocker({ fsImpl: withStat('Z', 2) }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'Z', threads: 2, command: null } });
+  assert.deepEqual(blocker({ fsImpl: proc(501) }), { texts: ['fake -p  DOFLOW_STARTED_RUN=w-aaaabbbbcccc '], unreadable: null, skipped: [] });
+  assert.deepEqual(blocker({ fsImpl: withStat('S') }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'S', threads: 1, command: null }, skipped: [] });
+  assert.deepEqual(blocker({ fsImpl: withStat('Z', 2) }), { texts: null, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EACCES', state: 'Z', threads: 2, command: null }, skipped: [] });
   assert.deepEqual(blocker({ fsImpl: proc(501, false, 'EIO') }).unreadable, { reason: 'proc-entry', pid: 7, file: '/proc/7/cmdline', errno: 'EIO', state: null, threads: null, command: null }, 'a stat and status that do not read are null');
   assert.deepEqual(blocker({ fsImpl: { readdirSync: () => { const e: any = new Error('x'); e.code = 'EACCES'; throw e; } } }).unreadable, { reason: 'proc-list', pid: null, file: '/proc', errno: 'EACCES' });
   assert.deepEqual(blocker({ fsImpl: proc(501), uid: null }).unreadable, { reason: 'no-uid', pid: null, file: null, errno: null });
@@ -349,14 +349,14 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   // A-1 root cause (CI runs 45556190256, 45589845673): a live process of this user whose environ answers EACCES although the
   // entry is ours. Two mechanisms, one rule: non-dumpable (ssh-agent, setuid: files owned by root) and a capability superset
   // (systemd --user: files ours, the ptrace access check denies). Skipped when its cmdline names no harness; otherwise unknown.
-  const uninspectable = ({ cmdline = 'ssh-agent\0-s\0', environOwner = 0, cmdlineReadable = true } = {}) => ({
+  const uninspectable = ({ cmdline = 'ssh-agent\0-s\0', environOwner = 0, cmdlineReadable = true, stat = '7 (x) S 1 1 1' } = {}) => ({
     readdirSync: () => ['7'],
     statSync: (p: string) => ({ uid: p === '/proc/7/environ' ? environOwner : 501 }),
     readFileSync: (p: string) => {
       const denied = () => { const e: any = new Error('denied'); e.code = 'EACCES'; throw e; };
       if (p === '/proc/7/cmdline') return cmdlineReadable ? Buffer.from(cmdline) : denied();
       if (p === '/proc/7/environ') return denied();
-      if (p === '/proc/7/stat') return Buffer.from('7 (x) S 1 1 1');
+      if (p === '/proc/7/stat') return Buffer.from(stat);
       if (p === '/proc/7/status') return Buffer.from('Name:\tx\nUid:\t501\t501\t501\t501\nThreads:\t1\n');
       throw new Error(`unexpected read ${p}`);
     },
@@ -366,7 +366,10 @@ test('processTexts: darwin reads one ps -wwAE listing; linux reads this user\'s 
   const capabilitySuperset = (options: any = {}) => uninspectable({ cmdline: '/usr/lib/systemd/systemd\0--user\0', environOwner: 501, ...options });
   const binaries = ['claude', 'codex', 'kiro-cli'];
   for (const [label, make] of [['non-dumpable (files owned by root)', nonDumpable], ['capability superset (files ours)', capabilitySuperset]] as const) {
-    assert.deepEqual(blocker({ fsImpl: make(), binaries }), { texts: [], unreadable: null }, `${label}: a non-harness is skipped`);
+    const skippedAs = (command: string) => [{ pgid: 1, sid: 1, unreadable: { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 1, command } }];
+    assert.deepEqual(blocker({ fsImpl: make(), binaries }), { texts: [], unreadable: null, skipped: skippedAs(label.startsWith('non') ? 'ssh-agent' : 'systemd') },
+      `${label}: a non-harness is skipped, kept with its group and session and the blocker it is for a run that led them`);
+    assert.deepEqual(blocker({ fsImpl: make({ stat: '7 (x) S 1' }), binaries }).unreadable?.file, '/proc/7/environ', `${label}: a group that cannot be read: unknown`);
     assert.deepEqual(blocker({ fsImpl: make({ cmdline: '/usr/bin/codex\0exec\0' }), binaries }).unreadable,
       { reason: 'proc-entry', pid: 7, file: '/proc/7/environ', errno: 'EACCES', state: 'S', threads: 1, command: 'codex' }, `${label}: argv[0] names a harness: unknown`);
     assert.deepEqual(blocker({ fsImpl: make({ cmdline: '/usr/bin/node\0/opt/lib/claude\0-p\0' }), binaries }).unreadable?.command, 'node',

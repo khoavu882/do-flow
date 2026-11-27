@@ -111,7 +111,7 @@ function itemOf(run: any, alive: string | null): any {
 
 /** The reading of one open run: `supervisor-gone` when its recorded supervisor is seen gone (R-9, whatever its harness
  * still does), else `liveness`'s `live`, `dead` or `unknown`. */
-function readingOf(run: any, platform: string, now: number, named: (runId: string) => string): string {
+function readingOf(run: any, platform: string, now: number, named: (run: any) => string): string {
   const supervisor = run.supervisor ? processTree.alive(run.supervisor, { platform }) : 'unknown';
   if (supervisor === false) return 'supervisor-gone';
   return supervisor === true ? 'live' : liveness(run, platform, now, named);
