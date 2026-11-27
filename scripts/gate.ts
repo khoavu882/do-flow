@@ -3,7 +3,8 @@
 // The tracked local gate: `npm run gate`. Clones the repository this is run in (`git clone --shared`,
 // so the history is there for the tests that read it) into a fresh temp directory, checks out HEAD's
 // commit detached and runs, there and in order, the checks a release leans on: install, typecheck,
-// the suite, the Console suite, `bash -n` over the shell scripts and a conflict-marker scan. It
+// the suite, the Console suite, the shell suites CI blocks on (read from cross-os-tests.yml, in its
+// order), `bash -n` over the shell scripts and a conflict-marker scan. It
 // refuses to run on any Node but the one release.yml pins, so a pass here cannot be a pass that CI
 // would not repeat. It never edits the working tree. Contract: IC-003 of row 181.
 // Exit 0 all green, 1 the first red step (named), 2 usage.
@@ -20,6 +21,11 @@ const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |$)/m;
 function parseArgs(argv: string[]): { keep: boolean } | null {
   if (argv.length === 0) return { keep: false };
   return argv.length === 1 && argv[0] === '--keep' ? { keep: true } : null;
+}
+
+/** The shell suites a workflow runs, in order: its `run: bash test/<suite>.sh` steps. */
+function shellSuites(workflow: string): string[] {
+  return [...workflow.matchAll(/run: +bash +(test\/\S+\.sh) *$/gm)].map(([, suite]) => suite);
 }
 
 /** The refusal line when the running Node is not the pinned release Node, else null. */
@@ -94,6 +100,15 @@ function main(argv: string[]): number {
     { name: 'npm run typecheck', run: () => sh('npm', ['run', 'typecheck']) },
     { name: 'npm test', run: () => sh('npm', ['test']) },
     { name: 'console npm test', run: () => sh('npm', ['test'], path.join(dir, 'console')) },
+    { name: 'shell suites CI blocks on', run: () => {
+      const workflow = path.join(dir, '.github', 'workflows', 'cross-os-tests.yml');
+      const suites = fs.existsSync(workflow) ? shellSuites(fs.readFileSync(workflow, 'utf8')) : [];
+      if (!suites.length) process.stdout.write('gate: no shell suite found in .github/workflows/cross-os-tests.yml\n');
+      return suites.length > 0 && suites.every((suite) => {
+        process.stdout.write(`gate: bash ${suite}\n`);
+        return sh('bash', [suite]);
+      });
+    } },
     { name: 'bash -n over tracked *.sh', run: () => tracked().filter((file) => file.endsWith('.sh'))
       .every((file) => sh('bash', ['-n', file])) },
     { name: 'conflict-marker scan', run: () => {
@@ -124,4 +139,4 @@ function main(argv: string[]): number {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { parseArgs, nodeRefusal, findConflictMarkers, exportHead };
+module.exports = { parseArgs, nodeRefusal, shellSuites, findConflictMarkers, exportHead };

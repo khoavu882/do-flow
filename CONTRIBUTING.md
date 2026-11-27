@@ -16,3 +16,5 @@ Each row states one fact and names the file that owns it. Guard G46 in `test/gua
 | Suites outside npm test | `test/doflow-chain-test.sh`, `test/hooks/test-hooks.sh`, `test/verify-hooks.sh`, `test/code-review-fixtures.sh`, `npm run bench` | `package.json` `scripts.test` scope; the shell suites are the ones `.github/workflows/cross-os-tests.yml` `shell-suites` runs |
 
 `npm run typecheck` runs the typecheck command, and `npm test` runs the test command.
+
+`npm run gate` runs, on a clean export of HEAD, install, typecheck, `npm test`, the Console suite, the shell suites CI blocks on (read from `cross-os-tests.yml`, in its order) and a `bash -n` and conflict-marker scan.

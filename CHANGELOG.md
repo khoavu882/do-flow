@@ -22,6 +22,7 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Fixed
 - **The Stop hook's lint log is per session and keeps only a failing run (FU-z7bc88):** the async fixers' output moves from the shared `.doflow/state/hooks/lint-last.log` to `lint-last.log` in the session's own folder, so another session in the same project no longer prints or deletes it. A fixer that exits 0 leaves nothing, and a later failing run replaces an earlier one instead of appending to it.
+- **`npm run gate` runs the shell suites CI blocks on (FU-e07gnv):** after the Console suite it runs the `run: bash test/*.sh` steps of the `shell-suites` job in `.github/workflows/cross-os-tests.yml`, in the workflow's order, so a red CI shell suite is red locally first.
 
 ## [2.5.1] - 2026-11-27
 
